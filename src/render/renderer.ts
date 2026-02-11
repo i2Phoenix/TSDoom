@@ -24,7 +24,7 @@ import { SpriteData, THING_INFO } from './sprites';
 import { getAnimatedFlat, getAnimatedTexture, getThingAnimFrame } from '../game/animations';
 import { removedThings } from '../game/pickups';
 import { getActiveVfx, getVfxSprite, VfxEffect } from '../game/vfx';
-import { getDroppedItems, DroppedItem } from '../game/mobj';
+import { getDroppedItems, DroppedItem, getMapObjectByThingIndex } from '../game/mobj';
 import { getActiveProjectiles, getProjectileSprite, Projectile } from '../game/projectiles';
 import { shouldSpawnThing } from '../game/skill';
 
@@ -314,6 +314,37 @@ export function initRenderer(m: GameMap, t: TextureData, p: PaletteData, w?: WAD
   }
 }
 
+/**
+ * Rebuild subsector assignments for monsters that have MapObjState (moved at runtime).
+ * Called each frame before BSP traversal.
+ */
+function updateSubsectorThings(): void {
+  // Rebuild entire subsectorThings map using runtime positions from MapObjState
+  subsectorThings.clear();
+  for (let i = 0; i < map.things.length; i++) {
+    const thing = map.things[i];
+    if (thing.type <= 4 || thing.type === 11) continue;
+    if (!shouldSpawnThing(thing.options)) continue;
+    const info = THING_INFO[thing.type];
+    if (!info) continue;
+
+    // Check if this thing has a runtime MapObjState (monster/barrel)
+    const mobj = getMapObjectByThingIndex(i);
+    // Skip removed things only — dead things still render their corpse sprite
+    if (mobj && mobj.removed) continue;
+
+    // Use runtime position if available, otherwise static spawn position
+    const wx = mobj ? mobj.x : (thing.x << FRACBITS);
+    const wy = mobj ? mobj.y : (thing.y << FRACBITS);
+
+    const ss = map.pointInSubsector(wx, wy);
+    const ssIdx = map.subsectors.indexOf(ss);
+    if (ssIdx < 0) continue;
+    if (!subsectorThings.has(ssIdx)) subsectorThings.set(ssIdx, []);
+    subsectorThings.get(ssIdx)!.push({thing, info, thingIdx: i});
+  }
+}
+
 function initTextureMapping(): void {
   // Build viewangletox table
   // This maps fine angles in the range [0, FINEANGLES/2) to screen X
@@ -485,6 +516,9 @@ export function renderFrame(): void {
   debugCounters.columnsDrawn = 0;
   debugCounters.x1GreaterX2 = 0;
   debugCounters.angleToXResults = [];
+
+  // Rebuild subsector→thing mapping to reflect runtime positions
+  updateSubsectorThings();
 
   // Build VFX and dropped items subsector assignments for BSP traversal
   buildVfxSubsectorMap();
@@ -1432,9 +1466,10 @@ function projectSprite(
   sector: Sector,
   thingIdx: number
 ): void {
-  const shouldLog = false;
-  const tx = thing.x << FRACBITS;
-  const ty = thing.y << FRACBITS;
+  // Use runtime position from MapObjState if available (monsters move!)
+  const mobj = getMapObjectByThingIndex(thingIdx);
+  const tx = mobj ? mobj.x : (thing.x << FRACBITS);
+  const ty = mobj ? mobj.y : (thing.y << FRACBITS);
 
   // Transform to view-relative coordinates
   const dx = tx - viewx;
@@ -1446,7 +1481,6 @@ function projectSprite(
 
   // Behind camera?
   if (trx < FRACUNIT * 4) {
-    if (shouldLog) console.log(`[sprites] REJECT behind: thing=${thing.type} trx=${trx}`);
     return;
   }
 
@@ -1456,7 +1490,6 @@ function projectSprite(
 
   // Too far to the side?
   if (screenX < -SCREENWIDTH || screenX > SCREENWIDTH * 2) {
-    if (shouldLog) console.log(`[sprites] REJECT side: thing=${thing.type} screenX=${screenX}`);
     return;
   }
 
@@ -1466,7 +1499,15 @@ function projectSprite(
     (viewy - ty) / FRACUNIT,
     (viewx - tx) / FRACUNIT
   );
-  const thingAngle = (thing.angle * Math.PI / 180);
+  // Get thing facing angle — use BAM from MapObjState if available,
+  // otherwise convert from degrees (static map data)
+  let thingAngleBam: number;
+  if (mobj) {
+    thingAngleBam = mobj.angle;
+  } else {
+    thingAngleBam = ((thing.angle * 0x100000000 / 360) >>> 0);
+  }
+  const thingAngle = (thingAngleBam / 0x80000000) * Math.PI;
   const relAngle = angToViewer - thingAngle;
   // Normalize angle to [0, 2π)
   const normalizedAngle = ((relAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
@@ -1480,7 +1521,6 @@ function projectSprite(
     normalizedAngle
   );
   if (!spriteFrame) {
-    if (shouldLog) console.log(`[sprites] REJECT no frame: thing=${thing.type} sprite=${info.sprite} frame=${info.frame} angle=${normalizedAngle.toFixed(2)}`);
     return;
   }
 
@@ -1490,7 +1530,7 @@ function projectSprite(
   // topOffset = distance from top of sprite to its "feet" anchor point
   // leftOffset = horizontal anchor (center of sprite in world)
   // sector.floorHeight is already in fixed-point (shifted during sector loading)
-  const thingFloorZ = sector.floorHeight;
+  const thingFloorZ = mobj ? mobj.z : sector.floorHeight;
   const thingTopZ = thingFloorZ + (patch.topOffset << FRACBITS);
 
   // Texture mid point (where to anchor the sprite vertically)

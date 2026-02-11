@@ -939,6 +939,18 @@ export function useSpecialLine(line: LineDef): boolean {
 }
 
 /**
+ * P_UseSpecialLine for monsters — only manual doors (special 1).
+ * Reference: p_spec.c — monsters can only activate type 1 doors.
+ */
+export function monsterUseSpecialLine(line: LineDef): boolean {
+  if (line.special === 1) {
+    evVerticalDoor(line);
+    return true;
+  }
+  return false;
+}
+
+/**
  * P_CrossSpecialLine — triggered when player crosses a line 
  * Reference: p_spec.c P_CrossSpecialLine
  */

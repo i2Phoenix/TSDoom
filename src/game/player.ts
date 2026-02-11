@@ -149,9 +149,19 @@ export class Player {
     // Reset state
     this.playerstate = PlayerState.LIVE;
     this.health = 100;
+    this.armor = 0;
     this.damagecount = 0;
     this.bonuscount = 0;
     this.cheats = 0;
+    this.bob = 0;
+    this.refire = 0;
+    this.attackdown = false;
+    this.message = null;
+    this.keys.fill(false);
+
+    // Clear accumulated mouse input so stale movement from
+    // death / wipe doesn't override the spawn angle on first tick
+    resetMouseAccumulation();
   }
 
   /**

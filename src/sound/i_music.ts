@@ -36,7 +36,7 @@ export function I_InitMusic(wad: WAD): void {
   wadRef = wad;
 
   try {
-    synth = new WebAudioTinySynth({ quality: 1, useReverb: 1 });
+    synth = new WebAudioTinySynth({ quality: 1, useReverb: 1, voices: 24 });
     synth.setMasterVol(currentVolume);
     musicInitialized = true;
     console.log('[I_InitMusic] webaudio-tinysynth initialized');

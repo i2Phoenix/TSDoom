@@ -15,6 +15,7 @@ import {
   setPendingSkill,
 } from '../game/gamestate';
 import { setMouseSensitivity } from '../game/player';
+import { clearInputState } from '../game/input';
 import { SkillLevel, SKILL_NAMES } from '../game/skill';
 import { rebuildLightTables } from '../render/renderer';
 import {
@@ -359,24 +360,17 @@ export class MenuSystem {
   startControlPanel(): void {
     if (menuactive) return;
     setMenuActive(true);
+    clearInputState();
     this.currentMenu = this.mainDef;
     this.itemOn = this.currentMenu.lastOn;
     S_StartSound(null, Sfx.swtchn);
 
-    // If in game, replace "New Game" with "Resume"
-    if (usergame && gamestate === GameState.GS_LEVEL) {
-      this.mainDef.menuitems[0] = {
-        status: 1,
-        name: 'M_NGAME',
-        action: () => this.clearMenus(),
-      };
-    } else {
-      this.mainDef.menuitems[0] = {
-        status: 1,
-        name: 'M_NGAME',
-        action: () => this.setupNextMenu(this.newgameDef),
-      };
-    }
+    // "New Game" always goes to skill selection
+    this.mainDef.menuitems[0] = {
+      status: 1,
+      name: 'M_NGAME',
+      action: () => this.setupNextMenu(this.newgameDef),
+    };
   }
 
   /** M_ClearMenus — close all menus */

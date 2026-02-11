@@ -15,6 +15,9 @@ import {
   linetarget,
 } from './combat';
 import { spawnPlayerProjectile, ProjectileType } from './projectiles';
+import { getCurrentMap, MapObjState, DI_NODIR } from './mobj';
+import { MF_SHOOTABLE } from './mobjinfo';
+import { P_NoiseAlert } from './enemy';
 
 // ---- Constants ----
 const LOWERSPEED = FRACUNIT * 6;
@@ -648,6 +651,13 @@ export function fireWeapon(wp: WeaponPlayer): void {
   if (!checkAmmo(wp)) return;
   const newstate = weaponinfo[wp.readyweapon].atkstate;
   setPsprite(wp, PS_WEAPON, newstate);
+
+  // Alert nearby monsters — sound propagates through connected sectors
+  const map = getCurrentMap();
+  if (map) {
+    const playerMobj = createPlayerMobjFromWP(wp, map);
+    P_NoiseAlert(playerMobj, playerMobj, map);
+  }
 }
 
 // =============================================
@@ -733,4 +743,39 @@ export { weaponinfo, PS_WEAPON, PS_FLASH, WEAPONTOP, WEAPONBOTTOM };
  */
 export function dropWeapon(wp: WeaponPlayer): void {
   setPsprite(wp, PS_WEAPON, weaponinfo[wp.readyweapon].downstate);
+}
+
+/** Build a lightweight MapObjState from WeaponPlayer position for P_NoiseAlert */
+function createPlayerMobjFromWP(wp: WeaponPlayer, map: import('../map').GameMap): MapObjState {
+  const ss = map.pointInSubsector(wp.x, wp.y);
+  return {
+    thingIndex: -1,
+    x: wp.x,
+    y: wp.y,
+    z: wp.viewz,
+    health: wp.health,
+    spawnHealth: 100,
+    radius: 16 * FRACUNIT,
+    height: 56 * FRACUNIT,
+    flags: MF_SHOOTABLE,
+    mass: 100,
+    type: -1,
+    removed: false,
+    deathHandled: false,
+    mobjType: 0,
+    angle: wp.angle,
+    movedir: DI_NODIR,
+    movecount: 0,
+    target: null,
+    threshold: 0,
+    reactiontime: 0,
+    lastlook: 0,
+    momx: wp.momx,
+    momy: wp.momy,
+    momz: 0,
+    floorz: ss.sector ? ss.sector.floorHeight : 0,
+    ceilingz: ss.sector ? ss.sector.ceilingHeight : 0,
+    info: null,
+    tracer: null,
+  };
 }

@@ -52,6 +52,7 @@ import {
   clearDroppedItems,
 } from "./game/mobj";
 import { setCombatMap, setCombatPlayer } from "./game/combat";
+import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "./game/enemy";
 import { updateVfx, clearVfx } from "./game/vfx";
 import { feedCheatKey, resetCheatBuffer } from "./game/cheats";
 import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "./game/projectiles";
@@ -203,6 +204,8 @@ function initMapFresh(mapName: string): void {
   initMapObjects(mapRef);
   setCombatMap(mapRef);
   setProjectileMap(mapRef);
+  initEnemyAI();
+  initAICallbacks();
   resetPaletteFlash(palData);
   clearDynLights();
   spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
@@ -569,8 +572,8 @@ async function main() {
         // G_Ticker — process deferred actions (ga_newgame, ga_loadgame, ga_savegame)
         G_Ticker();
 
-        // P_Ticker — game logic (only in GS_LEVEL)
-        if (gamestate === GameState.GS_LEVEL && usergame) {
+        // P_Ticker — game logic (only in GS_LEVEL, paused when menu is open)
+        if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
           // Respawn check (player pressed Use while dead)
           // Full level reset — reload map from scratch (restores all sector
           // heights, doors, lifts, pickups, monsters to initial state)
@@ -583,6 +586,7 @@ async function main() {
 
           if (!isWipeActive()) {
             player.tick();
+            updatePlayerMobj(player, mapRef);
             runThinkers();
             tickLevelTime();
             updateAnimations();

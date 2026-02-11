@@ -48,6 +48,10 @@ export interface Sector {
   // Runtime
   floorPicName: string;
   ceilingPicName: string;
+  // AI sound propagation (Phase 1)
+  soundtarget: unknown | null;  // MapObjState that made noise (set by P_NoiseAlert)
+  soundtraversed: number;       // 0=unvisited, 1-2=visited (for P_RecursiveSound)
+  validcount: number;           // comparison counter (avoid duplicate visits)
 }
 
 export interface SideDef {
@@ -76,6 +80,8 @@ export interface LineDef {
   // Precalculated
   dx: number; // fixed_t
   dy: number;
+  // BSP traversal dedup (for P_CheckSight, P_PathTraverse)
+  validcount: number;
 }
 
 export interface Seg {
@@ -207,6 +213,9 @@ export class GameMap {
         tag: this.readShort(data, off + 24),
         floorPicName,
         ceilingPicName,
+        soundtarget: null,
+        soundtraversed: 0,
+        validcount: 0,
       });
     }
   }
@@ -261,6 +270,7 @@ export class GameMap {
         backsector: sidenum1 !== -1 ? this.sidedefs[sidenum1].sector : null,
         dx: v2.x - v1.x,
         dy: v2.y - v1.y,
+        validcount: 0,
       });
     }
   }

@@ -3,6 +3,8 @@
 // Reference: i_video.c — keyboard/mouse events
 // ============================================================
 
+import { menuactive } from './gamestate';
+
 export interface InputState {
   forward: boolean;
   backward: boolean;
@@ -37,12 +39,12 @@ let pointerLocked = false;
 
 export function initInput(canvas: HTMLCanvasElement): void {
   window.addEventListener('keydown', (e) => {
-    handleKey(e.code, true);
+    if (!menuactive) handleKey(e.code, true);
     e.preventDefault();
   });
 
   window.addEventListener('keyup', (e) => {
-    handleKey(e.code, false);
+    if (!menuactive) handleKey(e.code, false);
     e.preventDefault();
   });
 
@@ -58,14 +60,14 @@ export function initInput(canvas: HTMLCanvasElement): void {
   });
 
   document.addEventListener('mousemove', (e) => {
-    if (pointerLocked) {
+    if (pointerLocked && !menuactive) {
       state.mouseX += e.movementX;
       state.mouseY += e.movementY;
     }
   });
 
   document.addEventListener('mousedown', (e) => {
-    if (pointerLocked) {
+    if (pointerLocked && !menuactive) {
       if (e.button === 0) state.fire = true;
       if (e.button === 2) state.use = true;
     }
@@ -131,6 +133,22 @@ export function getInput(): InputState {
 export function resetMouseAccumulation(): void {
   state.mouseX = 0;
   state.mouseY = 0;
+}
+
+/** Reset all input state — call when opening menu to release stale held keys */
+export function clearInputState(): void {
+  state.forward = false;
+  state.backward = false;
+  state.turnLeft = false;
+  state.turnRight = false;
+  state.strafeLeft = false;
+  state.strafeRight = false;
+  state.use = false;
+  state.fire = false;
+  state.run = false;
+  state.mouseX = 0;
+  state.mouseY = 0;
+  state.weaponSelect = -1;
 }
 
 export function isPointerLocked(): boolean {

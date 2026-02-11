@@ -8,18 +8,23 @@
 import { FRACBITS, FRACUNIT } from '../math';
 import { MapThing, GameMap } from '../map';
 import { removedThings } from './pickups';
+import { getGameSkill, SkillLevel } from './skill';
 import { P_Random } from './random';
 import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
 } from './animations';
 import { removeDynLightAt } from '../render/dynlights';
+import { S_StartSound } from '../sound/s_sound';
+import { Sfx } from '../sound/sounds';
 import { shouldSpawnThing } from './skill';
+import {
+  MT, MobjInfo, mobjinfo, getMTForDoomedNum, isMonsterType,
+  MF_AMBUSH, MF_COUNTKILL, MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD,
+  MF_CORPSE, MF_FLOAT, MF_NOGRAVITY, MF_SKULLFLY, MF_JUSTHIT,
+} from './mobjinfo';
 
-// ---- Mobj flags (from p_mobj.h) ----
-export const MF_SHOOTABLE = 0x00000004;  // Can be hit
-export const MF_SOLID     = 0x00000002;  // Blocks movement
-export const MF_NOBLOOD   = 0x00000800;  // Don't bleed when hit (barrels, etc.)
-export const MF_COUNTKILL = 0x00400000;  // Count toward kill %
+// Re-export flags for backward compatibility with combat.ts, etc.
+export { MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD, MF_COUNTKILL } from './mobjinfo';
 
 // ---- Combat info for thing types ----
 export interface ThingCombatInfo {
@@ -56,6 +61,21 @@ const THING_COMBAT_INFO: Record<number, ThingCombatInfo> = {
   64:   { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Arch-vile
 };
 
+// MTF_AMBUSH flag from MapThing options
+const MTF_AMBUSH = 8;
+
+// Direction constants for movedir
+export const DI_EAST      = 0;
+export const DI_NORTHEAST = 1;
+export const DI_NORTH     = 2;
+export const DI_NORTHWEST = 3;
+export const DI_WEST      = 4;
+export const DI_SOUTHWEST = 5;
+export const DI_SOUTH     = 6;
+export const DI_SOUTHEAST = 7;
+export const DI_NODIR     = 8;
+export const NUMDIRS      = 8;
+
 // ---- Runtime state for a map thing ----
 export interface MapObjState {
   thingIndex: number;  // index into GameMap.things[]
@@ -68,9 +88,26 @@ export interface MapObjState {
   height: number;      // fixed_t
   flags: number;
   mass: number;
-  type: number;        // thing type ID
+  type: number;        // thing type ID (DoomEd number)
   removed: boolean;
   deathHandled: boolean; // true after drop has been spawned
+
+  // --- AI fields (Phase 1) ---
+  mobjType: MT | -1;   // MT_* enum (-1 if not in mobjinfo)
+  angle: number;       // BAM angle (facing direction)
+  movedir: number;     // 0-8 (DI_EAST..DI_NODIR)
+  movecount: number;   // ticks until direction change
+  target: MapObjState | null;   // current chase/attack target
+  threshold: number;   // ticks of "loyalty" to current target
+  reactiontime: number; // ticks before first attack (8 at spawn)
+  lastlook: number;    // last player index checked
+  momx: number;        // momentum X (fixed_t)
+  momy: number;        // momentum Y (fixed_t)
+  momz: number;        // momentum Z (fixed_t)
+  floorz: number;      // floor height at current position (fixed_t)
+  ceilingz: number;    // ceiling height at current position (fixed_t)
+  tracer: MapObjState | null;  // for Revenant homing, Arch-vile fire
+  info: MobjInfo | null;       // pointer into mobjinfo table
 }
 
 // ---- Dropped Items ----
@@ -116,33 +153,72 @@ export function initMapObjects(gameMap: GameMap): void {
     // Difficulty filter: skip things not present on current skill
     if (!shouldSpawnThing(thing.options)) continue;
 
-    const info = THING_COMBAT_INFO[thing.type];
-    if (!info) continue; // Not a shootable thing
+    // Try mobjinfo first (preferred), then legacy THING_COMBAT_INFO
+    const mt = getMTForDoomedNum(thing.type);
+    const mInfo = mt !== undefined ? mobjinfo[mt] : undefined;
+    const combatInfo = THING_COMBAT_INFO[thing.type];
 
-    // Get floor height from the subsector at the thing's position
+    // Must have either mobjinfo or combat info to be tracked
+    if (!mInfo && !combatInfo) continue;
+
+    // Get floor/ceiling height from the subsector at the thing's position
     const tx = thing.x << FRACBITS;
     const ty = thing.y << FRACBITS;
     const ss = gameMap.pointInSubsector(tx, ty);
     const floorZ = ss.sector ? ss.sector.floorHeight : 0;
+    const ceilZ = ss.sector ? ss.sector.ceilingHeight : 0;
 
-    mapObjects.push({
+    // Use mobjinfo values if available, fall back to combat info
+    const hp = mInfo ? mInfo.spawnhealth : combatInfo!.health;
+    const rad = mInfo ? mInfo.radius : combatInfo!.radius;
+    const ht = mInfo ? mInfo.height : combatInfo!.height;
+    let fl = mInfo ? mInfo.flags : combatInfo!.flags;
+    const ms = mInfo ? mInfo.mass : combatInfo!.mass;
+
+    // Set MF_AMBUSH from MapThing options bit 3
+    if (thing.options & MTF_AMBUSH) {
+      fl |= MF_AMBUSH;
+    }
+
+    // Convert thing angle (degrees) to BAM
+    const bamAngle = ((thing.angle * 0x100000000 / 360) >>> 0);
+
+    const obj: MapObjState = {
       thingIndex: i,
       x: tx,
       y: ty,
       z: floorZ,
-      health: info.health,
-      spawnHealth: info.health,
-      radius: info.radius,
-      height: info.height,
-      flags: info.flags,
-      mass: info.mass,
+      health: hp,
+      spawnHealth: hp,
+      radius: rad,
+      height: ht,
+      flags: fl,
+      mass: ms,
       type: thing.type,
       removed: false,
       deathHandled: false,
-    });
+      // AI fields
+      mobjType: mt !== undefined ? mt : -1,
+      angle: bamAngle,
+      movedir: DI_NODIR,
+      movecount: 0,
+      target: null,
+      threshold: 0,
+      reactiontime: (getGameSkill() === SkillLevel.sk_nightmare) ? 0 : (mInfo ? mInfo.reactiontime : 8),
+      lastlook: 0,
+      momx: 0,
+      momy: 0,
+      momz: 0,
+      floorz: floorZ,
+      ceilingz: ceilZ,
+      tracer: null,
+      info: mInfo || null,
+    };
+    mapObjects.push(obj);
   }
   dyingMonsters.clear();
   droppedItems.length = 0;
+  buildThingIndexMap();
 }
 
 /** Get all live map objects */
@@ -150,10 +226,27 @@ export function getMapObjects(): MapObjState[] {
   return mapObjects;
 }
 
+/** Fast lookup: map thing index → MapObjState */
+const thingIndexMap = new Map<number, MapObjState>();
+
+/** Build the thing index lookup map (called after init or load) */
+function buildThingIndexMap(): void {
+  thingIndexMap.clear();
+  for (const obj of mapObjects) {
+    thingIndexMap.set(obj.thingIndex, obj);
+  }
+}
+
+/** Get a MapObjState by its map thing index (O(1) via Map) */
+export function getMapObjectByThingIndex(thingIndex: number): MapObjState | undefined {
+  return thingIndexMap.get(thingIndex);
+}
+
 /** Replace map objects array (for save/load) */
 export function setMapObjects(objs: MapObjState[]): void {
   mapObjects = objs;
   dyingMonsters.clear();
+  buildThingIndexMap();
 }
 
 /** Replace dropped items (for save/load) */
@@ -184,7 +277,8 @@ export function isBarrel(type: number): boolean {
  */
 export function damageMobj(
   target: MapObjState,
-  damage: number
+  damage: number,
+  source?: MapObjState | null
 ): boolean {
   if (!(target.flags & MF_SHOOTABLE)) return false;
   if (target.health <= 0) return false;
@@ -202,6 +296,23 @@ export function damageMobj(
     if (animDef && animDef.painChance !== undefined && animDef.painState !== undefined) {
       if (P_Random() < animDef.painChance) {
         setMonsterPain(target.thingIndex, target.type);
+        // Play pain sound
+        if (animDef.painSound !== undefined) {
+          S_StartSound({ x: target.x, y: target.y }, animDef.painSound);
+        }
+      }
+    }
+
+    // Infighting: if source is a different monster species, retarget
+    if (source && source !== target
+        && source.mobjType !== -1 && target.mobjType !== -1
+        && source.mobjType !== target.mobjType) {
+      const srcIsMon = isMonsterType(source.mobjType as MT);
+      const tgtIsMon = isMonsterType(target.mobjType as MT);
+      if (srcIsMon && tgtIsMon) {
+        target.target = source;
+        target.threshold = 100;
+        target.flags |= MF_JUSTHIT;  // attack immediately
       }
     }
   }
@@ -231,6 +342,18 @@ function killMobj(target: MapObjState): void {
   const overkill = target.health < -target.spawnHealth;
   setMonsterDeath(target.thingIndex, target.type, overkill);
   dyingMonsters.add(mapObjects.indexOf(target));
+
+  // Play death sound
+  const animDef = getThingAnimDef(target.type);
+  if (animDef) {
+    if (overkill) {
+      // XDeath = universal gib/slop sound
+      S_StartSound({ x: target.x, y: target.y }, Sfx.slop);
+    } else if (animDef.deathSound && animDef.deathSound.length > 0) {
+      const sfx = animDef.deathSound[P_Random() % animDef.deathSound.length];
+      S_StartSound({ x: target.x, y: target.y }, sfx);
+    }
+  }
 }
 
 /**
