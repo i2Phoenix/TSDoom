@@ -39,7 +39,7 @@ export interface DynLight {
 
 // ---- Active lights ----
 
-const MAX_LIGHTS = 32;
+const MAX_LIGHTS = 64;
 const lights: DynLight[] = [];
 
 /** Whether dynamic lights rendering is enabled */
@@ -78,9 +78,9 @@ export function updateDynLights(): void {
     const l = lights[i];
     if (l.ttl > 0) {
       l.ttl--;
-      // Fade out over last few ticks
-      if (l.ttl <= 3) {
-        l.intensity *= 0.6;
+      // Fade out over last few ticks (only for longer-lived lights)
+      if (l.ttl <= 3 && l.ttl > 0) {
+        l.intensity *= 0.7;
       }
       if (l.ttl === 0) {
         lights.splice(i, 1);

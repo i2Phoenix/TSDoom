@@ -13,6 +13,7 @@ import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
 } from './animations';
 import { removeDynLightAt } from '../render/dynlights';
+import { shouldSpawnThing } from './skill';
 
 // ---- Mobj flags (from p_mobj.h) ----
 export const MF_SHOOTABLE = 0x00000004;  // Can be hit
@@ -111,6 +112,10 @@ export function initMapObjects(gameMap: GameMap): void {
   const things = gameMap.things;
   for (let i = 0; i < things.length; i++) {
     const thing = things[i];
+
+    // Difficulty filter: skip things not present on current skill
+    if (!shouldSpawnThing(thing.options)) continue;
+
     const info = THING_COMBAT_INFO[thing.type];
     if (!info) continue; // Not a shootable thing
 

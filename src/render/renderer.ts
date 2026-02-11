@@ -16,7 +16,8 @@ import {
 import {
   SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, zBuffer, ZFLAG_WALL, Z_DEPTH_MASK,
   clearScreen, dc, setZScale,
-  drawColumnDeferred, writeGBufferFloorPixel, writeGBufferSpritePixel,
+  drawColumnDeferred, drawMaskedColumnDeferred,
+  writeGBufferFloorPixel, writeGBufferSpritePixel,
 } from './draw';
 import { gBuffer, initGBuffer, SurfaceType } from './gbuffer';
 import { SpriteData, THING_INFO } from './sprites';
@@ -24,6 +25,8 @@ import { getAnimatedFlat, getAnimatedTexture, getThingAnimFrame } from '../game/
 import { removedThings } from '../game/pickups';
 import { getActiveVfx, getVfxSprite, VfxEffect } from '../game/vfx';
 import { getDroppedItems, DroppedItem } from '../game/mobj';
+import { getActiveProjectiles, getProjectileSprite, Projectile } from '../game/projectiles';
+import { shouldSpawnThing } from '../game/skill';
 
 // ---- Constants ----
 const FIELDOFVIEW = 2048;  // half FOV in fine angles
@@ -79,6 +82,23 @@ const zlight: number[][] = [];
 // ---- Clip ----
 let floorclip = new Int16Array(SCREENWIDTH);
 let ceilingclip = new Int16Array(SCREENWIDTH);
+
+// ---- Drawsegs (for masked midtextures) ----
+// Reference: r_segs.c drawseg_t, r_things.c R_DrawMasked
+interface DrawSeg {
+  seg: Seg;
+  x1: number;
+  x2: number;
+  scale1: number;
+  scale2: number;
+  scalestep: number;
+  maskedTextureCol: Int16Array | null; // texture column per screen x
+  sprTopClip: Int16Array;    // snapshot of ceilingclip at render time
+  sprBottomClip: Int16Array; // snapshot of floorclip at render time
+}
+
+const MAXDRAWSEGS = 256;
+let drawsegs: DrawSeg[] = [];
 
 interface ClipRange { first: number; last: number; }
 let solidsegs: ClipRange[] = [];
@@ -154,6 +174,7 @@ let spriteData: SpriteData | null = null;
 let subsectorThings: Map<number, {thing: MapThing, info: {sprite: string, frame: number, radius: number, height: number}, thingIdx: number}[]> = new Map();
 let subsectorVfx: Map<number, VfxEffect[]> = new Map();
 let subsectorDrops: Map<number, DroppedItem[]> = new Map();
+let subsectorProjectiles: Map<number, Projectile[]> = new Map();
 let skytexture = 0;
 
 // ---- Vissprites ----
@@ -240,6 +261,8 @@ export function initRenderer(m: GameMap, t: TextureData, p: PaletteData, w?: WAD
   for (const thing of map.things) {
     // Skip player starts (types 1-4) and deathmatch starts (type 11)
     if (thing.type <= 4 || thing.type === 11) continue;
+    // Difficulty filter: skip things not present on current skill
+    if (!shouldSpawnThing(thing.options)) continue;
     const info = THING_INFO[thing.type];
     if (!info) continue;
     thingsWithInfo++;
@@ -448,6 +471,7 @@ export function renderFrame(): void {
   resetVisplanePool();
   vissprites.length = 0;
   resetClipBuf();
+  drawsegs.length = 0;
   solidsegs = [
     { first: -0x7FFFFFFF, last: -1 },
     { first: viewwidth, last: 0x7FFFFFFF },
@@ -465,12 +489,18 @@ export function renderFrame(): void {
   // Build VFX and dropped items subsector assignments for BSP traversal
   buildVfxSubsectorMap();
   buildDropSubsectorMap();
+  buildProjectileSubsectorMap();
 
   // Traverse BSP (collects wall segs, projects sprites + VFX per-subsector)
   renderBSPNode(map.nodes.length - 1);
 
   // Render visplanes (floors/ceilings)
   drawPlanes();
+
+  // Render masked midtextures (fences, grates on two-sided linedefs)
+  // Drawn BEFORE sprites so that sprites closer to the camera render on top.
+  // Reference: R_DrawMasked in r_things.c — masked segs behind sprites are drawn first
+  drawMaskedMidTextures();
 
   // Render sprites (things + VFX) on top of floors/ceilings, clipped by walls
   drawSprites();
@@ -636,6 +666,12 @@ function renderSubsector(ssIdx: number): void {
     if (dropList) {
       for (const item of dropList) {
         projectDropSprite(item, ss.sector!);
+      }
+    }
+    const projList = subsectorProjectiles.get(ssIdx);
+    if (projList) {
+      for (const p of projList) {
+        projectProjectileSprite(p, ss.sector!);
       }
     }
   }
@@ -931,13 +967,51 @@ function storeWallRange(start: number, stop: number, seg: Seg): void {
     cur_floorplane = null;
   }
 
+  // Record drawseg for masked midtexture on two-sided lines
+  // Reference: r_segs.c — if sidedef->midtexture, set maskedtexture and store drawseg
+  let maskedTexture = false;
+  if (backsector && sidedef.midTexture !== 0) {
+    maskedTexture = true;
+  }
+
   // Render columns
+  // If masked, also compute texture columns for the drawseg
+  let maskedTextureCol: Int16Array | null = null;
+  if (maskedTexture) {
+    maskedTextureCol = new Int16Array(SCREENWIDTH);
+    maskedTextureCol.fill(0x7FFF); // MAXSHORT = skip
+  }
+
   let scale = rw_scale;
   for (let x = start; x <= stop; x++) {
     renderColumn(x, seg, scale, frontsector, backsector, rwBaseOffset);
+    // Save texture column for masked mid rendering
+    if (maskedTextureCol) {
+      maskedTextureCol[x] = getTexColumn(x, rwBaseOffset);
+    }
     scale += rw_scalestep;
   }
 
+  // Store drawseg for masked midtexture
+  if (maskedTexture && maskedTextureCol && drawsegs.length < MAXDRAWSEGS) {
+    // Snapshot clip arrays at this point
+    const sprTopClip = new Int16Array(SCREENWIDTH);
+    const sprBottomClip = new Int16Array(SCREENWIDTH);
+    sprTopClip.set(ceilingclip);
+    sprBottomClip.set(floorclip);
+
+    drawsegs.push({
+      seg,
+      x1: start,
+      x2: stop,
+      scale1: rw_scale,
+      scale2: scale - rw_scalestep, // last scale value used
+      scalestep: rw_scalestep,
+      maskedTextureCol,
+      sprTopClip,
+      sprBottomClip,
+    });
+  }
 }
 
 function scaleFromGlobalAngle(x: number): number {
@@ -1030,19 +1104,14 @@ function renderColumn(
   setZScale(scale);
 
   // Compute world position of this wall column for G-Buffer
-  // seg.length is precomputed at map load — no sqrt per column
+  // Use the view ray to compute the actual wall hit point in world space
   {
-    const segLen = seg.length;
-    if (segLen > 0) {
-      const frac = (texCol / segLen) || 0;
-      const segDx = seg.v2.x - seg.v1.x;
-      const segDy = seg.v2.y - seg.v1.y;
-      dc.worldX = seg.v1.x + ((frac * segDx) | 0);
-      dc.worldY = seg.v1.y + ((frac * segDy) | 0);
-    } else {
-      dc.worldX = seg.v1.x;
-      dc.worldY = seg.v1.y;
-    }
+    const colAngle = (viewangle + (xtoviewangle[x] || 0)) >>> 0;
+    const colAnIdx = (colAngle >>> ANGLETOFINESHIFT) & FINEMASK;
+    // distance from camera = projection / scale (fixed_t)
+    const dist = scale > 0 ? fixedDiv(projection, scale) : (512 * FRACUNIT);
+    dc.worldX = viewx + fixedMul(dist, finecosine(colAnIdx));
+    dc.worldY = viewy + fixedMul(dist, finesine[colAnIdx]);
     dc.colormapIdx = colormapIdx;
     dc.surfaceType = SurfaceType.WALL;
   }
@@ -1512,6 +1581,21 @@ function buildDropSubsectorMap(): void {
   }
 }
 
+/** Build per-subsector projectile map at the start of each frame */
+function buildProjectileSubsectorMap(): void {
+  subsectorProjectiles.clear();
+  if (!spriteData) return;
+  const projectiles = getActiveProjectiles();
+  for (const p of projectiles) {
+    if (p.removed) continue;
+    const ss = map.pointInSubsector(p.x, p.y);
+    const ssIdx = map.subsectors.indexOf(ss);
+    if (ssIdx < 0) continue;
+    if (!subsectorProjectiles.has(ssIdx)) subsectorProjectiles.set(ssIdx, []);
+    subsectorProjectiles.get(ssIdx)!.push(p);
+  }
+}
+
 /** Project a dropped item sprite — called during BSP traversal from renderSubsector */
 function projectDropSprite(item: DroppedItem, sector: Sector): void {
   const info = THING_INFO[item.thingType];
@@ -1636,6 +1720,65 @@ function projectVfxSprite(e: VfxEffect, sector: Sector): void {
   });
 }
 
+/** Project a single projectile — called during BSP traversal from renderSubsector */
+function projectProjectileSprite(proj: Projectile, sector: Sector): void {
+  const { sprite, frame } = getProjectileSprite(proj);
+
+  // Transform to view-relative coordinates
+  const dx = proj.x - viewx;
+  const dy = proj.y - viewy;
+  const trx = fixedMul(dx, viewcos) + fixedMul(dy, viewsin);   // depth
+  const try_ = fixedMul(dx, viewsin) - fixedMul(dy, viewcos);  // lateral
+
+  if (trx < FRACUNIT * 4) return; // behind camera
+
+  const xscale = fixedDiv(projection, trx);
+  const screenX = centerx + ((fixedMul(try_, xscale)) >> FRACBITS);
+  if (screenX < -SCREENWIDTH || screenX > SCREENWIDTH * 2) return;
+
+  // Projectile sprites always face the viewer (angle=0 for rotation)
+  const spriteFrame = spriteData!.getSpriteFrame(sprite, frame, 0);
+  if (!spriteFrame) return;
+  const { patch, flip } = spriteFrame;
+
+  const lightLevel = Math.max(0, Math.min(sector.lightLevel >> 4, LIGHTLEVELS - 1));
+
+  // Calculate screen extents — projectile z is the bottom, sprite anchors from topOffset
+  const thingTopZ = proj.z + (patch.topOffset << FRACBITS);
+  const texturemid = thingTopZ - viewz;
+  const spriteOffset = patch.leftOffset << FRACBITS;
+  const x1 = screenX - ((fixedMul(spriteOffset, xscale)) >> FRACBITS);
+  const x2 = x1 + ((fixedMul(patch.width << FRACBITS, xscale)) >> FRACBITS) - 1;
+  if (x2 < 0 || x1 >= viewwidth) return;
+
+  const xiscale = fixedDiv(FRACUNIT, xscale);
+  const cx1 = Math.max(0, x1);
+  const cx2 = Math.min(viewwidth - 1, x2);
+
+  // Snapshot clip arrays
+  const clipW = cx2 - cx1 + 1;
+  const clipOff = allocClip(clipW);
+  for (let i = 0; i < clipW; i++) {
+    clipBuf[clipOff + i] = floorclip[cx1 + i];
+    clipBuf[clipOff + clipW + i] = ceilingclip[cx1 + i];
+  }
+
+  const absXiscale = flip ? -xiscale : xiscale;
+  let startFrac = flip ? (patch.width - 1) << FRACBITS : 0;
+  if (cx1 > x1) {
+    startFrac += absXiscale * (cx1 - x1);
+  }
+
+  vissprites.push({
+    x1: cx1, x2: cx2,
+    gx: proj.x, gy: proj.y, gz: proj.z, gzt: thingTopZ,
+    scale: xscale, xiscale: absXiscale, startFrac,
+    texturemid, patch, flip,
+    colormap: lightLevel, dist: trx,
+    clipOffset: clipOff,
+  });
+}
+
 /** Sort vissprites and draw them back-to-front */
 function drawSprites(): void {
   if (vissprites.length === 0) return;
@@ -1650,6 +1793,112 @@ function drawSprites(): void {
   for (let i = 0; i < vissprites.length; i++) {
     const vis = vissprites[i];
     drawVisSprite(vis);
+  }
+}
+
+// ===========================================================
+// Draw Masked Midtextures (Fences, Grates, Bars)
+// Reference: R_RenderMaskedSegRange in r_segs.c
+//            R_DrawMasked in r_things.c (final pass)
+// ===========================================================
+
+function drawMaskedMidTextures(): void {
+  for (let dsIdx = drawsegs.length - 1; dsIdx >= 0; dsIdx--) {
+    const ds = drawsegs[dsIdx];
+    if (!ds.maskedTextureCol) continue;
+
+    const seg = ds.seg;
+    const frontsector = seg.frontsector;
+    const backsector = seg.backsector;
+    if (!backsector) continue;
+
+    const texnum = getAnimatedTexture(seg.sidedef.midTexture);
+    const tex = texData.textures[texnum];
+    if (!tex) continue;
+
+    // Calculate light table
+    const lightnum = Math.max(0, Math.min(LIGHTLEVELS - 1,
+      (frontsector.lightLevel >> LIGHTSEGSHIFT) | 0));
+
+    // Find texture positioning (R_RenderMaskedSegRange)
+    // ML_DONTPEGBOTTOM (flag 16): bottom of texture at lower floor
+    let textureMid: number;
+    if (seg.linedef.flags & 16) { // ML_DONTPEGBOTTOM
+      textureMid = Math.max(frontsector.floorHeight, backsector.floorHeight)
+                   + (tex.height << FRACBITS) - viewz;
+    } else {
+      textureMid = Math.min(frontsector.ceilingHeight, backsector.ceilingHeight)
+                   - viewz;
+    }
+    textureMid += seg.sidedef.rowOffset;
+
+    // Draw columns
+    let spryscale = ds.scale1 + (ds.x1 - ds.x1) * ds.scalestep; // = ds.scale1
+    for (let x = ds.x1; x <= ds.x2; x++) {
+      const textureColumn = ds.maskedTextureCol[x];
+      if (textureColumn === 0x7FFF) {
+        spryscale += ds.scalestep;
+        continue; // skip this column
+      }
+
+      // Compute column boundaries
+      if (spryscale < 64) spryscale = 64;
+      const iscale = fixedDiv(FRACUNIT, spryscale);
+
+      // Light
+      let lightIdx = (spryscale >> LIGHTSCALESHIFT) | 0;
+      if (lightIdx >= MAXLIGHTSCALE) lightIdx = MAXLIGHTSCALE - 1;
+      if (lightIdx < 0) lightIdx = 0;
+      const colormapIdx = scalelight[lightnum]?.[lightIdx] ?? 0;
+
+      // Get texture column data with wrapping
+      const tcx = ((textureColumn % tex.width) + tex.width) % tex.width;
+
+      // Compute screen top/bottom of the masked column
+      // sprtopscreen = centeryfrac - FixedMul(textureMid, spryscale)
+      const sprtopscreen = centeryfrac - fixedMul(textureMid, spryscale);
+      const yl = ((sprtopscreen + FRACUNIT - 1) >> FRACBITS) | 0;
+      const yh = ((sprtopscreen + fixedMul(tex.height << FRACBITS, spryscale) - 1) >> FRACBITS) | 0;
+
+      // Clip to drawseg clip arrays
+      const clipTop = ds.sprTopClip[x];
+      const clipBottom = ds.sprBottomClip[x];
+
+      const clippedYl = Math.max(yl, clipTop + 1);
+      const clippedYh = Math.min(yh, clipBottom - 1);
+
+      if (clippedYl <= clippedYh && x >= 0 && x < SCREENWIDTH) {
+        // Set Z-scale for depth buffer
+        setZScale(spryscale);
+
+        // Compute world position of this column
+        const colAngle = (viewangle + (xtoviewangle[x] || 0)) >>> 0;
+        const colAnIdx = (colAngle >>> ANGLETOFINESHIFT) & FINEMASK;
+        const dist = spryscale > 0 ? fixedDiv(projection, spryscale) : (512 * FRACUNIT);
+
+        dc.colormap = null;
+        dc.x = x;
+        dc.yl = clippedYl;
+        dc.yh = clippedYh;
+        dc.textureMid = textureMid;
+        dc.iscale = iscale;
+        dc.source = tex.columns[tcx];
+        dc.sourceLength = tex.height;
+        dc.colormapIdx = colormapIdx;
+        dc.surfaceType = SurfaceType.WALL;
+        dc.worldX = viewx + fixedMul(dist, finecosine(colAnIdx));
+        dc.worldY = viewy + fixedMul(dist, finesine[colAnIdx]);
+        dc.worldTopZ = Math.min(frontsector.ceilingHeight, backsector.ceilingHeight);
+        dc.worldBottomZ = Math.max(frontsector.floorHeight, backsector.floorHeight);
+
+        drawMaskedColumnDeferred(tex.columnMask[tcx]);
+      }
+
+      spryscale += ds.scalestep;
+    }
+
+    // Mark as rendered
+    ds.maskedTextureCol = null;
   }
 }
 

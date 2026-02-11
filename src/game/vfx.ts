@@ -189,3 +189,72 @@ export function getVfxSprite(e: VfxEffect): { sprite: string; frame: number } {
     frame: f.frame & ~FF_FULLBRIGHT, // strip fullbright for frame index
   };
 }
+
+// ---- Rocket explosion: MISL frames B/C/D (S_EXPLODE1..3) ----
+const ROCKET_EXPLODE_FRAMES: VfxFrame[] = [
+  { sprite: 'MISL', frame: 1 | FF_FULLBRIGHT, tics: 8 },
+  { sprite: 'MISL', frame: 2 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'MISL', frame: 3 | FF_FULLBRIGHT, tics: 4 },
+];
+
+/** Spawn rocket explosion VFX */
+export function spawnRocketExplosion(x: number, y: number, z: number): void {
+  const effect: VfxEffect = {
+    x, y, z,
+    frames: ROCKET_EXPLODE_FRAMES,
+    frameIndex: 0,
+    ticsLeft: ROCKET_EXPLODE_FRAMES[0].tics,
+    done: false,
+    totalTics: 0,
+  };
+  activeEffects.push(effect);
+  addDynLight(x, y, z, 160 * FRACUNIT, 255, 180, 60, 0.5, 8);
+}
+
+// ---- Plasma hit: PLSE frames A/B/C/D/E (S_PLASEXP..5) ----
+const PLASMA_HIT_FRAMES: VfxFrame[] = [
+  { sprite: 'PLSE', frame: 0 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'PLSE', frame: 1 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'PLSE', frame: 2 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'PLSE', frame: 3 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'PLSE', frame: 4 | FF_FULLBRIGHT, tics: 4 },
+];
+
+/** Spawn plasma impact VFX */
+export function spawnPlasmaHit(x: number, y: number, z: number): void {
+  const effect: VfxEffect = {
+    x, y, z,
+    frames: PLASMA_HIT_FRAMES,
+    frameIndex: 0,
+    ticsLeft: PLASMA_HIT_FRAMES[0].tics,
+    done: false,
+    totalTics: 0,
+  };
+  activeEffects.push(effect);
+  addDynLight(x, y, z, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
+}
+
+// ---- BFG hit: BFE1 frames A/B/C/D/E/F (S_BFGLAND..6) ----
+const BFG_HIT_FRAMES: VfxFrame[] = [
+  { sprite: 'BFE1', frame: 0 | FF_FULLBRIGHT, tics: 8 },
+  { sprite: 'BFE1', frame: 1 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'BFE1', frame: 2 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'BFE1', frame: 3 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'BFE1', frame: 4 | FF_FULLBRIGHT, tics: 4 },
+  { sprite: 'BFE1', frame: 5 | FF_FULLBRIGHT, tics: 4 },
+];
+
+/** Spawn BFG impact VFX */
+export function spawnBfgHit(x: number, y: number, z: number): void {
+  const effect: VfxEffect = {
+    x, y, z,
+    frames: BFG_HIT_FRAMES,
+    frameIndex: 0,
+    ticsLeft: BFG_HIT_FRAMES[0].tics,
+    done: false,
+    totalTics: 0,
+  };
+  activeEffects.push(effect);
+  addDynLight(x, y, z, 192 * FRACUNIT, 80, 255, 80, 0.7, 12);
+}
+

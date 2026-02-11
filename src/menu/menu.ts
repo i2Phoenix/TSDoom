@@ -11,16 +11,22 @@ import {
   GameState, GameAction,
   gamestate, menuactive, usergame,
   setMenuActive, setGameAction,
-  setPendingSaveSlot, setPendingDsgFile,
+  setPendingSaveSlot,
+  setPendingSkill,
 } from '../game/gamestate';
 import { setMouseSensitivity } from '../game/player';
+import { SkillLevel, SKILL_NAMES } from '../game/skill';
 import { rebuildLightTables } from '../render/renderer';
 import {
   getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights, getSsao,
+  getSfxVolume, getMusicVolume,
   setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights, setSsao,
+  setSfxVolume as setSfxVolumeSetting, setMusicVolume as setMusicVolumeSetting,
 } from '../game/settings';
 import { setDynLightsEnabled } from '../render/dynlights';
 import { setSsaoEnabled } from '../render/ssao';
+import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
+import { Sfx, Music } from '../sound/sounds';
 
 // ── Resolution presets ───────────────────────────────────────
 // Internal render resolutions — always 8:5 (original DOOM aspect ratio).
@@ -80,10 +86,11 @@ export class MenuSystem {
   private whichSkull = 0;      // 0 or 1
   private skullAnimCounter = 0;
   private titleBlink = 0;
+  private musicPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Message overlay (M_StartMessage)
   private messageString: string | null = null;
-  private messageCallback: (() => void) | null = null;
+  private messageCallback: ((ch: string) => void) | null = null;
   private messageNeedsInput = false;
 
   // Current active menu
@@ -91,6 +98,7 @@ export class MenuSystem {
 
   // Menu definitions
   private mainDef!: MenuDef;
+  private newgameDef!: MenuDef;
   private optionsDef!: MenuDef;
   private loadDef!: MenuDef;
   private saveDef!: MenuDef;
@@ -99,11 +107,13 @@ export class MenuSystem {
   private onChangeResolution: ((w: number, h: number) => void) | null = null;
   private onSaveGame: ((slot: number) => void) | null = null;
   private onLoadGame: ((slot: number) => void) | null = null;
-  private onLoadDsg: ((file: File) => void) | null = null;
+
 
   // Options state — initialized from settings (defaults or localStorage)
   private resolutionIndex = getResolutionIndex();
   private mouseSensitivity = getMouseSensitivityLevel();
+  private sfxVolumeLevel = getSfxVolume();      // 0-10 (0%..100%)
+  private musicVolumeLevel = getMusicVolume();   // 0-10 (0%..100%)
 
   constructor(wad: WAD, palData: PaletteData, texData: TextureData) {
     this.wad = wad;
@@ -145,12 +155,16 @@ export class MenuSystem {
       'M_SKULL1', 'M_SKULL2',
       // Main menu
       'M_DOOM', 'M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', 'M_QUITG',
+      // New game / skill selection
+      'M_NEWG', 'M_SKILL', 'M_JKILL', 'M_ROUGH', 'M_HURT', 'M_ULTRA', 'M_NMARE',
       // Options menu
       'M_OPTTTL', 'M_ENDGAM', 'M_MESSG', 'M_DETAIL', 'M_SCRNSZ', 'M_MSENS', 'M_SVOL',
       // Options state patches
       'M_MSGON', 'M_MSGOFF', 'M_GDHIGH', 'M_GDLOW',
       // Thermometer pieces
       'M_THERML', 'M_THERMM', 'M_THERMR', 'M_THERMO',
+      // Save/Load slot border pieces
+      'M_LSLEFT', 'M_LSCNTR', 'M_LSRGHT',
     ];
 
     for (const name of patchNames) {
@@ -181,7 +195,7 @@ export class MenuSystem {
       numitems: 6,
       prevMenu: null,
       menuitems: [
-        { status: 1, name: 'M_NGAME',  action: () => this.doNewGame() },
+        { status: 1, name: 'M_NGAME',  action: () => this.setupNextMenu(this.newgameDef) },
         { status: 1, name: 'M_OPTION', action: () => this.setupNextMenu(this.optionsDef) },
         { status: 1, name: 'M_LOADG',  action: () => this.setupNextMenu(this.loadDef) },
         { status: 1, name: 'M_SAVEG',  action: () => this.doSaveGameMenu() },
@@ -194,18 +208,35 @@ export class MenuSystem {
       lastOn: 0,
     };
 
+    // New Game skill selection: x=48, y=63 (matching original DOOM NewDef)
+    this.newgameDef = {
+      numitems: 5,
+      prevMenu: this.mainDef,
+      menuitems: [
+        { status: 1, name: 'M_JKILL', action: () => this.chooseSkill(SkillLevel.sk_baby) },
+        { status: 1, name: 'M_ROUGH', action: () => this.chooseSkill(SkillLevel.sk_easy) },
+        { status: 1, name: 'M_HURT',  action: () => this.chooseSkill(SkillLevel.sk_medium) },
+        { status: 1, name: 'M_ULTRA', action: () => this.chooseSkill(SkillLevel.sk_hard) },
+        { status: 1, name: 'M_NMARE', action: () => this.chooseSkill(SkillLevel.sk_nightmare) },
+      ],
+      routine: () => this.drawNewGameCustom(),
+      x: 48,
+      y: 63,
+      lastOn: 2, // default to "Hurt me plenty"
+    };
+
     // Options menu: x=60, y=37
     this.optionsDef = {
       numitems: 7,
       prevMenu: this.mainDef,
       menuitems: [
-        { status: 2,  name: '',  action: (choice) => this.sizeDisplay(choice) },  // Resolution
-        { status: -1, name: '',  action: () => {} },  // thermo line
-        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },  // Mouse Sensitivity
-        { status: -1, name: '',  action: () => {} },  // thermo line
-        { status: 1,  name: '',  action: () => this.toggleColorMode() },  // Color Mode
-        { status: 1,  name: '',  action: () => this.toggleDynLights() },  // Dynamic Lights
-        { status: 1,  name: '',  action: () => this.toggleSsao() },       // SSAO
+        { status: 2,  name: '',  action: (choice) => this.sizeDisplay(choice) },          // 0: Resolution
+        { status: 2,  name: '',  action: () => this.toggleColorMode() },                   // 1: Color Mode
+        { status: 2,  name: '',  action: () => this.toggleDynLights() },                   // 2: Dynamic Lights
+        { status: 2,  name: '',  action: () => this.toggleSsao() },                        // 3: SSAO
+        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },     // 4: Mouse Sensitivity
+        { status: 2,  name: '',  action: (choice) => this.changeSfxVolume(choice) },       // 5: SFX Volume
+        { status: 2,  name: '',  action: (choice) => this.changeMusicVolume(choice) },     // 6: Music Volume
       ],
       routine: () => this.drawOptionsCustom(),
       x: 60,
@@ -213,9 +244,9 @@ export class MenuSystem {
       lastOn: 0,
     };
 
-    // Load Game menu: 6 slots + "Load .DSG" option
+    // Load Game menu: 6 slots
     this.loadDef = {
-      numitems: 7,
+      numitems: 6,
       prevMenu: this.mainDef,
       menuitems: [
         { status: 1, name: '', action: () => this.doLoadGame(0) },
@@ -224,7 +255,7 @@ export class MenuSystem {
         { status: 1, name: '', action: () => this.doLoadGame(3) },
         { status: 1, name: '', action: () => this.doLoadGame(4) },
         { status: 1, name: '', action: () => this.doLoadGame(5) },
-        { status: 1, name: '', action: () => this.triggerDsgFileInput() },
+
       ],
       routine: () => this.drawLoadSaveCustom(false),
       x: 80,
@@ -259,6 +290,27 @@ export class MenuSystem {
     setGameAction(GameAction.ga_newgame);
   }
 
+  /** M_ChooseSkill — select skill and start new game.
+   *  Nightmare shows a confirmation dialog (matching original DOOM). */
+  private chooseSkill(skill: SkillLevel): void {
+    if (skill === SkillLevel.sk_nightmare) {
+      this.startMessage(
+        'Are you sure? This skill level\n'
+        + 'isn\'t even remotely fair.\n\n'
+        + 'press y or n.',
+        (ch: string) => {
+          if (ch.toLowerCase() === 'y') {
+            setPendingSkill(skill);
+            this.doNewGame();
+          }
+        }
+      );
+      return;
+    }
+    setPendingSkill(skill);
+    this.doNewGame();
+  }
+
   /**
    * M_SaveGame — check if saving is allowed, then show save menu.
    * Original DOOM: checks !usergame and gamestate != GS_LEVEL
@@ -289,7 +341,7 @@ export class MenuSystem {
 
   // ── Message overlay (M_StartMessage) ──────────────────────
 
-  private startMessage(msg: string, callback?: () => void): void {
+  private startMessage(msg: string, callback?: (ch: string) => void): void {
     this.messageString = msg;
     this.messageCallback = callback ?? null;
     this.messageNeedsInput = true;
@@ -309,6 +361,7 @@ export class MenuSystem {
     setMenuActive(true);
     this.currentMenu = this.mainDef;
     this.itemOn = this.currentMenu.lastOn;
+    S_StartSound(null, Sfx.swtchn);
 
     // If in game, replace "New Game" with "Resume"
     if (usergame && gamestate === GameState.GS_LEVEL) {
@@ -321,7 +374,7 @@ export class MenuSystem {
       this.mainDef.menuitems[0] = {
         status: 1,
         name: 'M_NGAME',
-        action: () => this.doNewGame(),
+        action: () => this.setupNextMenu(this.newgameDef),
       };
     }
   }
@@ -373,10 +426,42 @@ export class MenuSystem {
     if (choice === 0) {
       this.mouseSensitivity = Math.max(0, this.mouseSensitivity - 1);
     } else {
-      this.mouseSensitivity = Math.min(9, this.mouseSensitivity + 1);
+      this.mouseSensitivity = Math.min(10, this.mouseSensitivity + 1);
     }
     setMouseSensitivity(this.mouseSensitivity);
     setMouseSensitivityLevel(this.mouseSensitivity);
+  }
+
+  // ── Options: SFX Volume ────────────────────────────────────
+  private changeSfxVolume(choice: number): void {
+    if (choice === 0) {
+      this.sfxVolumeLevel = Math.max(0, this.sfxVolumeLevel - 1);
+    } else {
+      this.sfxVolumeLevel = Math.min(10, this.sfxVolumeLevel + 1);
+    }
+    // Convert 0-10 to 0-15 for sound system (DOOM uses 0-15 internally)
+    S_SetSfxVolume(Math.round(this.sfxVolumeLevel * 1.5));
+    setSfxVolumeSetting(this.sfxVolumeLevel);
+  }
+
+  // ── Options: Music Volume ──────────────────────────────────
+  private changeMusicVolume(choice: number): void {
+    if (choice === 0) {
+      this.musicVolumeLevel = Math.max(0, this.musicVolumeLevel - 1);
+    } else {
+      this.musicVolumeLevel = Math.min(10, this.musicVolumeLevel + 1);
+    }
+    // Convert 0-10 to 0-15 for sound system
+    S_SetMusicVolume(Math.round(this.musicVolumeLevel * 1.5));
+    setMusicVolumeSetting(this.musicVolumeLevel);
+    // Play preview music so user can hear the volume
+    S_ChangeMusic(Music.introa, true);
+    // Stop music 3 seconds after last adjustment
+    if (this.musicPreviewTimer) clearTimeout(this.musicPreviewTimer);
+    this.musicPreviewTimer = setTimeout(() => {
+      S_StopMusic();
+      this.musicPreviewTimer = null;
+    }, 1000);
   }
 
   // ── Register callbacks ──────────────────────────────────
@@ -384,12 +469,12 @@ export class MenuSystem {
     onChangeResolution: (w: number, h: number) => void;
     onSaveGame?: (slot: number) => void;
     onLoadGame?: (slot: number) => void;
-    onLoadDsg?: (file: File) => void;
+
   }): void {
     this.onChangeResolution = callbacks.onChangeResolution;
     this.onSaveGame = callbacks.onSaveGame ?? null;
     this.onLoadGame = callbacks.onLoadGame ?? null;
-    this.onLoadDsg = callbacks.onLoadDsg ?? null;
+
   }
 
   setCurrentResolution(w: number, h: number): void {
@@ -411,7 +496,9 @@ export class MenuSystem {
   handleKey(code: string, _key: string): boolean {
     // Message overlay consumes all keys
     if (this.messageString) {
+      const cb = this.messageCallback;
       this.clearMessage();
+      if (cb) cb(_key);
       return true;
     }
 
@@ -442,6 +529,7 @@ export class MenuSystem {
         do {
           this.itemOn = (this.itemOn - 1 + this.currentMenu.numitems) % this.currentMenu.numitems;
         } while (this.currentMenu.menuitems[this.itemOn].status === -1);
+        S_StartSound(null, Sfx.pstop);
         return true;
       }
       case 'ArrowDown':
@@ -449,13 +537,14 @@ export class MenuSystem {
         do {
           this.itemOn = (this.itemOn + 1) % this.currentMenu.numitems;
         } while (this.currentMenu.menuitems[this.itemOn].status === -1);
+        S_StartSound(null, Sfx.pstop);
         return true;
       }
-      case 'Enter':
-      case 'Space': {
+      case 'Enter': {
         const item = this.currentMenu.menuitems[this.itemOn];
         if (item.status >= 1) {
           this.currentMenu.lastOn = this.itemOn;
+          S_StartSound(null, Sfx.pistol);
           item.action(this.itemOn);
         }
         return true;
@@ -464,6 +553,7 @@ export class MenuSystem {
       case 'KeyA': {
         const item = this.currentMenu.menuitems[this.itemOn];
         if (item.status === 2) {
+          S_StartSound(null, Sfx.stnmov);
           item.action(0);
           return true;
         }
@@ -473,6 +563,7 @@ export class MenuSystem {
       case 'KeyD': {
         const item = this.currentMenu.menuitems[this.itemOn];
         if (item.status === 2) {
+          S_StartSound(null, Sfx.stnmov);
           item.action(1);
           return true;
         }
@@ -480,6 +571,7 @@ export class MenuSystem {
       }
       case 'Escape': {
         this.currentMenu.lastOn = this.itemOn;
+        S_StartSound(null, Sfx.swtchx);
         if (this.currentMenu.prevMenu) {
           this.setupNextMenu(this.currentMenu.prevMenu);
           return true;
@@ -607,9 +699,37 @@ export class MenuSystem {
     }
   }
 
+  // ── New Game (skill select) custom draw ──────────────────
+  // Matches M_DrawNewGame: M_NEWG at (96,14), M_SKILL at (54,38)
+  // Skill items (M_JKILL etc.) drawn automatically by the menu loop
+  private drawNewGameCustom(): void {
+    const scale = this.getScale();
+
+    // Title "NEW GAME"
+    const ngPatch = this.getPatch('M_NEWG');
+    if (ngPatch) {
+      this.drawPatchScaled(ngPatch,
+        Math.round(96 * scale),
+        Math.round(14 * scale),
+        scale);
+    }
+
+    // Subtitle "Choose Skill Level:"
+    const skillPatch = this.getPatch('M_SKILL');
+    if (skillPatch) {
+      this.drawPatchScaled(skillPatch,
+        Math.round(54 * scale),
+        Math.round(38 * scale),
+        scale);
+    }
+  }
+
   // ── Options custom draw (M_DrawOptions) ─────────────────
   private drawOptionsCustom(): void {
     const scale = this.getScale();
+    const x = this.optionsDef.x;
+    const y0 = this.optionsDef.y;
+    const valX = x + 160;
 
     // Title
     const optTitle = this.getPatch('M_OPTTTL');
@@ -620,94 +740,83 @@ export class MenuSystem {
         scale);
     }
 
-    // "RESOLUTION" label (item 0) — drawn as text since no WAD patch exists
-    this.drawText(
-      'RESOLUTION',
-      Math.round(this.optionsDef.x * scale),
-      Math.round(this.optionsDef.y * scale),
-      scale
-    );
-
-    // Resolution thermometer (below item 0)
-    this.drawThermo(
-      this.optionsDef.x,
-      this.optionsDef.y + LINEHEIGHT * 1,
-      RESOLUTIONS.length,
-      this.resolutionIndex
-    );
-
-    // Resolution value label
+    // Item 0: RESOLUTION
+    this.drawText('RESOLUTION', Math.round(x * scale), Math.round(y0 * scale), scale);
     const res = RESOLUTIONS[this.resolutionIndex];
     if (res) {
-      this.drawText(
-        res.label,
-        Math.round((this.optionsDef.x + 170) * scale),
-        Math.round(this.optionsDef.y * scale),
-        scale
-      );
+      this.drawText(res.label, Math.round(valX * scale), Math.round(y0 * scale), scale);
     }
 
-    // "MOUSE SENSITIVITY" label (item 2)
+    // Item 1: COLOR MODE
+    const y1 = y0 + LINEHEIGHT;
+    this.drawText('COLOR MODE', Math.round(x * scale), Math.round(y1 * scale), scale);
     this.drawText(
-      'MOUSE SENSITIVITY',
-      Math.round(this.optionsDef.x * scale),
-      Math.round((this.optionsDef.y + LINEHEIGHT * 2) * scale),
-      scale
+      this.palData.trueColorMode ? 'TRUECOLOR' : 'CLASSIC',
+      Math.round(valX * scale), Math.round(y1 * scale), scale
     );
 
-    // Mouse Sensitivity thermometer (below item 2)
-    this.drawThermo(
-      this.optionsDef.x,
-      this.optionsDef.y + LINEHEIGHT * 3,
-      10,
-      this.mouseSensitivity
-    );
-
-    // "COLOR MODE" label + value (item 4)
-    const colorY = this.optionsDef.y + LINEHEIGHT * 4;
-    this.drawText(
-      'COLOR MODE',
-      Math.round(this.optionsDef.x * scale),
-      Math.round(colorY * scale),
-      scale
-    );
-    const modeLabel = this.palData.trueColorMode ? 'TRUECOLOR' : 'CLASSIC';
-    this.drawText(
-      modeLabel,
-      Math.round((this.optionsDef.x + 160) * scale),
-      Math.round(colorY * scale),
-      scale
-    );
-
-    // "DYN LIGHTS" label + value (item 5)
-    const dlY = this.optionsDef.y + LINEHEIGHT * 5;
-    this.drawText(
-      'DYN LIGHTS',
-      Math.round(this.optionsDef.x * scale),
-      Math.round(dlY * scale),
-      scale
-    );
+    // Item 2: DYN LIGHTS
+    const y2 = y0 + LINEHEIGHT * 2;
+    this.drawText('DYN LIGHTS', Math.round(x * scale), Math.round(y2 * scale), scale);
     this.drawText(
       getDynLights() ? 'ON' : 'OFF',
-      Math.round((this.optionsDef.x + 160) * scale),
-      Math.round(dlY * scale),
-      scale
+      Math.round(valX * scale), Math.round(y2 * scale), scale
     );
 
-    // "SSAO" label + value (item 6)
-    const ssaoY = this.optionsDef.y + LINEHEIGHT * 6;
-    this.drawText(
-      'SSAO',
-      Math.round(this.optionsDef.x * scale),
-      Math.round(ssaoY * scale),
-      scale
-    );
+    // Item 3: SSAO
+    const y3 = y0 + LINEHEIGHT * 3;
+    this.drawText('SSAO', Math.round(x * scale), Math.round(y3 * scale), scale);
     this.drawText(
       getSsao() ? 'ON' : 'OFF',
-      Math.round((this.optionsDef.x + 160) * scale),
-      Math.round(ssaoY * scale),
-      scale
+      Math.round(valX * scale), Math.round(y3 * scale), scale
     );
+
+    // Item 4: MOUSE SENSITIVITY
+    const y4 = y0 + LINEHEIGHT * 4;
+    this.drawText('MOUSE SENSITIVITY', Math.round(x * scale), Math.round(y4 * scale), scale);
+    this.drawText(
+      `${this.mouseSensitivity * 10}%`,
+      Math.round(valX * scale), Math.round(y4 * scale), scale
+    );
+
+    // Item 5: SFX VOLUME
+    const y5 = y0 + LINEHEIGHT * 5;
+    this.drawText('SFX VOLUME', Math.round(x * scale), Math.round(y5 * scale), scale);
+    this.drawText(
+      `${this.sfxVolumeLevel * 10}%`,
+      Math.round(valX * scale), Math.round(y5 * scale), scale
+    );
+
+    // Item 6: MUSIC VOLUME
+    const y6 = y0 + LINEHEIGHT * 6;
+    this.drawText('MUSIC VOLUME', Math.round(x * scale), Math.round(y6 * scale), scale);
+    this.drawText(
+      `${this.musicVolumeLevel * 10}%`,
+      Math.round(valX * scale), Math.round(y6 * scale), scale
+    );
+  }
+
+  // ── Save/Load slot border (M_DrawSaveLoadBorder) ───────
+  private drawSaveLoadBorder(x: number, y: number): void {
+    const scale = this.getScale();
+    const left = this.getPatch('M_LSLEFT');
+    if (left) {
+      this.drawPatchScaled(left, Math.round((x - 8) * scale), Math.round((y + 7) * scale), scale);
+    }
+
+    let xx = x;
+    const center = this.getPatch('M_LSCNTR');
+    if (center) {
+      for (let i = 0; i < 24; i++) {
+        this.drawPatchScaled(center, Math.round(xx * scale), Math.round((y + 7) * scale), scale);
+        xx += 8;
+      }
+    }
+
+    const right = this.getPatch('M_LSRGHT');
+    if (right) {
+      this.drawPatchScaled(right, Math.round(xx * scale), Math.round((y + 7) * scale), scale);
+    }
   }
 
   // ── Load/Save custom draw ──────────────────────────────
@@ -718,17 +827,14 @@ export class MenuSystem {
       this.drawPatchScaled(titlePatch, Math.round(72 * scale), Math.round(28 * scale), scale);
     }
 
-    const numSlots = isSave ? 6 : 7;
+    const numSlots = 6;
     const menu = isSave ? this.saveDef : this.loadDef;
     for (let i = 0; i < numSlots; i++) {
       const y = menu.y + LINEHEIGHT * i;
-      let text: string;
-      if (!isSave && i === 6) {
-        text = 'LOAD .DSG FILE';
-      } else {
-        const info = this.getSlotDescription(i);
-        text = info || `EMPTY SLOT ${i + 1}`;
-      }
+      // Draw slot background border (M_DrawSaveLoadBorder)
+      this.drawSaveLoadBorder(menu.x, y);
+      const info = this.getSlotDescription(i);
+      const text = info || `EMPTY SLOT ${i + 1}`;
       this.drawText(text, Math.round(menu.x * scale), Math.round(y * scale), scale);
     }
   }
@@ -747,19 +853,7 @@ export class MenuSystem {
     }
   }
 
-  /** Open a file picker for .dsg files */
-  private triggerDsgFileInput(): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.dsg';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) {
-        this.onLoadDsg?.(file);
-      }
-    };
-    input.click();
-  }
+
 
   // ── Thermometer (M_DrawThermo from m_menu.c) ────────────
   private drawThermo(x: number, y: number, thermWidth: number, thermDot: number): void {

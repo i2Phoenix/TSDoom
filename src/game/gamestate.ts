@@ -17,6 +17,8 @@ export enum GameAction {
   ga_newgame,
   ga_loadgame,
   ga_savegame,
+  ga_warp,
+  ga_completed,
 }
 
 // ---- Global state variables ----
@@ -30,8 +32,17 @@ export let wipegamestate: GameState = GameState.GS_DEMOSCREEN;
 /** Slot number for deferred load/save (-1 = quicksave) */
 export let pendingSaveSlot: number = 0;
 
-/** File for deferred .dsg load */
-export let pendingDsgFile: File | null = null;
+
+
+/** Map name for deferred warp (IDCLEV cheat) */
+export let pendingWarpMap: string = '';
+
+/** Whether the current exit is a secret exit */
+export let secretExit: boolean = false;
+
+/** Pending skill for deferred new game */
+import { SkillLevel } from './skill';
+export let pendingSkill: SkillLevel = SkillLevel.sk_medium;
 
 // ---- Setters ----
 
@@ -43,4 +54,6 @@ export function setWipeGameState(s: GameState): void { wipegamestate = s; }
 /** Force a wipe on next draw by invalidating wipegamestate (like DOOM's wipegamestate = -1) */
 export function forceWipe(): void { wipegamestate = -1 as unknown as GameState; }
 export function setPendingSaveSlot(slot: number): void { pendingSaveSlot = slot; }
-export function setPendingDsgFile(file: File | null): void { pendingDsgFile = file; }
+export function setPendingWarpMap(map: string): void { pendingWarpMap = map; }
+export function setSecretExit(v: boolean): void { secretExit = v; }
+export function setPendingSkill(skill: SkillLevel): void { pendingSkill = skill; }

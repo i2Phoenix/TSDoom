@@ -13,6 +13,9 @@ import { THING_INFO } from '../render/sprites';
 import { WeaponType, AmmoType, weaponinfo, MAX_AMMO, CLIP_AMMO } from './weapons';
 import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player';
 import { getDroppedItems, removeDroppedItem } from './mobj';
+import { isDoubleAmmo } from './skill';
+import { S_StartSound } from '../sound/s_sound';
+import { Sfx } from '../sound/sounds';
 
 // Touch radius for pickups (20 map units — matches DOOM's MELEERANGE check)
 const PICKUP_RADIUS = 20 << FRACBITS;
@@ -39,6 +42,7 @@ export function setRemovedThings(indices: number[]): void {
 interface PickupResult {
   picked: boolean;
   message?: string;
+  sound?: Sfx;
 }
 
 /**
@@ -80,6 +84,8 @@ export function checkPickups(
       if (result.message) {
         player.message = result.message;
       }
+      // Pickup sound
+      S_StartSound(null, result.sound ?? Sfx.itemup);
     }
   }
 
@@ -100,6 +106,7 @@ export function checkPickups(
       if (result.message) {
         player.message = result.message;
       }
+      S_StartSound(null, result.sound ?? Sfx.itemup);
     }
   }
 }
@@ -151,6 +158,10 @@ function giveAmmo(
 ): boolean {
   if (type < 0) return false;
   if (player.ammo[type] >= player.maxammo[type]) return false;
+
+  // Double ammo on Baby and Nightmare
+  if (isDoubleAmmo()) count *= 2;
+
   player.ammo[type] = Math.min(player.ammo[type] + count, player.maxammo[type]);
   return true;
 }
@@ -285,41 +296,41 @@ const PICKUP_EFFECTS: Record<number, PickupFn> = {
 
   // ---- Weapons ----
   // Shotgun
-  2001: (p) => ({ picked: giveWeapon(p, WeaponType.shotgun), message: 'You got the shotgun!' }),
+  2001: (p) => ({ picked: giveWeapon(p, WeaponType.shotgun), message: 'You got the shotgun!', sound: Sfx.wpnup }),
   // Super shotgun (DOOM2)
-  82:   (p) => ({ picked: giveWeapon(p, WeaponType.supershotgun), message: 'You got the super shotgun!' }),
+  82:   (p) => ({ picked: giveWeapon(p, WeaponType.supershotgun), message: 'You got the super shotgun!', sound: Sfx.wpnup }),
   // Chaingun
-  2002: (p) => ({ picked: giveWeapon(p, WeaponType.chaingun), message: 'You got the chaingun!' }),
+  2002: (p) => ({ picked: giveWeapon(p, WeaponType.chaingun), message: 'You got the chaingun!', sound: Sfx.wpnup }),
   // Rocket launcher
-  2003: (p) => ({ picked: giveWeapon(p, WeaponType.missile), message: 'A rocket launcher!' }),
+  2003: (p) => ({ picked: giveWeapon(p, WeaponType.missile), message: 'A rocket launcher!', sound: Sfx.wpnup }),
   // Plasma rifle
-  2004: (p) => ({ picked: giveWeapon(p, WeaponType.plasma), message: 'You got the plasma rifle!' }),
+  2004: (p) => ({ picked: giveWeapon(p, WeaponType.plasma), message: 'You got the plasma rifle!', sound: Sfx.wpnup }),
   // BFG9000
-  2006: (p) => ({ picked: giveWeapon(p, WeaponType.bfg), message: 'You got the BFG9000!  Oh, yes.' }),
+  2006: (p) => ({ picked: giveWeapon(p, WeaponType.bfg), message: 'You got the BFG9000!  Oh, yes.', sound: Sfx.wpnup }),
   // Chainsaw
-  2005: (p) => ({ picked: giveWeapon(p, WeaponType.chainsaw), message: 'A chainsaw!  Find some meat!' }),
+  2005: (p) => ({ picked: giveWeapon(p, WeaponType.chainsaw), message: 'A chainsaw!  Find some meat!', sound: Sfx.wpnup }),
 
   // ---- Powerups ----
   // Berserk (full health + berserk mode)
   2023: (p) => {
     giveHealth(p, 100, 100); // always tops up to 100
     p.powers[PowerType.strength] = 1; // starts at 1, counts up each tick
-    return { picked: true, message: 'Berserk!' };
+    return { picked: true, message: 'Berserk!', sound: Sfx.getpow };
   },
   // Invulnerability
   2022: (p) => {
     p.powers[PowerType.invulnerability] = INVULNTICS;
-    return { picked: true, message: 'Invulnerability!' };
+    return { picked: true, message: 'Invulnerability!', sound: Sfx.getpow };
   },
   // Partial invisibility
   2024: (p) => {
     p.powers[PowerType.invisibility] = INVISTICS;
-    return { picked: true, message: 'Partial Invisibility' };
+    return { picked: true, message: 'Partial Invisibility', sound: Sfx.getpow };
   },
   // Radiation suit
   2025: (p) => {
     p.powers[PowerType.ironfeet] = IRONTICS;
-    return { picked: true, message: 'Radiation Shielding Suit' };
+    return { picked: true, message: 'Radiation Shielding Suit', sound: Sfx.getpow };
   },
   // Computer area map
   2026: (p) => {

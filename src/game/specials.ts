@@ -6,6 +6,9 @@
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../map';
 import { FRACBITS, FRACUNIT, fixedMul } from '../math';
 import { Thinker, addThinker, removeThinker } from './thinkers';
+import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
+import { S_StartSound, SoundOrigin } from '../sound/s_sound';
+import { Sfx } from '../sound/sounds';
 
 const PLAYERHEIGHT = 56 << FRACBITS;  // must match player.ts
 
@@ -14,6 +17,19 @@ let playerRef: { x: number; y: number; z: number } | null = null;
 
 export function setPlayerRef(p: { x: number; y: number; z: number }): void {
   playerRef = p;
+}
+
+/** Get a sound origin for the center of a sector.
+ *  Uses the sector's first line's midpoint as a rough approximation. */
+function sectorSoundOrg(sec: Sector): SoundOrigin {
+  const lines = sectorLines.get(sec);
+  if (lines && lines.length > 0) {
+    const l = lines[0];
+    const v1 = currentMap.vertices[l.v1];
+    const v2 = currentMap.vertices[l.v2];
+    return { x: (v1.x + v2.x) >> 1, y: (v1.y + v2.y) >> 1 };
+  }
+  return { x: 0, y: 0 };
 }
 
 // ---- Constants (from p_spec.h / p_local.h) ----
@@ -262,9 +278,11 @@ function doorTick(t: Thinker): void {
           case DoorType.blazeRaise:
           case DoorType.normal:
             door.direction = -1; // time to go back down
+            S_StartSound(sectorSoundOrg(door.sector), Sfx.dorcls);
             break;
           case DoorType.close30ThenOpen:
             door.direction = 1;
+            S_StartSound(sectorSoundOrg(door.sector), Sfx.doropn);
             break;
         }
       }
@@ -288,6 +306,7 @@ function doorTick(t: Thinker): void {
           case DoorType.blazeClose:
           case DoorType.normal:
           case DoorType.close:
+            S_StartSound(sectorSoundOrg(door.sector), Sfx.dorcls);
             sectorSpecialData.delete(door.sector);
             removeThinker(door);
             break;
@@ -303,6 +322,7 @@ function doorTick(t: Thinker): void {
             break; // DO NOT GO BACK UP
           default:
             door.direction = 1;
+            S_StartSound(sectorSoundOrg(door.sector), Sfx.doropn);
             break;
         }
       }
@@ -383,6 +403,7 @@ function evDoDoor(line: LineDef, type: DoorType): boolean {
         break;
     }
 
+    S_StartSound(sectorSoundOrg(sec), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
     addThinker(door);
     sectorSpecialData.set(sec, door);
   }
@@ -451,6 +472,7 @@ function evVerticalDoor(line: LineDef): void {
 
   door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
 
+  S_StartSound(sectorSoundOrg(sec), Sfx.doropn);
   addThinker(door);
   sectorSpecialData.set(sec, door);
 }
@@ -487,6 +509,7 @@ function platTick(t: Thinker): void {
       } else if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
+        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstop);
         switch (plat.type) {
           case PlatType.blazeDWUS:
           case PlatType.downWaitUpStay:
@@ -504,6 +527,7 @@ function platTick(t: Thinker): void {
       if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
+        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstop);
       }
       break;
     }
@@ -515,6 +539,7 @@ function platTick(t: Thinker): void {
         } else {
           plat.status = PlatStatus.down;
         }
+        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstart);
       }
       break;
 
@@ -603,6 +628,7 @@ function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean {
         break;
     }
 
+    S_StartSound(sectorSoundOrg(sec), Sfx.pstart);
     addThinker(plat);
     sectorSpecialData.set(sec, plat);
     addActivePlat(plat);
@@ -781,6 +807,8 @@ function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
     const tex = side[prop];
     const partner = switchMap.get(tex);
     if (partner !== undefined) {
+      // Switch sound: swtchn for turning on (SW1→SW2), swtchx for turning off (SW2→SW1)
+      S_StartSound(null, useAgain ? Sfx.swtchn : Sfx.swtchx);
       (side as any)[prop] = partner;
       return;
     }
@@ -810,9 +838,14 @@ export function useSpecialLine(line: LineDef): boolean {
 
     // SWITCHES (one-shot)
     case 11:
-      // Exit level (placeholder — just log for now)
+      // Exit level (switch)
       changeSwitchTexture(line, false);
-      console.log('EXIT LEVEL triggered');
+      G_ExitLevel();
+      return true;
+    case 124:
+      // Secret exit (switch)
+      changeSwitchTexture(line, false);
+      G_SecretExitLevel();
       return true;
     case 7:  // Build stairs (not implemented)
       return false;
@@ -956,7 +989,12 @@ export function crossSpecialLine(line: LineDef): void {
       line.special = 0;
       break;
     case 52: // EXIT (walk trigger)
-      console.log('EXIT LEVEL triggered (walk)');
+      G_ExitLevel();
+      line.special = 0;
+      break;
+    case 51: // SECRET EXIT (walk trigger)
+      G_SecretExitLevel();
+      line.special = 0;
       break;
     case 108: // Blazing door raise (walk trigger)
       evDoDoor(line, DoorType.blazeRaise);

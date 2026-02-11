@@ -53,6 +53,12 @@ import {
 } from "./game/mobj";
 import { setCombatMap, setCombatPlayer } from "./game/combat";
 import { updateVfx, clearVfx } from "./game/vfx";
+import { feedCheatKey, resetCheatBuffer } from "./game/cheats";
+import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "./game/projectiles";
+import { setGameSkill } from "./game/skill";
+import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
+import { Music } from "./sound/sounds";
+import { I_ResumeAudioContext } from "./sound/i_sound";
 import {
   wipeStartCapture,
   wipeEndCapture,
@@ -69,10 +75,9 @@ import {
   applyGameState,
   saveToSlot,
   loadFromSlot,
-  parseDsgFile,
   GameSaveData,
 } from "./game/savegame";
-import { loadSettings, getResolutionIndex } from "./game/settings";
+import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "./game/settings";
 import {
   GameState,
   GameAction,
@@ -81,6 +86,7 @@ import {
   menuactive,
   usergame,
   wipegamestate,
+  secretExit,
   setGameState,
   setGameAction,
   setMenuActive,
@@ -88,9 +94,10 @@ import {
   setWipeGameState,
   forceWipe,
   pendingSaveSlot,
-  pendingDsgFile,
-  setPendingDsgFile,
+  pendingWarpMap,
+  pendingSkill,
 } from "./game/gamestate";
+import { getNextMap } from "./game/mapflow";
 
 // ---- Module refs ----
 let wad: WAD;
@@ -173,11 +180,13 @@ function initMapFresh(mapName: string): void {
   setPlayerRef(player);
   setPspritePlayer(player);
   setCombatPlayer(player);
+  setProjectilePlayer(player);
 
   clearThinkers();
   clearRemovedThings();
   clearDroppedItems();
   clearVfx();
+  clearProjectiles();
   initSpecials(mapRef);
   initSwitchList(texDataRef);
   saveSectorState(mapRef);
@@ -193,9 +202,60 @@ function initMapFresh(mapName: string): void {
 
   initMapObjects(mapRef);
   setCombatMap(mapRef);
+  setProjectileMap(mapRef);
   resetPaletteFlash(palData);
   clearDynLights();
   spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
+
+  // Sound: stop all sounds and re-init for new level
+  S_Start();
+
+  // Start level music
+  const mus = musicForMap(mapName);
+  if (mus !== Music.None) {
+    S_ChangeMusic(mus, true);
+  }
+}
+
+/** Map level name (e.g. "E1M1", "MAP01") to Music enum.
+ *  DOOM 1 maps: e1m1..e3m9 → Music.e1m1..Music.e3m9
+ *  DOOM 2 maps: MAP01..MAP32 → uses doom2 music table from S_Start in s_sound.c */
+function musicForMap(mapName: string): Music {
+  const upper = mapName.toUpperCase();
+
+  // DOOM 1 style: ExMy
+  const exmy = upper.match(/^E(\d)M(\d)$/);
+  if (exmy) {
+    const ep = parseInt(exmy[1]);
+    const map = parseInt(exmy[2]);
+    if (ep >= 1 && ep <= 3 && map >= 1 && map <= 9) {
+      // Music enum: e1m1=1, e1m2=2, ..., e1m9=9, e2m1=10, ...
+      return (Music.e1m1 + (ep - 1) * 9 + (map - 1)) as Music;
+    }
+  }
+
+  // DOOM 2 style: MAPxx — music rotation from original s_sound.c S_Start
+  const mapxx = upper.match(/^MAP(\d{2})$/);
+  if (mapxx) {
+    const num = parseInt(mapxx[1]);
+    // DOOM 2 music table (from s_sound.c S_StartSong)
+    // Maps 1-32 use music starting from Music.runnin (which = Music.introa + 1)
+    const doom2Music: Music[] = [
+      Music.runnin, Music.stalks, Music.countd, Music.betwee,
+      Music.doom,   Music.the_da, Music.shawn,  Music.ddtblu,
+      Music.in_cit, Music.dead,   Music.stlks2, Music.theda2,
+      Music.doom2,  Music.ddtbl2, Music.runni2, Music.dead2,
+      Music.stlks3, Music.romero, Music.shawn2, Music.messag,
+      Music.count2, Music.ddtbl3, Music.ampie,  Music.theda3,
+      Music.adrian, Music.messg2, Music.romer2, Music.tense,
+      Music.shawn3, Music.openin, Music.evil,   Music.ultima,
+    ];
+    if (num >= 1 && num <= doom2Music.length) {
+      return doom2Music[num - 1];
+    }
+  }
+
+  return Music.None;
 }
 
 function ensureInput(): void {
@@ -228,6 +288,12 @@ function G_Ticker(): void {
       case GameAction.ga_savegame:
         G_DoSaveGame();
         break;
+      case GameAction.ga_warp:
+        G_DoWarp();
+        break;
+      case GameAction.ga_completed:
+        G_DoCompleted();
+        break;
       default:
         setGameAction(GameAction.ga_nothing);
         break;
@@ -239,6 +305,9 @@ function G_Ticker(): void {
 function G_DoNewGame(): void {
   setGameAction(GameAction.ga_nothing);
 
+  // Apply selected skill level
+  setGameSkill(pendingSkill);
+
   initMapFresh("E1M1");
   player.spawn();
   ensureInput();
@@ -248,22 +317,60 @@ function G_DoNewGame(): void {
   setUserGame(true);
   forceWipe(); // force wipe transition even if already GS_LEVEL
 
-  console.log("[main] New game started");
+  console.log(`[main] New game started (skill ${pendingSkill})`);
 }
 
-/** G_DoLoadGame — load from slot or .dsg file */
+/** G_DoWarp — warp to a new level (IDCLEV cheat) */
+function G_DoWarp(): void {
+  setGameAction(GameAction.ga_nothing);
+  const mapName = pendingWarpMap;
+  if (!mapName) return;
+
+  initMapFresh(mapName);
+  player.spawn();
+  resetCheatBuffer();
+  ensureInput();
+  ensureStatusBar();
+
+  setGameState(GameState.GS_LEVEL);
+  setUserGame(true);
+  forceWipe();
+
+  console.log(`[main] Warped to ${mapName} (IDCLEV)`);
+}
+
+/** G_DoCompleted — transition to the next map after a level exit */
+function G_DoCompleted(): void {
+  setGameAction(GameAction.ga_nothing);
+
+  if (!mapRef) return;
+
+  // Finish the player's current level (clears powerups, keys, flash)
+  player.finishLevel();
+
+  // Determine next map
+  const currentName = mapRef.name;
+  const nextMap = getNextMap(currentName, secretExit);
+
+  console.log(`[main] Level completed: ${currentName} → ${nextMap}${secretExit ? ' (secret)' : ''}`);
+
+  // Load the next map
+  initMapFresh(nextMap);
+  player.spawn();
+  resetCheatBuffer();
+  ensureInput();
+  ensureStatusBar();
+
+  setGameState(GameState.GS_LEVEL);
+  setUserGame(true);
+  forceWipe(); // wipe transition to next level
+}
+
+/** G_DoLoadGame — load from slot */
 function G_DoLoadGame(): void {
   setGameAction(GameAction.ga_nothing);
 
-  let data: GameSaveData | null = null;
-
-  if (pendingDsgFile) {
-    // Synchronous read not possible for File; defer via callback
-    // This path is handled separately in loadDsgFileAsync
-    return;
-  }
-
-  data = loadFromSlot(pendingSaveSlot);
+  const data = loadFromSlot(pendingSaveSlot);
   if (!data) {
     if (player) player.message = "No save in this slot.";
     return;
@@ -294,7 +401,7 @@ function G_DoSaveGame(): void {
   }
 }
 
-/** Apply loaded save data (shared by slot load and .dsg load) */
+/** Apply loaded save data */
 function applyLoadedData(data: GameSaveData): void {
   initMapFresh(data.mapName);
   ensureInput();
@@ -309,22 +416,6 @@ function applyLoadedData(data: GameSaveData): void {
   console.log(`[main] Game loaded: ${data.mapName} (${data.description})`);
 }
 
-/** Async .dsg file loading (File API requires async read) */
-function loadDsgFileAsync(file: File): void {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const buffer = reader.result as ArrayBuffer;
-      const data = parseDsgFile(buffer);
-      applyLoadedData(data);
-      console.log(`[main] Loaded .dsg file: ${file.name}`);
-    } catch (e) {
-      console.error("[main] Failed to parse .dsg:", e);
-      if (player) player.message = "Failed to load .dsg file!";
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
 
 // ============================================================
 // F6 quicksave / F9 quickload helpers
@@ -375,8 +466,16 @@ async function main() {
     loadingEl.textContent = "Loading textures...";
     texDataRef = new TextureData(wad);
 
+    loadingEl.textContent = "Loading sounds...";
+    S_Init(wad, Math.round(getSfxVolume() * 1.5), Math.round(getMusicVolume() * 1.5));
+
     loadingEl.textContent = "Initializing...";
     createCanvas();
+
+    // Resume AudioContext on first user interaction (browser autoplay policy)
+    const resumeAudio = () => { I_ResumeAudioContext(); };
+    document.addEventListener('click', resumeAudio, { once: false });
+    document.addEventListener('keydown', resumeAudio, { once: false });
 
     // Register post-process passes (order matters)
     addPostProcessPass(ssaoPass);          // darken corners/crevices first
@@ -398,10 +497,6 @@ async function main() {
       onLoadGame: (slot: number) => {
         setPendingSaveSlot(slot);
         setGameAction(GameAction.ga_loadgame);
-      },
-      onLoadDsg: (file: File) => {
-        menu.clearMenus();
-        loadDsgFileAsync(file);
       },
     });
 
@@ -435,6 +530,8 @@ async function main() {
 
         // Game input (only when playing and no menu)
         if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
+          // Feed cheat key buffer (DOOM: ST_Responder)
+          feedCheatKey(e.key, player);
           // F5 — cycle render mode
           if (e.code === "F5") {
             e.preventDefault();
@@ -492,8 +589,13 @@ async function main() {
             updateThingAnimations();
             updateMonsterDeaths();
             updateVfx();
+            updateProjectiles();
             updateDynLights();
             statusBar.tickMessage(player);
+
+            // Sound: update spatial audio for all playing sounds
+            S_SetListener({ x: player.x, y: player.y, angle: player.angle });
+            S_UpdateSounds();
           } else {
             wipeTick();
           }

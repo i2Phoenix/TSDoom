@@ -29,8 +29,10 @@ export interface Texture {
   name: string;
   width: number;
   height: number;
-  /** Pre-composed column data: array of columns, each column is Uint8Array of height pixels (255 = transparent) */
+  /** Pre-composed column data: array of columns, each column is Uint8Array of height pixels */
   columns: Uint8Array[];
+  /** Transparency mask: parallel to columns, 1 = opaque pixel written by a patch, 0 = transparent/unfilled */
+  columnMask: Uint8Array[];
 }
 
 // Flat texture (64×64 raw pixels)
@@ -122,11 +124,14 @@ export class TextureData {
         });
       }
 
-      // Compose texture columns
+      // Compose texture columns with transparency mask
       const columns: Uint8Array[] = [];
+      const columnMask: Uint8Array[] = [];
       for (let x = 0; x < width; x++) {
         const col = new Uint8Array(height);
-        col.fill(0); // default to palette index 0
+        const mask = new Uint8Array(height); // 0 = transparent, 1 = opaque
+        col.fill(0);
+        mask.fill(0);
 
         // Composite all patches for this column
         for (const patch of patches) {
@@ -142,16 +147,18 @@ export class TextureData {
               const ty = patch.originY + post.topDelta + dy;
               if (ty >= 0 && ty < height) {
                 col[ty] = post.data[dy];
+                mask[ty] = 1; // mark as opaque
               }
             }
           }
         }
 
         columns.push(col);
+        columnMask.push(mask);
       }
 
       this.textureMap.set(name, this.textures.length);
-      this.textures.push({ name, width, height, columns });
+      this.textures.push({ name, width, height, columns, columnMask });
     }
   }
 

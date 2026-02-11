@@ -9,6 +9,7 @@ import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
 import { Player } from '../game/player';
 import { AmmoType, WeaponType, weaponinfo } from '../game/weapons';
+import { CF_GODMODE } from '../game/cheats';
 
 const STBAR_HEIGHT_ORIG = 32;
 function getScale(): number { return SCREENWIDTH / 320; }
@@ -314,13 +315,13 @@ export class StatusBar {
     }
 
     // Priority 5: God mode / invulnerability
-    // if (this.priority < 5) {
-    //   if (player.cheats & CF_GODMODE) {
-    //     this.priority = 4;
-    //     this.st_faceindex = ST_GODFACE;
-    //     this.st_facecount = 1;
-    //   }
-    // }
+    if (this.priority < 5) {
+      if (player.cheats & CF_GODMODE) {
+        this.priority = 4;
+        this.st_faceindex = ST_GODFACE;
+        this.st_facecount = 1;
+      }
+    }
 
     // Default: random idle face when facecount expires
     if (this.st_facecount <= 0) {

@@ -8,12 +8,16 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEANGLES
 import { getInput, resetMouseAccumulation } from './input';
 import { useSpecialLine, crossSpecialLine } from './specials';
 import { checkPickups } from './pickups';
+import { CF_GODMODE, CF_NOCLIP } from './cheats';
+import { getDamageMultiplier } from './skill';
 import {
   WeaponType, AmmoType, WeaponPlayer, PspDef,
   initPlayerWeapons, movePsprites, fireWeapon, getPspriteInfo,
   weaponinfo, dropWeapon,
 } from './weapons';
 import { levelTime } from './thinkers';
+import { S_StartSound } from '../sound/s_sound';
+import { Sfx } from '../sound/sounds';
 
 const USERANGE = 64 << FRACBITS; // 64 map units — how far the player can reach
 
@@ -81,6 +85,7 @@ export class Player {
   powers: number[] = new Array(PowerType.NUMPOWERS).fill(0); // powerup timers
   playerstate: PlayerState = PlayerState.LIVE;
   message: string | null = null; // HUD message (set by pickups, cleared by HU_Ticker)
+  cheats: number = 0;            // cheat flags bitfield (CF_GODMODE, CF_NOCLIP)
 
   // View height (P_CalcHeight from p_user.c)
   viewheight: number = VIEWHEIGHT;        // current eye height (ramps up on spawn)
@@ -146,6 +151,22 @@ export class Player {
     this.health = 100;
     this.damagecount = 0;
     this.bonuscount = 0;
+    this.cheats = 0;
+  }
+
+  /**
+   * G_PlayerFinishLevel — called when completing a level.
+   * Clears powerups, keys, damage/bonus flash.
+   * Player KEEPS weapons, ammo, health, and armor.
+   * Reference: g_game.c G_PlayerFinishLevel
+   */
+  finishLevel(): void {
+    this.powers.fill(0);
+    this.keys.fill(false);
+    this.damagecount = 0;
+    this.bonuscount = 0;
+    this.cheats = 0;      // cancel god mode etc.
+    this.message = null;
   }
 
   /** Process input and update player state */
@@ -505,10 +526,18 @@ export class Player {
   takeDamage(damage: number, sourceX?: number, sourceY?: number): boolean {
     if (this.health <= 0) return false;
 
+    // God mode check (IDDQD cheat)
+    if (this.cheats & CF_GODMODE) {
+      return false;
+    }
+
     // Invulnerability check
     if (damage < 1000 && this.powers[PowerType.invulnerability]) {
       return false;
     }
+
+    // Skill damage multiplier (Baby = 50%)
+    damage = Math.round(damage * getDamageMultiplier());
 
     // Armor absorption (matches DOOM: type 1 = 1/3, type 2 = 1/2)
     if (this.armortype > 0) {
@@ -552,11 +581,14 @@ export class Player {
     if (this.health <= 0) {
       this.health = 0;
       this.playerstate = PlayerState.DEAD;
+      S_StartSound(null, Sfx.pldeth);
       dropWeapon(this);
       console.log('[player] DEAD — health reached 0');
       return true;
     }
 
+    // Pain sound (only if still alive)
+    S_StartSound(null, Sfx.plpain);
     return false;
   }
 
@@ -691,6 +723,11 @@ export class Player {
    * extended line even when the player is just walking near the wall).
    */
   private checkPosition(newx: number, newy: number): { blocked: boolean; blockDx: number; blockDy: number } {
+    // Noclip cheat — skip all collision
+    if (this.cheats & CF_NOCLIP) {
+      return { blocked: false, blockDx: 0, blockDy: 0 };
+    }
+
     const ss = this.map.pointInSubsector(newx, newy);
     if (!ss.sector) return { blocked: true, blockDx: 0, blockDy: 0 };
 

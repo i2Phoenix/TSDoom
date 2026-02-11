@@ -18,6 +18,8 @@ import {
 } from './mobj';
 import { spawnPuff, spawnBlood, spawnBarrelExplosion } from './vfx';
 import { Player } from './player';
+import { S_StartSound } from '../sound/s_sound';
+import { Sfx } from '../sound/sounds';
 
 // ---- Constants (from p_local.h) ----
 const MELEERANGE    = 64 * FRACUNIT;
@@ -48,7 +50,7 @@ export function setCombatMap(map: GameMap): void {
 // where it hits the linedef, or -1 if no hit.
 // ============================================================
 
-function lineIntersectFrac(
+export function lineIntersectFrac(
   x1: number, y1: number,  // ray start (fixed_t)
   dx: number, dy: number,  // ray delta (fixed_t)
   lx1: number, ly1: number, // line start (fixed_t)
@@ -144,9 +146,87 @@ function traceWalls(
 }
 
 // ============================================================
+// Collect wall intercepts for autoaim slope narrowing
+// Returns sorted (by frac) array of { frac, opentop, openbottom }
+// for two-sided linedefs, and the fraction of the first
+// one-sided blocking wall.
+// Reference: PTR_AimTraverse in p_map.c
+// ============================================================
+
+interface AimIntercept {
+  frac: number;
+  opentop: number;
+  openbottom: number;
+  floorDiffers: boolean;
+  ceilDiffers: boolean;
+}
+
+function collectAimIntercepts(
+  x1: number, y1: number,
+  dx: number, dy: number,
+): { intercepts: AimIntercept[]; solidFrac: number } {
+  if (!currentMap) return { intercepts: [], solidFrac: FRACUNIT };
+
+  const intercepts: AimIntercept[] = [];
+  let solidFrac = FRACUNIT;
+
+  for (const line of currentMap.linedefs) {
+    const v1 = currentMap.vertices[line.v1];
+    const v2 = currentMap.vertices[line.v2];
+    const lx1 = v1.x;
+    const ly1 = v1.y;
+    const ldx = v2.x - v1.x;
+    const ldy = v2.y - v1.y;
+
+    const frac = lineIntersectFrac(x1, y1, dx, dy, lx1, ly1, ldx, ldy);
+    if (frac < 0 || frac >= solidFrac) continue;
+
+    // One-sided line → solid wall, blocks everything beyond
+    if (!(line.flags & ML_TWOSIDED)) {
+      if (frac < solidFrac) solidFrac = frac;
+      continue;
+    }
+
+    const front = line.frontsector;
+    const back = line.backsector;
+    if (!front || !back) {
+      if (frac < solidFrac) solidFrac = frac;
+      continue;
+    }
+
+    const opentop = Math.min(front.ceilingHeight, back.ceilingHeight);
+    const openbottom = Math.max(front.floorHeight, back.floorHeight);
+
+    if (openbottom >= opentop) {
+      // Closed two-sided line — acts as solid
+      if (frac < solidFrac) solidFrac = frac;
+      continue;
+    }
+
+    intercepts.push({
+      frac,
+      opentop,
+      openbottom,
+      floorDiffers: front.floorHeight !== back.floorHeight,
+      ceilDiffers: front.ceilingHeight !== back.ceilingHeight,
+    });
+  }
+
+  // Sort by frac (nearest first) — matches DOOM's P_PathTraverse ordering
+  intercepts.sort((a, b) => a.frac - b.frac);
+
+  return { intercepts, solidFrac };
+}
+
+// ============================================================
 // P_AimLineAttack — autoaim
 // Finds the closest shootable thing along the ray and returns
 // the slope to aim at it. Sets linetarget.
+//
+// This is a faithful port of PTR_AimTraverse from p_map.c:
+//   - Two-sided linedefs NARROW the topslope/bottomslope
+//   - The narrowed slopes determine which things are aimable
+//   - First hit (nearest) thing wins
 // ============================================================
 
 export function P_AimLineAttack(
@@ -160,26 +240,34 @@ export function P_AimLineAttack(
   const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
   const dx = fixedMul(range, finecosine(an));
   const dy = fixedMul(range, finesine[an]);
-  const shootz = shooterZ + (8 * FRACUNIT);  // eye height offset
+  // shootz: callers pass viewz (= z + 41), we don't add extra offset
+  // Original DOOM: shootz = t1->z + (t1->height>>1) + 8*FRACUNIT = z + 36
+  // Our viewz is z + 41 which is close enough (5 units higher)
+  const shootz = shooterZ;
 
-  // Top/bottom slope limits (from p_map.c: 100*FRACUNIT/160)
-  const topLimit = ((100 * FRACUNIT) / 160) | 0;
-  const bottomLimit = ((-100 * FRACUNIT) / 160) | 0;
+  // Aim slope limits — can't shoot outside view angles
+  // (from p_map.c: topslope = 100*FRACUNIT/160)
+  let topslope = ((100 * FRACUNIT) / 160) | 0;
+  let bottomslope = ((-100 * FRACUNIT) / 160) | 0;
 
-  // Get the wall-block fraction
-  const wallFrac = traceWalls(shooterX, shooterY, dx, dy, 0, shootz);
+  // Collect all wall intercepts for slope narrowing
+  const { intercepts, solidFrac } = collectAimIntercepts(
+    shooterX, shooterY, dx, dy
+  );
 
-  // Check things
-  let bestDist = range + 1;
-  let bestTarget: MapObjState | null = null;
-  let bestSlope = 0;
+  // Build sorted list of all things along the ray
+  interface ThingHit {
+    obj: MapObjState;
+    frac: number;
+    dot: number;
+  }
+  const thingHits: ThingHit[] = [];
 
   const mapObjs = getMapObjects();
   for (const obj of mapObjs) {
     if (obj.removed) continue;
     if (!(obj.flags & MF_SHOOTABLE)) continue;
 
-    // Quick distance check
     const tdx = obj.x - shooterX;
     const tdy = obj.y - shooterY;
 
@@ -189,35 +277,85 @@ export function P_AimLineAttack(
 
     // Check perpendicular distance (how far off the ray)
     const perp = Math.abs(fixedMul(tdx, finesine[an]) - fixedMul(tdy, finecosine(an)));
-    // Must be within thing radius
     if (perp > obj.radius) continue;
 
-    // Check it's not behind a wall
     const thingFrac = fixedDiv(dot, range);
-    if (thingFrac >= wallFrac) continue;
+    if (thingFrac >= solidFrac) continue;
 
-    // Check vertical slope to thing top and bottom
-    const dist = dot;
-    const thingTopSlope = fixedDiv(obj.z + obj.height - shootz, dist);
-    const thingBottomSlope = fixedDiv(obj.z - shootz, dist);
-
-    // Must be within aim limits
-    if (thingTopSlope < bottomLimit) continue;  // thing is too low
-    if (thingBottomSlope > topLimit) continue;   // thing is too high
-
-    // This thing can be hit! Is it the closest?
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestTarget = obj;
-      // Aim at the center of the thing
-      bestSlope = ((thingTopSlope + thingBottomSlope) / 2) | 0;
-    }
+    thingHits.push({ obj, frac: thingFrac, dot });
   }
 
-  if (bestTarget) {
-    linetarget = bestTarget;
-    aimslope = bestSlope;
-    return aimslope;
+  // Sort things by distance (nearest first)
+  thingHits.sort((a, b) => a.frac - b.frac);
+
+  // Now process intercepts and things in order (merged traversal),
+  // matching DOOM's P_PathTraverse with PT_ADDLINES|PT_ADDTHINGS
+  let lineIdx = 0;
+  let thingIdx = 0;
+
+  while (lineIdx < intercepts.length || thingIdx < thingHits.length) {
+    // Determine which comes next: a line intercept or a thing?
+    const lineFrac = lineIdx < intercepts.length ? intercepts[lineIdx].frac : FRACUNIT + 1;
+    const thingFrac = thingIdx < thingHits.length ? thingHits[thingIdx].frac : FRACUNIT + 1;
+
+    if (lineFrac <= thingFrac) {
+      // Process line intercept — narrow the aim slopes
+      // (PTR_AimTraverse line handling)
+      const li = intercepts[lineIdx];
+      lineIdx++;
+
+      const dist = fixedMul(range, li.frac);
+      if (dist <= 0) continue;
+
+      // Narrow bottomslope based on floor height difference
+      if (li.floorDiffers) {
+        const slope = fixedDiv(li.openbottom - shootz, dist);
+        if (slope > bottomslope) {
+          bottomslope = slope;
+        }
+      }
+
+      // Narrow topslope based on ceiling height difference
+      if (li.ceilDiffers) {
+        const slope = fixedDiv(li.opentop - shootz, dist);
+        if (slope < topslope) {
+          topslope = slope;
+        }
+      }
+
+      // If slopes have crossed, no more aiming is possible
+      if (topslope <= bottomslope) {
+        return 0;
+      }
+    } else {
+      // Process thing — check if it's aimable with current slopes
+      // (PTR_AimTraverse thing handling)
+      const th = thingHits[thingIdx];
+      thingIdx++;
+
+      const dist = th.dot;
+      if (dist <= 0) continue;
+
+      let thingtopslope = fixedDiv(th.obj.z + th.obj.height - shootz, dist);
+      const thingbottomslope = fixedDiv(th.obj.z - shootz, dist);
+
+      // Check if thing is outside the current aim window
+      if (thingtopslope < bottomslope) continue;  // shot over the thing
+      if (thingbottomslope > topslope) continue;   // shot under the thing
+
+      // This thing can be hit! Clamp slopes to aim window
+      if (thingtopslope > topslope) {
+        thingtopslope = topslope;
+      }
+      let clampedBottom = thingbottomslope;
+      if (clampedBottom < bottomslope) {
+        clampedBottom = bottomslope;
+      }
+
+      aimslope = ((thingtopslope + clampedBottom) / 2) | 0;
+      linetarget = th.obj;
+      return aimslope;  // don't go any farther
+    }
   }
 
   return 0;
@@ -238,7 +376,7 @@ export function P_LineAttack(
   const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
   const dx = fixedMul(range, finecosine(an));
   const dy = fixedMul(range, finesine[an]);
-  const shootz = shooterZ + (8 * FRACUNIT);
+  const shootz = shooterZ;
 
   // Get wall block distance
   const wallFrac = traceWalls(shooterX, shooterY, dx, dy, slope, shootz);
@@ -381,6 +519,7 @@ export function P_RadiusAttack(
 ): void {
   // Explosion dynamic light (orange, moderate)
   addDynLight(spotX, spotY, spotZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
+  S_StartSound({ x: spotX, y: spotY }, Sfx.barexp);
 
   const mapObjs = getMapObjects();
 

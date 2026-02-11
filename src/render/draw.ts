@@ -214,6 +214,55 @@ export function drawColumnDeferred(): void {
   }
 }
 
+/**
+ * Deferred: draw a masked (transparent) wall column to G-Buffer.
+ * Skips pixels where mask[texY] === 0 (transparent parts of texture).
+ * Used for midtextures on two-sided linedefs (fences, grates, bars).
+ * Reference: R_DrawMaskedColumn in r_things.c
+ */
+export function drawMaskedColumnDeferred(mask: Uint8Array): void {
+  const { x, yl, yh, textureMid, iscale, source, sourceLength,
+          colormapIdx, surfaceType, worldX, worldY, worldTopZ, worldBottomZ } = dc;
+  if (!source || yl > yh) return;
+
+  const count = yh - yl + 1;
+  if (count <= 0) return;
+
+  const g = gBuffer;
+  let dest = yl * SCREENWIDTH + x;
+  let frac = textureMid + (yl - dc.centery) * iscale;
+  const z = (zScale & Z_DEPTH_MASK) | ZFLAG_WALL;
+
+  const zRange = worldBottomZ - worldTopZ;
+  const zStep = count > 1 ? (zRange / (count - 1)) | 0 : 0;
+  let wz = worldTopZ;
+
+  for (let i = 0; i < count; i++) {
+    let texY = (frac >> FRACBITS) & 0x7F;
+    if (sourceLength > 0) {
+      texY = texY % sourceLength;
+      if (texY < 0) texY += sourceLength;
+    }
+
+    // Only draw opaque pixels (skip transparent)
+    if (mask[texY]) {
+      const pixel = source[texY] || 0;
+
+      g.paletteIdx[dest] = pixel;
+      g.lightLevel[dest] = colormapIdx;
+      g.worldX[dest] = worldX;
+      g.worldY[dest] = worldY;
+      g.worldZ[dest] = wz;
+      g.flags[dest] = surfaceType;
+      zBuffer[dest] = z;
+    }
+
+    dest += SCREENWIDTH;
+    frac += iscale;
+    wz += zStep;
+  }
+}
+
 /** Deferred: draw a solid-color column to G-Buffer (untextured walls) */
 export function drawColumnSolidDeferred(paletteIdx: number): void {
   const { x, yl, yh, colormapIdx, surfaceType, worldX, worldY, worldTopZ, worldBottomZ } = dc;

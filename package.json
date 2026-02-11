@@ -11,5 +11,8 @@
   "devDependencies": {
     "typescript": "^5.7.0",
     "vite": "^6.1.0"
+  },
+  "dependencies": {
+    "webaudio-tinysynth": "^1.1.3"
   }
 }
