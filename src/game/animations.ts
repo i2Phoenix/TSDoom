@@ -1,0 +1,799 @@
+// ============================================================
+// Animation Systems
+// Reference: p_spec.c (flat/texture anims), info.c (sprite states)
+// ============================================================
+
+import { levelTime } from './thinkers';
+
+// ===========================================================
+// 1) Flat / Wall Texture Animations (P_UpdateSpecials)
+// ===========================================================
+// DOOM defines animation sequences as first→last flat/texture name pairs.
+// Each tick, the engine cycles the displayed texture for all flats/textures
+// in the sequence. The animation rate is 8 tics per frame.
+
+const ANIM_SPEED = 8; // tics per frame (DOOM default)
+
+interface AnimDef {
+  isTexture: boolean;       // false = flat, true = wall texture
+  lastName: string;         // last frame name
+  firstName: string;        // first frame name
+  speed: number;            // tics per frame
+}
+
+// From p_spec.c animdefs[] — DOOM1 animation definitions
+const ANIMDEFS: AnimDef[] = [
+  // Flats
+  { isTexture: false, lastName: 'NUKAGE3',  firstName: 'NUKAGE1',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'FWATER4',  firstName: 'FWATER1',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SWATER4',  firstName: 'SWATER1',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'LAVA4',    firstName: 'LAVA1',    speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'BLOOD3',   firstName: 'BLOOD1',   speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'RROCK08',  firstName: 'RROCK05',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME04',  firstName: 'SLIME01',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME08',  firstName: 'SLIME05',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME12',  firstName: 'SLIME09',  speed: ANIM_SPEED },
+
+  // Wall textures
+  { isTexture: true, lastName: 'BLODGR4',  firstName: 'BLODGR1',  speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'SLADRIP3', firstName: 'SLADRIP1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'BLODRIP4', firstName: 'BLODRIP1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'FIREWALA', firstName: 'FIREWALL', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'GSTFONT3', firstName: 'GSTFONT1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'FIRELAVA', firstName: 'FIRELAV3', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'FIREMAG3', firstName: 'FIREMAG1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'FIREBLU2', firstName: 'FIREBLU1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'ROCKRED3', firstName: 'ROCKRED1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'BFALL4',   firstName: 'BFALL1',   speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'SFALL4',   firstName: 'SFALL1',   speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'WFALL4',   firstName: 'WFALL1',   speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'DBRAIN4',  firstName: 'DBRAIN1',  speed: ANIM_SPEED },
+];
+
+/** Resolved animation: indices into flatList or texture array */
+interface AnimSequence {
+  isTexture: boolean;
+  basePic: number;          // index of first frame
+  numFrames: number;        // total frames in sequence
+  speed: number;
+}
+
+let animSequences: AnimSequence[] = [];
+
+// Translation tables: original picnum → current animated picnum
+// Indexed by original flat/texture index, value is the current display index
+let flatTranslation: number[] = [];
+let textureTranslation: number[] = [];
+
+/**
+ * Initialize animation sequences.
+ * Call after textures/flats are loaded.
+ */
+export function initAnimations(
+  flatNumForName: (name: string) => number,
+  textureNumForName: (name: string) => number,
+  flatCount: number,
+  textureCount: number
+): void {
+  animSequences = [];
+
+  // Build identity translation tables
+  flatTranslation = [];
+  for (let i = 0; i < flatCount; i++) flatTranslation[i] = i;
+  textureTranslation = [];
+  for (let i = 0; i < textureCount; i++) textureTranslation[i] = i;
+
+  for (const def of ANIMDEFS) {
+    const lookup = def.isTexture ? textureNumForName : flatNumForName;
+    const firstPic = lookup(def.firstName);
+    const lastPic = lookup(def.lastName);
+    if (firstPic < 0 || lastPic < 0 || lastPic < firstPic) continue;
+
+    animSequences.push({
+      isTexture: def.isTexture,
+      basePic: firstPic,
+      numFrames: lastPic - firstPic + 1,
+      speed: def.speed,
+    });
+  }
+
+  console.log(`[anims] ${animSequences.length} animation sequences initialized`);
+}
+
+/**
+ * Update animation translations each tick (called from game loop).
+ * Mirrors P_UpdateSpecials from p_spec.c.
+ */
+export function updateAnimations(): void {
+  for (const anim of animSequences) {
+    const frameIdx = Math.floor(levelTime / anim.speed) % anim.numFrames;
+    const currentPic = anim.basePic + frameIdx;
+    const table = anim.isTexture ? textureTranslation : flatTranslation;
+    // Update ALL frames in this sequence to point to the current frame
+    for (let i = 0; i < anim.numFrames; i++) {
+      table[anim.basePic + i] = currentPic;
+    }
+  }
+}
+
+/** Get the current animated flat index for an original flat picnum */
+export function getAnimatedFlat(picnum: number): number {
+  return flatTranslation[picnum] ?? picnum;
+}
+
+/** Get the current animated texture index for an original texture picnum */
+export function getAnimatedTexture(picnum: number): number {
+  return textureTranslation[picnum] ?? picnum;
+}
+
+
+// ===========================================================
+// 2) Sprite / Thing State Machine Animations
+// ===========================================================
+// DOOM things have states defined in info.c. Each state has:
+// - sprite name, frame, duration (tics), next state
+// Things cycle through states on each tick.
+
+export interface ThingState {
+  sprite: string;
+  frame: number;
+  tics: number;       // -1 = infinite (no cycling)
+  nextState: number;  // index into stateList for this thing type
+}
+
+/** Per-thing-type animation definition: array of states */
+export interface ThingAnimDef {
+  states: ThingState[];
+  spawnState: number;    // index of initial state
+  painState?: number;    // index of pain state (monsters only)
+  deathState?: number;   // index of death state (monsters only)
+  xdeathState?: number;  // index of gib/extreme death state
+  painChance?: number;   // 0-255, probability of entering pain on hit
+  dropItem?: number;     // thing type to drop on death (0 = none)
+}
+
+// Animation definitions for thing types that have cycling animations.
+// Extracted from DOOM's info.c mobjinfo[] and states[].
+// Only includes things with multiple frames (animated decorations, pickups, etc.)
+const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
+  // ============================================================
+  // Monsters (from DOOM info.c / mobjinfo[])
+  // States: spawn → pain → death → xdeath
+  // ============================================================
+
+  // Zombieman (MT_POSSESSED) — drops clip
+  3004: {
+    states: [
+      { sprite: 'POSS', frame: 0, tics: 10, nextState: 1 },  // spawn A
+      { sprite: 'POSS', frame: 1, tics: 10, nextState: 0 },  // spawn B
+      { sprite: 'POSS', frame: 6, tics: 3, nextState: 3 },   // pain 1
+      { sprite: 'POSS', frame: 6, tics: 3, nextState: 0 },   // pain 2 → spawn
+      { sprite: 'POSS', frame: 7, tics: 5, nextState: 5 },   // death 1
+      { sprite: 'POSS', frame: 8, tics: 5, nextState: 6 },   // death 2
+      { sprite: 'POSS', frame: 9, tics: 5, nextState: 7 },   // death 3
+      { sprite: 'POSS', frame: 10, tics: 5, nextState: 8 },  // death 4
+      { sprite: 'POSS', frame: 11, tics: -1, nextState: 8 }, // death 5 (terminal)
+      { sprite: 'POSS', frame: 12, tics: 5, nextState: 10 }, // xdeath 1
+      { sprite: 'POSS', frame: 13, tics: 5, nextState: 11 }, // xdeath 2
+      { sprite: 'POSS', frame: 14, tics: 5, nextState: 12 }, // xdeath 3
+      { sprite: 'POSS', frame: 15, tics: 5, nextState: 13 }, // xdeath 4
+      { sprite: 'POSS', frame: 16, tics: 5, nextState: 14 }, // xdeath 5
+      { sprite: 'POSS', frame: 17, tics: 5, nextState: 15 }, // xdeath 6
+      { sprite: 'POSS', frame: 18, tics: 5, nextState: 16 }, // xdeath 7
+      { sprite: 'POSS', frame: 19, tics: 5, nextState: 17 }, // xdeath 8
+      { sprite: 'POSS', frame: 20, tics: -1, nextState: 17 },// xdeath 9 (terminal)
+    ],
+    spawnState: 0, painState: 2, deathState: 4, xdeathState: 9,
+    painChance: 200, dropItem: 2007,
+  },
+  // Shotgun Guy (MT_SHOTGUY) — drops shotgun
+  9: {
+    states: [
+      { sprite: 'SPOS', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'SPOS', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'SPOS', frame: 6, tics: 3, nextState: 3 },
+      { sprite: 'SPOS', frame: 6, tics: 3, nextState: 0 },
+      { sprite: 'SPOS', frame: 7, tics: 5, nextState: 5 },
+      { sprite: 'SPOS', frame: 8, tics: 5, nextState: 6 },
+      { sprite: 'SPOS', frame: 9, tics: 5, nextState: 7 },
+      { sprite: 'SPOS', frame: 10, tics: 5, nextState: 8 },
+      { sprite: 'SPOS', frame: 11, tics: -1, nextState: 8 },
+      { sprite: 'SPOS', frame: 12, tics: 5, nextState: 10 },
+      { sprite: 'SPOS', frame: 13, tics: 5, nextState: 11 },
+      { sprite: 'SPOS', frame: 14, tics: 5, nextState: 12 },
+      { sprite: 'SPOS', frame: 15, tics: 5, nextState: 13 },
+      { sprite: 'SPOS', frame: 16, tics: 5, nextState: 14 },
+      { sprite: 'SPOS', frame: 17, tics: 5, nextState: 15 },
+      { sprite: 'SPOS', frame: 18, tics: 5, nextState: 16 },
+      { sprite: 'SPOS', frame: 19, tics: 5, nextState: 17 },
+      { sprite: 'SPOS', frame: 20, tics: -1, nextState: 17 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4, xdeathState: 9,
+    painChance: 170, dropItem: 2001,
+  },
+  // Imp (MT_TROOP)
+  3001: {
+    states: [
+      { sprite: 'TROO', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'TROO', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'TROO', frame: 7, tics: 2, nextState: 3 },
+      { sprite: 'TROO', frame: 7, tics: 2, nextState: 0 },
+      { sprite: 'TROO', frame: 8, tics: 8, nextState: 5 },
+      { sprite: 'TROO', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'TROO', frame: 10, tics: 6, nextState: 7 },
+      { sprite: 'TROO', frame: 11, tics: 6, nextState: 8 },
+      { sprite: 'TROO', frame: 12, tics: -1, nextState: 8 },
+      { sprite: 'TROO', frame: 13, tics: 5, nextState: 10 },
+      { sprite: 'TROO', frame: 14, tics: 5, nextState: 11 },
+      { sprite: 'TROO', frame: 15, tics: 5, nextState: 12 },
+      { sprite: 'TROO', frame: 16, tics: 5, nextState: 13 },
+      { sprite: 'TROO', frame: 17, tics: 5, nextState: 14 },
+      { sprite: 'TROO', frame: 18, tics: 5, nextState: 15 },
+      { sprite: 'TROO', frame: 19, tics: 5, nextState: 16 },
+      { sprite: 'TROO', frame: 20, tics: -1, nextState: 16 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4, xdeathState: 9,
+    painChance: 200,
+  },
+  // Demon (MT_SERGEANT)
+  3002: {
+    states: [
+      { sprite: 'SARG', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'SARG', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'SARG', frame: 7, tics: 2, nextState: 3 },
+      { sprite: 'SARG', frame: 7, tics: 2, nextState: 0 },
+      { sprite: 'SARG', frame: 8, tics: 8, nextState: 5 },
+      { sprite: 'SARG', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'SARG', frame: 10, tics: 4, nextState: 7 },
+      { sprite: 'SARG', frame: 11, tics: 4, nextState: 8 },
+      { sprite: 'SARG', frame: 12, tics: 4, nextState: 9 },
+      { sprite: 'SARG', frame: 13, tics: -1, nextState: 9 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 180,
+  },
+  // Spectre (MT_SHADOWS) — same sprite as Demon
+  58: {
+    states: [
+      { sprite: 'SARG', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'SARG', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'SARG', frame: 7, tics: 2, nextState: 3 },
+      { sprite: 'SARG', frame: 7, tics: 2, nextState: 0 },
+      { sprite: 'SARG', frame: 8, tics: 8, nextState: 5 },
+      { sprite: 'SARG', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'SARG', frame: 10, tics: 4, nextState: 7 },
+      { sprite: 'SARG', frame: 11, tics: 4, nextState: 8 },
+      { sprite: 'SARG', frame: 12, tics: 4, nextState: 9 },
+      { sprite: 'SARG', frame: 13, tics: -1, nextState: 9 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 180,
+  },
+  // Lost Soul (MT_SKULL)
+  3006: {
+    states: [
+      { sprite: 'SKUL', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'SKUL', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'SKUL', frame: 6, tics: 3, nextState: 3 },
+      { sprite: 'SKUL', frame: 7, tics: 3, nextState: 0 },
+      { sprite: 'SKUL', frame: 8, tics: 6, nextState: 5 },
+      { sprite: 'SKUL', frame: 9, tics: 6, nextState: 6 },
+      { sprite: 'SKUL', frame: 10, tics: 6, nextState: 7 },
+      { sprite: 'SKUL', frame: 11, tics: 6, nextState: 8 },
+      { sprite: 'SKUL', frame: 12, tics: 6, nextState: 9 },
+      { sprite: 'SKUL', frame: 13, tics: -1, nextState: 9 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 256,
+  },
+  // Cacodemon (MT_HEAD)
+  3005: {
+    states: [
+      { sprite: 'HEAD', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'HEAD', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'HEAD', frame: 7, tics: 3, nextState: 3 },
+      { sprite: 'HEAD', frame: 7, tics: 3, nextState: 4 },
+      { sprite: 'HEAD', frame: 7, tics: 6, nextState: 0 },
+      { sprite: 'HEAD', frame: 8, tics: 8, nextState: 6 },
+      { sprite: 'HEAD', frame: 9, tics: 8, nextState: 7 },
+      { sprite: 'HEAD', frame: 10, tics: 8, nextState: 8 },
+      { sprite: 'HEAD', frame: 11, tics: 8, nextState: 9 },
+      { sprite: 'HEAD', frame: 12, tics: 8, nextState: 10 },
+      { sprite: 'HEAD', frame: 13, tics: -1, nextState: 10 },
+    ],
+    spawnState: 0, painState: 2, deathState: 5,
+    painChance: 128,
+  },
+  // Baron of Hell (MT_BRUISER)
+  3003: {
+    states: [
+      { sprite: 'BOSS', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'BOSS', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'BOSS', frame: 7, tics: 8, nextState: 3 },
+      { sprite: 'BOSS', frame: 7, tics: 8, nextState: 0 },
+      { sprite: 'BOSS', frame: 8, tics: 8, nextState: 5 },
+      { sprite: 'BOSS', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'BOSS', frame: 10, tics: 8, nextState: 7 },
+      { sprite: 'BOSS', frame: 11, tics: 8, nextState: 8 },
+      { sprite: 'BOSS', frame: 12, tics: 8, nextState: 9 },
+      { sprite: 'BOSS', frame: 13, tics: 8, nextState: 10 },
+      { sprite: 'BOSS', frame: 14, tics: -1, nextState: 10 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 50,
+  },
+  // Hell Knight (MT_KNIGHT)
+  69: {
+    states: [
+      { sprite: 'BOS2', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'BOS2', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'BOS2', frame: 7, tics: 8, nextState: 3 },
+      { sprite: 'BOS2', frame: 7, tics: 8, nextState: 0 },
+      { sprite: 'BOS2', frame: 8, tics: 8, nextState: 5 },
+      { sprite: 'BOS2', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'BOS2', frame: 10, tics: 8, nextState: 7 },
+      { sprite: 'BOS2', frame: 11, tics: 8, nextState: 8 },
+      { sprite: 'BOS2', frame: 12, tics: 8, nextState: 9 },
+      { sprite: 'BOS2', frame: 13, tics: 8, nextState: 10 },
+      { sprite: 'BOS2', frame: 14, tics: -1, nextState: 10 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 50,
+  },
+  // Cyberdemon (MT_CYBORG)
+  16: {
+    states: [
+      { sprite: 'CYBR', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'CYBR', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'CYBR', frame: 9, tics: 10, nextState: 3 },
+      { sprite: 'CYBR', frame: 9, tics: 10, nextState: 0 },
+      { sprite: 'CYBR', frame: 10, tics: 10, nextState: 5 },
+      { sprite: 'CYBR', frame: 11, tics: 10, nextState: 6 },
+      { sprite: 'CYBR', frame: 12, tics: 10, nextState: 7 },
+      { sprite: 'CYBR', frame: 13, tics: 10, nextState: 8 },
+      { sprite: 'CYBR', frame: 14, tics: 10, nextState: 9 },
+      { sprite: 'CYBR', frame: 15, tics: 10, nextState: 10 },
+      { sprite: 'CYBR', frame: 16, tics: 10, nextState: 11 },
+      { sprite: 'CYBR', frame: 17, tics: 10, nextState: 12 },
+      { sprite: 'CYBR', frame: 18, tics: 10, nextState: 13 },
+      { sprite: 'CYBR', frame: 19, tics: -1, nextState: 13 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 20,
+  },
+  // Spider Mastermind (MT_SPIDER)
+  7: {
+    states: [
+      { sprite: 'SPID', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'SPID', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'SPID', frame: 8, tics: 3, nextState: 3 },
+      { sprite: 'SPID', frame: 8, tics: 3, nextState: 0 },
+      { sprite: 'SPID', frame: 9, tics: 20, nextState: 5 },
+      { sprite: 'SPID', frame: 10, tics: 10, nextState: 6 },
+      { sprite: 'SPID', frame: 11, tics: 10, nextState: 7 },
+      { sprite: 'SPID', frame: 12, tics: 10, nextState: 8 },
+      { sprite: 'SPID', frame: 13, tics: 10, nextState: 9 },
+      { sprite: 'SPID', frame: 14, tics: 10, nextState: 10 },
+      { sprite: 'SPID', frame: 15, tics: 10, nextState: 11 },
+      { sprite: 'SPID', frame: 16, tics: 10, nextState: 12 },
+      { sprite: 'SPID', frame: 17, tics: 10, nextState: 13 },
+      { sprite: 'SPID', frame: 18, tics: 10, nextState: 14 },
+      { sprite: 'SPID', frame: 19, tics: -1, nextState: 14 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    painChance: 40,
+  },
+
+  // ============================================================
+  // Decorations & Pickups
+  // ============================================================
+
+  // Barrel (BAR1 A/B)
+  2035: {
+    states: [
+      { sprite: 'BAR1', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'BAR1', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Tall blue torch (TBLU A-D)
+  44: {
+    states: [
+      { sprite: 'TBLU', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'TBLU', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'TBLU', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'TBLU', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Tall green torch (TGRN A-D)
+  45: {
+    states: [
+      { sprite: 'TGRN', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'TGRN', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'TGRN', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'TGRN', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Tall red torch (TRED A-D)
+  46: {
+    states: [
+      { sprite: 'TRED', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'TRED', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'TRED', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'TRED', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Short blue torch (SMBT A-D)
+  55: {
+    states: [
+      { sprite: 'SMBT', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'SMBT', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'SMBT', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'SMBT', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Short green torch (SMGT A-D)
+  56: {
+    states: [
+      { sprite: 'SMGT', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'SMGT', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'SMGT', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'SMGT', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Short red torch (SMRT A-D)
+  57: {
+    states: [
+      { sprite: 'SMRT', frame: 0, tics: 4, nextState: 1 },
+      { sprite: 'SMRT', frame: 1, tics: 4, nextState: 2 },
+      { sprite: 'SMRT', frame: 2, tics: 4, nextState: 3 },
+      { sprite: 'SMRT', frame: 3, tics: 4, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Health bonus (BON1: bounce 0,1,2,3,2,1)
+  2014: {
+    states: [
+      { sprite: 'BON1', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'BON1', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'BON1', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'BON1', frame: 3, tics: 6, nextState: 4 },
+      { sprite: 'BON1', frame: 2, tics: 6, nextState: 5 },
+      { sprite: 'BON1', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Armor bonus (BON2: bounce 0,1,2,3,2,1)
+  2015: {
+    states: [
+      { sprite: 'BON2', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'BON2', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'BON2', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'BON2', frame: 3, tics: 6, nextState: 4 },
+      { sprite: 'BON2', frame: 2, tics: 6, nextState: 5 },
+      { sprite: 'BON2', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Soulsphere (SOUL: bounce 0,1,2,3,2,1)
+  2013: {
+    states: [
+      { sprite: 'SOUL', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'SOUL', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'SOUL', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'SOUL', frame: 3, tics: 6, nextState: 4 },
+      { sprite: 'SOUL', frame: 2, tics: 6, nextState: 5 },
+      { sprite: 'SOUL', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Invulnerability (PINV A-D)
+  2022: {
+    states: [
+      { sprite: 'PINV', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'PINV', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'PINV', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'PINV', frame: 3, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Partial invisibility (PINS A-D) — thing type 2024, NOT 2023 (Berserk)
+  2024: {
+    states: [
+      { sprite: 'PINS', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'PINS', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'PINS', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'PINS', frame: 3, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Candelabra (CBRA A) - static, 1 frame => no animation needed
+  // But keeping it here for completeness if you want fullbright
+
+  // Keys (cycle A/B)
+  13: {
+    states: [
+      { sprite: 'RKEY', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'RKEY', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  6: {
+    states: [
+      { sprite: 'BKEY', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'BKEY', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  5: {
+    states: [
+      { sprite: 'YKEY', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'YKEY', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  38: {
+    states: [
+      { sprite: 'RSKU', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'RSKU', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  39: {
+    states: [
+      { sprite: 'BSKU', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'BSKU', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  40: {
+    states: [
+      { sprite: 'YSKU', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'YSKU', frame: 1, tics: 10, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Twitching impaled (POL6 A/B)
+  26: {
+    states: [
+      { sprite: 'POL6', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'POL6', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Hanging victim twitching (GOR1 A-C)
+  49: {
+    states: [
+      { sprite: 'GOR1', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'GOR1', frame: 1, tics: 15, nextState: 2 },
+      { sprite: 'GOR1', frame: 2, tics: 8, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Tech column (ELEC A)
+  48: {
+    states: [
+      { sprite: 'ELEC', frame: 0, tics: -1, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Computer area map (PMAP: bounce 0,1,2,3,2,1)
+  2026: {
+    states: [
+      { sprite: 'PMAP', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'PMAP', frame: 1, tics: 6, nextState: 2 },
+      { sprite: 'PMAP', frame: 2, tics: 6, nextState: 3 },
+      { sprite: 'PMAP', frame: 3, tics: 6, nextState: 4 },
+      { sprite: 'PMAP', frame: 2, tics: 6, nextState: 5 },
+      { sprite: 'PMAP', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+  // Light amp goggles (PVIS A-B)
+  2045: {
+    states: [
+      { sprite: 'PVIS', frame: 0, tics: 6, nextState: 1 },
+      { sprite: 'PVIS', frame: 1, tics: 6, nextState: 0 },
+    ],
+    spawnState: 0,
+  },
+};
+
+/** Monster lifecycle state */
+export type MobjLifecycle = 'alive' | 'pain' | 'dying' | 'dead';
+
+/** Runtime animation state for a single thing instance */
+export interface ThingAnimState {
+  thingType: number;
+  stateIdx: number;       // current state index in THING_ANIM_DEFS[type].states
+  tics: number;           // remaining tics in current state
+  sprite: string;         // current sprite name
+  frame: number;          // current frame number
+  mobjState: MobjLifecycle; // monster lifecycle (decorations always 'alive')
+}
+
+/** Map of thing index (in map.things array) → animation state */
+const thingAnimStates: Map<number, ThingAnimState> = new Map();
+
+/**
+ * Initialize thing animation states for all things on the map.
+ * Call after map is loaded.
+ */
+export function initThingAnimations(things: { type: number }[]): void {
+  thingAnimStates.clear();
+  for (let i = 0; i < things.length; i++) {
+    const def = THING_ANIM_DEFS[things[i].type];
+    if (!def) continue;
+    const state = def.states[def.spawnState];
+    // Monsters always get an animation state (even if tics=-1 for static spawn)
+    const isMonster = def.deathState !== undefined;
+    if (!state || (state.tics === -1 && !isMonster)) continue;
+    thingAnimStates.set(i, {
+      thingType: things[i].type,
+      stateIdx: def.spawnState,
+      tics: state.tics === -1 ? -1 : state.tics,
+      sprite: state.sprite,
+      frame: state.frame,
+      mobjState: 'alive',
+    });
+  }
+  console.log(`[anims] ${thingAnimStates.size} animated things initialized`);
+}
+
+/**
+ * Update thing animation states each tick.
+ * Handles monster lifecycle: pain returns to alive, death reaches terminal.
+ */
+export function updateThingAnimations(): void {
+  for (const [idx, anim] of thingAnimStates) {
+    // Terminal state (tics = -1) — don't advance
+    if (anim.tics === -1) continue;
+
+    anim.tics--;
+    if (anim.tics <= 0) {
+      const def = THING_ANIM_DEFS[anim.thingType];
+      if (!def) continue;
+      const nextIdx = def.states[anim.stateIdx].nextState;
+      anim.stateIdx = nextIdx;
+      const nextState = def.states[nextIdx];
+      anim.sprite = nextState.sprite;
+      anim.frame = nextState.frame;
+
+      if (nextState.tics === -1) {
+        // Reached terminal state
+        anim.tics = -1;
+        if (anim.mobjState === 'dying') {
+          anim.mobjState = 'dead';
+        }
+      } else {
+        anim.tics = nextState.tics;
+        // Pain returning to spawn state → back to alive
+        if (anim.mobjState === 'pain' && def.spawnState !== undefined) {
+          const spawnIdx = def.spawnState;
+          // Check if we looped back to a spawn state
+          if (nextIdx === spawnIdx || (nextIdx < (def.painState ?? Infinity))) {
+            anim.mobjState = 'alive';
+          }
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// Monster State Control — called from mobj.ts combat system
+// ============================================================
+
+/**
+ * Switch a monster to its pain animation state.
+ * Called when a monster takes non-lethal damage and pain chance succeeds.
+ */
+export function setMonsterPain(thingIndex: number, thingType: number): void {
+  const def = THING_ANIM_DEFS[thingType];
+  if (!def || def.painState === undefined) return;
+
+  let anim = thingAnimStates.get(thingIndex);
+  if (!anim) {
+    // Create animation state if not yet tracked
+    const state = def.states[def.painState];
+    anim = {
+      thingType,
+      stateIdx: def.painState,
+      tics: state.tics,
+      sprite: state.sprite,
+      frame: state.frame,
+      mobjState: 'pain',
+    };
+    thingAnimStates.set(thingIndex, anim);
+    return;
+  }
+
+  // Don't interrupt death animation
+  if (anim.mobjState === 'dying' || anim.mobjState === 'dead') return;
+
+  const state = def.states[def.painState];
+  anim.stateIdx = def.painState;
+  anim.tics = state.tics;
+  anim.sprite = state.sprite;
+  anim.frame = state.frame;
+  anim.mobjState = 'pain';
+}
+
+/**
+ * Switch a monster to its death (or xdeath) animation state.
+ * Called when a monster is killed.
+ * @param overkill true if health dropped below negative spawn health (gib)
+ */
+export function setMonsterDeath(thingIndex: number, thingType: number, overkill: boolean): void {
+  const def = THING_ANIM_DEFS[thingType];
+  if (!def) return;
+
+  // Use xdeath if available and overkill, otherwise normal death
+  const stateIdx = (overkill && def.xdeathState !== undefined)
+    ? def.xdeathState
+    : (def.deathState ?? def.spawnState);
+
+  let anim = thingAnimStates.get(thingIndex);
+  if (!anim) {
+    const state = def.states[stateIdx];
+    anim = {
+      thingType,
+      stateIdx,
+      tics: state.tics,
+      sprite: state.sprite,
+      frame: state.frame,
+      mobjState: 'dying',
+    };
+    thingAnimStates.set(thingIndex, anim);
+    return;
+  }
+
+  const state = def.states[stateIdx];
+  anim.stateIdx = stateIdx;
+  anim.tics = state.tics;
+  anim.sprite = state.sprite;
+  anim.frame = state.frame;
+  anim.mobjState = 'dying';
+}
+
+/**
+ * Check if a monster's death animation has completed (reached terminal frame).
+ */
+export function isMonsterDead(thingIndex: number): boolean {
+  const anim = thingAnimStates.get(thingIndex);
+  return anim?.mobjState === 'dead';
+}
+
+/**
+ * Get the animation definition for a thing type.
+ * Used by mobj.ts to check painChance and dropItem.
+ */
+export function getThingAnimDef(thingType: number): ThingAnimDef | undefined {
+  return THING_ANIM_DEFS[thingType];
+}
+
+/**
+ * Get the current sprite name and frame for a thing.
+ * Returns null if the thing has no animation (use static THING_INFO).
+ */
+export function getThingAnimFrame(thingIndex: number): { sprite: string; frame: number } | null {
+  const anim = thingAnimStates.get(thingIndex);
+  if (!anim) return null;
+  return { sprite: anim.sprite, frame: anim.frame };
+}
+
+/** Get all thing animation states (for save) */
+export function getThingAnimStates(): Map<number, ThingAnimState> {
+  return thingAnimStates;
+}
+
+/** Restore thing animation states (for load) */
+export function setThingAnimStates(states: Map<number, ThingAnimState>): void {
+  thingAnimStates.clear();
+  for (const [k, v] of states) thingAnimStates.set(k, v);
+}
