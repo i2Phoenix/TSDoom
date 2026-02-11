@@ -1,3 +1,5 @@
+![TSDoom](docs/tsdoom.png)
+
 # 🔥 TSDoom
 
 🌐 _English | [Русский](docs/README.ru.md) | [中文](docs/README.zh.md) | [日本語](docs/README.ja.md) | [Español](docs/README.es.md)_
