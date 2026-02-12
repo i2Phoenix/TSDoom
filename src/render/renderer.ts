@@ -1410,7 +1410,23 @@ function addToVisplane(isCeiling: boolean, x: number, top: number, bottom: numbe
 // Draw Visplanes (Floors & Ceilings)
 // ===========================================================
 
+// Precomputed per-row tables (allocated once, reused each frame)
+let planeRowDistance: Int32Array = new Int32Array(0);
+let planeRowFloorScale: Int32Array = new Int32Array(0);
+let planeRowColormapIdx: Int32Array = new Int32Array(0);
+let planeRowValid: Uint8Array = new Uint8Array(0);
+
+function ensurePlaneRowTables(): void {
+  if (planeRowDistance.length >= viewheight) return;
+  planeRowDistance = new Int32Array(viewheight);
+  planeRowFloorScale = new Int32Array(viewheight);
+  planeRowColormapIdx = new Int32Array(viewheight);
+  planeRowValid = new Uint8Array(viewheight);
+}
+
 function drawPlanes(): void {
+  ensurePlaneRowTables();
+
   for (const vp of visplanes) {
     if (vp.maxx < vp.minx) continue;
 
@@ -1426,50 +1442,83 @@ function drawPlanes(): void {
 
     const planeheight = Math.abs(vp.height - viewz);
     const lightnum = Math.max(0, Math.min(LIGHTLEVELS - 1, (vp.lightlevel >> LIGHTSEGSHIFT) | 0));
+    const surfaceType = vp.isCeiling ? SurfaceType.CEILING : SurfaceType.FLOOR;
+    const flatData = flat.data;
+    const vpHeight = vp.height;
+    const g = gBuffer;
 
+    // --- Precompute per-row values ---
+    // Find the y range this visplane actually covers
+    let globalMinY = viewheight;
+    let globalMaxY = 0;
+    for (let x = vp.minx; x <= vp.maxx; x++) {
+      if (vp.top[x] <= vp.bottom[x]) {
+        if (vp.top[x] < globalMinY) globalMinY = vp.top[x];
+        if (vp.bottom[x] > globalMaxY) globalMaxY = vp.bottom[x];
+      }
+    }
+    if (globalMinY > globalMaxY) continue;
+    if (globalMinY < 0) globalMinY = 0;
+    if (globalMaxY >= viewheight) globalMaxY = viewheight - 1;
+
+    for (let y = globalMinY; y <= globalMaxY; y++) {
+      const dy = y - centery;
+      if (dy === 0) {
+        planeRowValid[y] = 0;
+        continue;
+      }
+      const yslopeVal = yslope[y] || 0;
+      const distance = Math.abs(fixedMul(planeheight, yslopeVal));
+      if (distance === 0) {
+        planeRowValid[y] = 0;
+        continue;
+      }
+      planeRowValid[y] = 1;
+      planeRowDistance[y] = distance;
+      planeRowFloorScale[y] = fixedDiv(projection, distance);
+      let zIdx = (distance >>> LIGHTZSHIFT) | 0;
+      if (zIdx >= MAXLIGHTZ) zIdx = MAXLIGHTZ - 1;
+      planeRowColormapIdx[y] = zlight[lightnum]?.[zIdx] ?? 0;
+    }
+
+    // --- Column iteration with precomputed per-row lookups ---
     for (let x = vp.minx; x <= vp.maxx; x++) {
       const t = vp.top[x];
       const b = vp.bottom[x];
       if (t > b) continue;
 
+      // Per-column values (computed once per column)
+      const distscaleX = distscale[x] || FRACUNIT;
+      const viewAngleFine = ((viewangle + (xtoviewangle[x] || 0)) >>> ANGLETOFINESHIFT) & FINEMASK;
+      const cosVal = finecosine(viewAngleFine);
+      const sinVal = finesine[viewAngleFine] || 0;
+
       for (let y = t; y <= b; y++) {
-        if (y < 0 || y >= viewheight) continue;
+        if (y < 0 || y >= viewheight || !planeRowValid[y]) continue;
 
-        const dy = Math.abs(y - centery);
-        if (dy === 0) continue;
+        const distance = planeRowDistance[y];
+        const floorScale = planeRowFloorScale[y];
 
-        const distance = Math.abs(fixedMul(planeheight, yslope[y] || 0));
-        if (distance === 0) continue;
-
-        // Compute floor/ceiling depth as projection scale (same convention as walls)
-        const floorScale = fixedDiv(projection, distance);
-
-        // Z-test: skip if a WALL pixel is closer (floors only test against walls)
+        // Z-test: skip if a WALL pixel is closer
         const dest = y * SCREENWIDTH + x;
         const existingZ = zBuffer[dest];
         if ((existingZ & ZFLAG_WALL) && (existingZ & Z_DEPTH_MASK) > floorScale) continue;
 
-        // Light
-        let zIdx = (distance >>> LIGHTZSHIFT) | 0;
-        if (zIdx >= MAXLIGHTZ) zIdx = MAXLIGHTZ - 1;
-        const colormapIdx = zlight[lightnum]?.[zIdx] ?? 0;
-        const colormap = palData.getColormapLookup(colormapIdx);
-
-        const length = fixedMul(distance, distscale[x] || FRACUNIT);
-        const viewAngleFine = ((viewangle + (xtoviewangle[x] || 0)) >>> ANGLETOFINESHIFT) & FINEMASK;
-        const xfrac = viewx + fixedMul(finecosine(viewAngleFine), length);
-        const yfrac = -viewy - fixedMul(finesine[viewAngleFine] || 0, length);
+        const length = fixedMul(distance, distscaleX);
+        const xfrac = viewx + fixedMul(cosVal, length);
+        const yfrac = -viewy - fixedMul(sinVal, length);
 
         const tx = ((xfrac >> FRACBITS) & 63);
         const ty = ((yfrac >> FRACBITS) & 63);
-        const pixel = flat.data[(ty * 64 + tx) & 4095] || 0;
+        const pixel = flatData[(ty * 64 + tx) & 4095] || 0;
 
-        // Write to G-Buffer (yfrac negated back from DOOM's R_MapPlane convention)
-        writeGBufferFloorPixel(
-          dest, pixel, colormapIdx,
-          xfrac, -yfrac, vp.height,
-          vp.isCeiling ? SurfaceType.CEILING : SurfaceType.FLOOR
-        );
+        // Write G-Buffer (inlined)
+        g.paletteIdx[dest] = pixel;
+        g.lightLevel[dest] = planeRowColormapIdx[y];
+        g.worldX[dest] = xfrac;
+        g.worldY[dest] = -yfrac;
+        g.worldZ[dest] = vpHeight;
+        g.flags[dest] = surfaceType;
         zBuffer[dest] = floorScale;
       }
     }
