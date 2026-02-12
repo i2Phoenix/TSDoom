@@ -9,7 +9,7 @@ import {
   FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
 } from '../math';
-import { GameMap, ML_TWOSIDED } from '../map';
+import { GameMap, ML_TWOSIDED, LineDef } from '../map';
 import { addDynLight } from '../render/dynlights';
 import { P_Random } from './random';
 import {
@@ -20,6 +20,7 @@ import { spawnPuff, spawnBlood, spawnBarrelExplosion } from './vfx';
 import { Player } from './player';
 import { S_StartSound } from '../sound/s_sound';
 import { Sfx } from '../sound/sounds';
+import { shootSpecialLine } from './specials';
 
 // ---- Constants (from p_local.h) ----
 const MELEERANGE    = 64 * FRACUNIT;
@@ -94,10 +95,11 @@ export function traceWalls(
   slope: number,
   shootz: number,
   range: number = MISSILERANGE,
-): number {
-  if (!currentMap) return FRACUNIT;
+): { frac: number; hitLine: LineDef | null } {
+  if (!currentMap) return { frac: FRACUNIT, hitLine: null };
 
   let bestFrac = FRACUNIT;
+  let hitLine: LineDef | null = null;
 
   for (const line of currentMap.linedefs) {
     const v1 = currentMap.vertices[line.v1];
@@ -113,6 +115,7 @@ export function traceWalls(
     // One-sided line → always blocks
     if (!(line.flags & ML_TWOSIDED)) {
       bestFrac = frac;
+      hitLine = line;
       continue;
     }
 
@@ -121,6 +124,7 @@ export function traceWalls(
     const back = line.backsector;
     if (!front || !back) {
       bestFrac = frac;
+      hitLine = line;
       continue;
     }
 
@@ -130,6 +134,7 @@ export function traceWalls(
     if (openbottom >= opentop) {
       // Closed — blocks
       bestFrac = frac;
+      hitLine = line;
       continue;
     }
 
@@ -139,11 +144,12 @@ export function traceWalls(
 
     if (hitZ < openbottom || hitZ > opentop) {
       bestFrac = frac;
+      hitLine = line;
     }
     // Otherwise shot passes through
   }
 
-  return bestFrac;
+  return { frac: bestFrac, hitLine };
 }
 
 // ============================================================
@@ -380,7 +386,7 @@ export function P_LineAttack(
   const shootz = shooterZ;
 
   // Get wall block distance
-  const wallFrac = traceWalls(shooterX, shooterY, dx, dy, slope, shootz, range);
+  const { frac: wallFrac, hitLine: wallHitLine } = traceWalls(shooterX, shooterY, dx, dy, slope, shootz, range);
 
   // Check thing hits (find closest within wall block distance)
   let bestFrac = wallFrac;
@@ -450,6 +456,11 @@ export function P_LineAttack(
     const hitZ = shootz + fixedMul(slope, adjustedLen);
     const isMelee = range <= MELEERANGE + FRACUNIT;
     spawnPuff(hitX, hitY, hitZ, isMelee);
+
+    // P_ShootSpecialLine — trigger gun-activated linedefs
+    if (wallHitLine && wallHitLine.special) {
+      shootSpecialLine(wallHitLine);
+    }
   }
 }
 

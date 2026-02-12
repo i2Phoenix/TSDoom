@@ -4,6 +4,8 @@
 // ============================================================
 
 import { levelTime } from './thinkers';
+import { FRACUNIT } from '../math';
+import type { SideDef, LineDef } from '../map';
 
 // ===========================================================
 // 1) Flat / Wall Texture Animations (P_UpdateSpecials)
@@ -38,7 +40,7 @@ const ANIMDEFS: AnimDef[] = [
   { isTexture: true, lastName: 'BLODGR4',  firstName: 'BLODGR1',  speed: ANIM_SPEED },
   { isTexture: true, lastName: 'SLADRIP3', firstName: 'SLADRIP1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'BLODRIP4', firstName: 'BLODRIP1', speed: ANIM_SPEED },
-  { isTexture: true, lastName: 'FIREWALA', firstName: 'FIREWALL', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'FIREWALL', firstName: 'FIREWALA', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'GSTFONT3', firstName: 'GSTFONT1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'FIRELAVA', firstName: 'FIRELAV3', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'FIREMAG3', firstName: 'FIREMAG1', speed: ANIM_SPEED },
@@ -64,6 +66,9 @@ let animSequences: AnimSequence[] = [];
 // Indexed by original flat/texture index, value is the current display index
 let flatTranslation: number[] = [];
 let textureTranslation: number[] = [];
+
+// Scrolling wall lines (linedef special 48)
+let scrollLines: SideDef[] = [];
 
 /**
  * Initialize animation sequences.
@@ -114,6 +119,25 @@ export function updateAnimations(): void {
       table[anim.basePic + i] = currentPic;
     }
   }
+  updateScrollLines();
+}
+
+/**
+ * Initialize scrolling line specials.
+ * Collects all linedefs with special 48 (Scroll Texture Left).
+ * Call after map is loaded.
+ */
+export function initScrollLines(linedefs: LineDef[], sidedefs: SideDef[]): void {
+  scrollLines = [];
+  for (const line of linedefs) {
+    if (line.special === 48 && line.sidenum[0] >= 0) {
+      const side = sidedefs[line.sidenum[0]];
+      if (side) scrollLines.push(side);
+    }
+  }
+  if (scrollLines.length > 0) {
+    console.log(`[anims] ${scrollLines.length} scrolling wall lines`);
+  }
 }
 
 /** Get the current animated flat index for an original flat picnum */
@@ -124,6 +148,16 @@ export function getAnimatedFlat(picnum: number): number {
 /** Get the current animated texture index for an original texture picnum */
 export function getAnimatedTexture(picnum: number): number {
   return textureTranslation[picnum] ?? picnum;
+}
+
+/**
+ * Update scrolling line textures each tick.
+ * Original DOOM: sides[line->sidenum[0]].textureoffset += FRACUNIT;
+ */
+function updateScrollLines(): void {
+  for (let i = 0; i < scrollLines.length; i++) {
+    scrollLines[i].textureOffset += FRACUNIT;
+  }
 }
 
 

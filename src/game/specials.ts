@@ -10,6 +10,7 @@ import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
 import { SoundOrigin, S_StartSound } from '../sound/s_sound';
 import { Sfx } from '../sound/sounds';
 import { spawnTeleportFog } from './vfx';
+import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
 import type { Player } from './player';
 import type { MapObjState } from './mobj';
 
@@ -631,6 +632,20 @@ function removeActivePlat(plat: PlatThinker): void {
 }
 
 /**
+ * EV_StopPlat — stop platforms with matching tag.
+ * Reference: p_plats.c EV_StopPlat
+ */
+function evStopPlat(line: LineDef): void {
+  for (let i = 0; i < activePlats.length; i++) {
+    const plat = activePlats[i];
+    if (plat && plat.tag === line.tag && plat.status !== PlatStatus.in_stasis) {
+      plat.oldstatus = plat.status;
+      plat.status = PlatStatus.in_stasis;
+    }
+  }
+}
+
+/**
  * EV_DoPlat — activate platforms by tag
  * Reference: p_plats.c
  */
@@ -746,6 +761,43 @@ function floorTick(t: Thinker): void {
   }
 }
 
+/**
+ * P_FindShortestTextureAround — finds the shortest wall texture height
+ * on two-sided linedefs touching a sector.
+ * Reference: p_floor.c P_FindShortestTextureAround
+ */
+function findShortestTextureAround(sec: Sector): number {
+  if (!texDataRef || !currentMap) return FRACUNIT; // fallback: 1 unit
+
+  let minSize = 0x7FFFFFFF;
+
+  for (const line of currentMap.linedefs) {
+    // Only check two-sided lines that touch this sector
+    if (!(line.frontsector === sec || line.backsector === sec)) continue;
+    if (!line.backsector || !line.frontsector) continue; // one-sided — skip
+
+    // Check both sides
+    for (const sideIdx of line.sidenum) {
+      if (sideIdx < 0) continue;
+      const side = currentMap.sidedefs[sideIdx];
+      if (!side) continue;
+
+      // Check top, bottom, mid textures — skip index 0 ("no texture")
+      for (const texIdx of [side.topTexture, side.bottomTexture, side.midTexture]) {
+        if (texIdx > 0 && texIdx < texDataRef.textures.length) {
+          const h = texDataRef.textures[texIdx].height;
+          if (h < minSize) {
+            minSize = h;
+          }
+        }
+      }
+    }
+  }
+
+  // Convert to fixed-point, or return FRACUNIT if nothing found
+  return minSize !== 0x7FFFFFFF ? minSize * FRACUNIT : FRACUNIT;
+}
+
 function evDoFloor(line: LineDef, floortype: FloorType): boolean {
   let rtn = false;
   const sectors = findSectorsFromTag(line.tag, currentMap);
@@ -810,6 +862,14 @@ function evDoFloor(line: LineDef, floortype: FloorType): boolean {
       case FloorType.raiseFloor24:
         floor.direction = 1;
         floor.floordestheight = sec.floorHeight + 24 * FRACUNIT;
+        break;
+      case FloorType.raiseFloor24AndChange:
+        floor.direction = 1;
+        floor.floordestheight = sec.floorHeight + 24 * FRACUNIT;
+        break;
+      case FloorType.raiseToTexture:
+        floor.direction = 1;
+        floor.floordestheight = sec.floorHeight + findShortestTextureAround(sec);
         break;
       case FloorType.raiseFloor512:
         floor.direction = 1;
@@ -1190,6 +1250,13 @@ const SWITCH_PAIRS: [string, string][] = [
   ['SW1HOT', 'SW2HOT'], ['SW1LION', 'SW2LION'],
   ['SW1SATYR', 'SW2SATYR'], ['SW1SKIN', 'SW2SKIN'],
   ['SW1VINE', 'SW2VINE'], ['SW1WOOD', 'SW2WOOD'],
+  // DOOM II switches
+  ['SW1PANEL', 'SW2PANEL'], ['SW1ROCK', 'SW2ROCK'],
+  ['SW1MET2', 'SW2MET2'], ['SW1WDMET', 'SW2WDMET'],
+  ['SW1BRIK', 'SW2BRIK'], ['SW1MOD1', 'SW2MOD1'],
+  ['SW1ZIM', 'SW2ZIM'], ['SW1STON6', 'SW2STON6'],
+  ['SW1TEK', 'SW2TEK'], ['SW1MARB', 'SW2MARB'],
+  ['SW1SKULL', 'SW2SKULL'],
 ];
 
 // Map: texture index → its partner texture index
@@ -1318,6 +1385,46 @@ export function useSpecialLine(line: LineDef, player: Player | null): boolean {
       if (evDoFloor(line, FloorType.turboLower))
         changeSwitchTexture(line, false);
       return true;
+    case 14: // S1 Raise Floor 32 And Change
+      if (evDoPlat(line, PlatType.raiseAndChange, 32))
+        changeSwitchTexture(line, false);
+      return true;
+    case 15: // S1 Raise Floor 24 And Change
+      if (evDoPlat(line, PlatType.raiseAndChange, 24))
+        changeSwitchTexture(line, false);
+      return true;
+    case 41: // S1 Lower Ceiling To Floor
+      if (evDoCeiling(line, CeilingType.lowerToFloor))
+        changeSwitchTexture(line, false);
+      return true;
+    case 55: // S1 Raise Floor Crush
+      if (evDoFloor(line, FloorType.raiseFloorCrush))
+        changeSwitchTexture(line, false);
+      return true;
+    case 111: // S1 Blazing Door Raise
+      if (evDoDoor(line, DoorType.blazeRaise))
+        changeSwitchTexture(line, false);
+      return true;
+    case 112: // S1 Blazing Door Open
+      if (evDoDoor(line, DoorType.blazeOpen))
+        changeSwitchTexture(line, false);
+      return true;
+    case 113: // S1 Blazing Door Close
+      if (evDoDoor(line, DoorType.blazeClose))
+        changeSwitchTexture(line, false);
+      return true;
+    case 122: // S1 Blazing PlatDownWaitUpStay
+      if (evDoPlat(line, PlatType.blazeDWUS, 0))
+        changeSwitchTexture(line, false);
+      return true;
+    case 131: // S1 Raise Floor Turbo
+      if (evDoFloor(line, FloorType.raiseFloorTurbo))
+        changeSwitchTexture(line, false);
+      return true;
+    case 140: // S1 Raise Floor 512
+      if (evDoFloor(line, FloorType.raiseFloor512))
+        changeSwitchTexture(line, false);
+      return true;
 
     // LOCKED DOOR SWITCHES (one-shot)
     case 133: // BlzOpenDoor BLUE
@@ -1368,7 +1475,50 @@ export function useSpecialLine(line: LineDef, player: Player | null): boolean {
       if (evDoFloor(line, FloorType.turboLower))
         changeSwitchTexture(line, true);
       return true;
-
+    case 43: // SR Lower Ceiling To Floor
+      if (evDoCeiling(line, CeilingType.lowerToFloor))
+        changeSwitchTexture(line, true);
+      return true;
+    case 66: // SR Raise Floor 24 And Change
+      if (evDoPlat(line, PlatType.raiseAndChange, 24))
+        changeSwitchTexture(line, true);
+      return true;
+    case 67: // SR Raise Floor 32 And Change
+      if (evDoPlat(line, PlatType.raiseAndChange, 32))
+        changeSwitchTexture(line, true);
+      return true;
+    case 68: // SR Raise Plat To Nearest And Change
+      if (evDoPlat(line, PlatType.raiseToNearestAndChange, 0))
+        changeSwitchTexture(line, true);
+      return true;
+    case 114: // SR Blazing Door Raise
+      if (evDoDoor(line, DoorType.blazeRaise))
+        changeSwitchTexture(line, true);
+      return true;
+    case 115: // SR Blazing Door Open
+      if (evDoDoor(line, DoorType.blazeOpen))
+        changeSwitchTexture(line, true);
+      return true;
+    case 116: // SR Blazing Door Close
+      if (evDoDoor(line, DoorType.blazeClose))
+        changeSwitchTexture(line, true);
+      return true;
+    case 123: // SR Blazing PlatDownWaitUpStay
+      if (evDoPlat(line, PlatType.blazeDWUS, 0))
+        changeSwitchTexture(line, true);
+      return true;
+    case 132: // SR Raise Floor Turbo
+      if (evDoFloor(line, FloorType.raiseFloorTurbo))
+        changeSwitchTexture(line, true);
+      return true;
+    case 138: // SR Light Turn On 255
+      evLightTurnOn(line.tag, 255, currentMap);
+      changeSwitchTexture(line, true);
+      return true;
+    case 139: // SR Light Turn Off (35)
+      evLightTurnOn(line.tag, 35, currentMap);
+      changeSwitchTexture(line, true);
+      return true;
     // LOCKED DOOR BUTTONS (repeatable)
     case 99:  // BlzOpenDoor BLUE
     case 134: // BlzOpenDoor RED
@@ -1567,8 +1717,8 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       evDoFloor(line, FloorType.lowerFloorToLowest);
       line.special = 0;
       break;
-    case 6: // W1 Ceiling Crush And Raise (with stop)
-      evDoCeiling(line, CeilingType.crushAndRaise);
+    case 6: // W1 Fast Ceiling Crush And Raise
+      evDoCeiling(line, CeilingType.fastCrushAndRaise);
       line.special = 0;
       break;
     case 25: // W1 Crush And Raise
@@ -1601,6 +1751,62 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       break;
     case 51: // SECRET EXIT (walk trigger)
       G_SecretExitLevel();
+      line.special = 0;
+      break;
+    case 12: // W1 Light Turn On — brightest near
+      evLightTurnOn(line.tag, 0, currentMap);
+      line.special = 0;
+      break;
+    case 13: // W1 Light Turn On 255
+      evLightTurnOn(line.tag, 255, currentMap);
+      line.special = 0;
+      break;
+    case 17: // W1 Start Light Strobing
+      evStartLightStrobing(line.tag, currentMap);
+      line.special = 0;
+      break;
+    case 35: // W1 Lights Very Dark (35)
+      evLightTurnOn(line.tag, 35, currentMap);
+      line.special = 0;
+      break;
+    case 104: // W1 Turn Tag Lights Off
+      evTurnTagLightsOff(line.tag, currentMap);
+      line.special = 0;
+      break;
+    case 53: // W1 Perpetual Platform Raise
+      evDoPlat(line, PlatType.perpetualRaise, 0);
+      line.special = 0;
+      break;
+    case 54: // W1 Platform Stop
+      evStopPlat(line);
+      line.special = 0;
+      break;
+    case 56: // W1 Raise Floor Crush
+      evDoFloor(line, FloorType.raiseFloorCrush);
+      line.special = 0;
+      break;
+    case 58: // W1 Raise Floor 24
+      evDoFloor(line, FloorType.raiseFloor24);
+      line.special = 0;
+      break;
+    case 59: // W1 Raise Floor 24 And Change
+      evDoFloor(line, FloorType.raiseFloor24AndChange);
+      line.special = 0;
+      break;
+    case 30: // W1 Raise Floor To Texture
+      evDoFloor(line, FloorType.raiseToTexture);
+      line.special = 0;
+      break;
+    case 119: // W1 Raise Floor To Nearest
+      evDoFloor(line, FloorType.raiseFloorToNearest);
+      line.special = 0;
+      break;
+    case 121: // W1 Blazing PlatDownWaitUpStay
+      evDoPlat(line, PlatType.blazeDWUS, 0);
+      line.special = 0;
+      break;
+    case 130: // W1 Raise Floor Turbo
+      evDoFloor(line, FloorType.raiseFloorTurbo);
       line.special = 0;
       break;
     case 108: // Blazing door raise (walk trigger)
@@ -1669,6 +1875,48 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
     case 98: // Lower floor turbo (retrigger)
       evDoFloor(line, FloorType.turboLower);
       break;
+    case 96: // WR Raise Floor To Texture
+      evDoFloor(line, FloorType.raiseToTexture);
+      break;
+    case 82: // WR Lower Floor To Lowest
+      evDoFloor(line, FloorType.lowerFloorToLowest);
+      break;
+    case 83: // WR Lower Floor
+      evDoFloor(line, FloorType.lowerFloor);
+      break;
+    case 84: // WR Lower And Change
+      evDoFloor(line, FloorType.lowerAndChange);
+      break;
+    case 89: // WR Platform Stop
+      evStopPlat(line);
+      break;
+    case 105: // WR Blazing Door Raise
+      evDoDoor(line, DoorType.blazeRaise);
+      break;
+    case 106: // WR Blazing Door Open
+      evDoDoor(line, DoorType.blazeOpen);
+      break;
+    case 107: // WR Blazing Door Close
+      evDoDoor(line, DoorType.blazeClose);
+      break;
+    case 120: // WR Blazing PlatDownWaitUpStay
+      evDoPlat(line, PlatType.blazeDWUS, 0);
+      break;
+    case 128: // WR Raise Floor To Nearest
+      evDoFloor(line, FloorType.raiseFloorToNearest);
+      break;
+    case 129: // WR Raise Floor Turbo
+      evDoFloor(line, FloorType.raiseFloorTurbo);
+      break;
+    case 79: // WR Lights Very Dark (35)
+      evLightTurnOn(line.tag, 35, currentMap);
+      break;
+    case 80: // WR Light Turn On — brightest near
+      evLightTurnOn(line.tag, 0, currentMap);
+      break;
+    case 81: // WR Light Turn On 255
+      evLightTurnOn(line.tag, 255, currentMap);
+      break;
 
     // STAIR BUILDING
     case 8: // W1 Build Stairs 8
@@ -1704,6 +1952,29 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       if (actor && !isPlayerActor(actor)) {
         evTeleport(line, side, actor);
       }
+      break;
+  }
+}
+
+/**
+ * P_ShootSpecialLine — IMPACT SPECIALS
+ * Called when a projectile or bullet hits a linedef with a special.
+ * Only 3 cases exist in original DOOM.
+ * Reference: p_spec.c P_ShootSpecialLine
+ */
+export function shootSpecialLine(line: LineDef): void {
+  switch (line.special) {
+    case 24: // G1 Raise Floor
+      if (evDoFloor(line, FloorType.raiseFloor))
+        changeSwitchTexture(line, false);
+      break;
+    case 46: // GR Open Door (impact)
+      if (evDoDoor(line, DoorType.open))
+        changeSwitchTexture(line, true);
+      break;
+    case 47: // G1 Raise Floor Near And Change
+      if (evDoPlat(line, PlatType.raiseToNearestAndChange, 0))
+        changeSwitchTexture(line, false);
       break;
   }
 }

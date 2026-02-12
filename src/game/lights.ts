@@ -317,6 +317,79 @@ export function spawnSectorLights(map: GameMap): void {
 }
 
 // ===========================================================
+// Linedef-triggered light events
+// Reference: p_lights.c EV_LightTurnOn, EV_TurnTagLightsOff,
+//            EV_StartLightStrobing
+// ===========================================================
+
+/**
+ * EV_LightTurnOn — set light level for sectors matching line tag.
+ * If bright > 0: set to bright.
+ * If bright === 0: search for highest neighbor light level.
+ */
+export function evLightTurnOn(tag: number, bright: number, map: GameMap): void {
+  for (const sector of map.sectors) {
+    if (sector.tag !== tag) continue;
+
+    if (!bright) {
+      // Search for highest light level in surrounding sectors
+      let maxLight = 0;
+      for (const line of map.linedefs) {
+        let neighbor: Sector | null = null;
+        if (line.frontsector === sector && line.backsector) {
+          neighbor = line.backsector;
+        } else if (line.backsector === sector && line.frontsector) {
+          neighbor = line.frontsector;
+        }
+        if (neighbor && neighbor.lightLevel > maxLight) {
+          maxLight = neighbor.lightLevel;
+        }
+      }
+      sector.lightLevel = maxLight;
+    } else {
+      sector.lightLevel = bright;
+    }
+  }
+}
+
+/**
+ * EV_TurnTagLightsOff — set each tagged sector's light to
+ * the minimum light of its neighbors.
+ */
+export function evTurnTagLightsOff(tag: number, map: GameMap): void {
+  for (const sector of map.sectors) {
+    if (sector.tag !== tag) continue;
+
+    let min = sector.lightLevel;
+    for (const line of map.linedefs) {
+      let neighbor: Sector | null = null;
+      if (line.frontsector === sector && line.backsector) {
+        neighbor = line.backsector;
+      } else if (line.backsector === sector && line.frontsector) {
+        neighbor = line.frontsector;
+      }
+      if (neighbor && neighbor.lightLevel < min) {
+        min = neighbor.lightLevel;
+      }
+    }
+    sector.lightLevel = min;
+  }
+}
+
+/**
+ * EV_StartLightStrobing — spawn strobe flash in tagged sectors.
+ * Triggered by linedef special 17.
+ */
+export function evStartLightStrobing(tag: number, map: GameMap): void {
+  for (const sector of map.sectors) {
+    if (sector.tag !== tag) continue;
+    // Don't spawn if sector already has a special thinker
+    // (we skip this check as original uses specialdata, we don't track that for lights)
+    spawnStrobeFlash(sector, map, SLOWDARK, false);
+  }
+}
+
+// ===========================================================
 // Save/Load helpers for light thinkers
 // ===========================================================
 
@@ -339,3 +412,4 @@ export function restoreGlow(sector: Sector, maxlight: number, minlight: number, 
   const g: GlowThinker = { action: T_Glow, removed: false, sector, maxlight, minlight, direction };
   addThinker(g);
 }
+

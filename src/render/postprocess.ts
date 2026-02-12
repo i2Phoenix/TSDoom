@@ -67,7 +67,4 @@ export function runPostProcess(
 // fog color based on distance from camera.
 // export const fogPass: PostProcessPass = (rgba, gb, w, h) => { ... };
 
-// Ambient Occlusion pass:
-// Reads gBuffer.flags + depth to detect corners/edges,
-// darkens pixels in concave areas.
-// export const aoPass: PostProcessPass = (rgba, gb, w, h) => { ... };
+

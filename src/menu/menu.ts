@@ -19,13 +19,12 @@ import { clearInputState } from '../game/input';
 import { SkillLevel, SKILL_NAMES } from '../game/skill';
 import { rebuildLightTables } from '../render/renderer';
 import {
-  getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights, getSsao,
+  getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights,
   getSfxVolume, getMusicVolume,
-  setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights, setSsao,
+  setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights,
   setSfxVolume as setSfxVolumeSetting, setMusicVolume as setMusicVolumeSetting,
 } from '../game/settings';
 import { setDynLightsEnabled } from '../render/dynlights';
-import { setSsaoEnabled } from '../render/ssao';
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
 import { Sfx, Music } from '../sound/sounds';
 
@@ -135,7 +134,6 @@ export class MenuSystem {
       rebuildLightTables();
     }
     setDynLightsEnabled(getDynLights());
-    setSsaoEnabled(getSsao());
   }
 
   /** Apply saved resolution via callback (call after setCallbacks) */
@@ -234,16 +232,15 @@ export class MenuSystem {
 
     // Options menu: x=60, y=37
     this.optionsDef = {
-      numitems: 7,
+      numitems: 6,
       prevMenu: this.mainDef,
       menuitems: [
         { status: 2,  name: '',  action: (choice) => this.sizeDisplay(choice) },          // 0: Resolution
         { status: 2,  name: '',  action: () => this.toggleColorMode() },                   // 1: Color Mode
         { status: 2,  name: '',  action: () => this.toggleDynLights() },                   // 2: Dynamic Lights
-        { status: 2,  name: '',  action: () => this.toggleSsao() },                        // 3: SSAO
-        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },     // 4: Mouse Sensitivity
-        { status: 2,  name: '',  action: (choice) => this.changeSfxVolume(choice) },       // 5: SFX Volume
-        { status: 2,  name: '',  action: (choice) => this.changeMusicVolume(choice) },     // 6: Music Volume
+        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },     // 3: Mouse Sensitivity
+        { status: 2,  name: '',  action: (choice) => this.changeSfxVolume(choice) },       // 4: SFX Volume
+        { status: 2,  name: '',  action: (choice) => this.changeMusicVolume(choice) },     // 5: Music Volume
       ],
       routine: () => this.drawOptionsCustom(),
       x: 60,
@@ -454,11 +451,6 @@ export class MenuSystem {
     setDynLightsEnabled(newMode);
   }
 
-  private toggleSsao(): void {
-    const newMode = !getSsao();
-    setSsao(newMode);
-    setSsaoEnabled(newMode);
-  }
 
   // ── Options: Mouse Sensitivity ────────────────────────────
   private changeSensitivity(choice: number): void {
@@ -585,6 +577,7 @@ export class MenuSystem {
         S_StartSound(null, Sfx.pstop);
         return true;
       }
+      case 'Space':
       case 'Enter': {
         const item = this.currentMenu.menuitems[this.itemOn];
         if (item.status >= 1) {
@@ -814,36 +807,28 @@ export class MenuSystem {
       Math.round(valX * scale), Math.round(y2 * scale), scale
     );
 
-    // Item 3: SSAO
+    // Item 3: MOUSE SENSITIVITY
     const y3 = y0 + LINEHEIGHT * 3;
-    this.drawText('SSAO', Math.round(x * scale), Math.round(y3 * scale), scale);
+    this.drawText('MOUSE SENSITIVITY', Math.round(x * scale), Math.round(y3 * scale), scale);
     this.drawText(
-      getSsao() ? 'ON' : 'OFF',
+      `${this.mouseSensitivity * 10}%`,
       Math.round(valX * scale), Math.round(y3 * scale), scale
     );
 
-    // Item 4: MOUSE SENSITIVITY
+    // Item 4: SFX VOLUME
     const y4 = y0 + LINEHEIGHT * 4;
-    this.drawText('MOUSE SENSITIVITY', Math.round(x * scale), Math.round(y4 * scale), scale);
+    this.drawText('SFX VOLUME', Math.round(x * scale), Math.round(y4 * scale), scale);
     this.drawText(
-      `${this.mouseSensitivity * 10}%`,
+      `${this.sfxVolumeLevel * 10}%`,
       Math.round(valX * scale), Math.round(y4 * scale), scale
     );
 
-    // Item 5: SFX VOLUME
+    // Item 5: MUSIC VOLUME
     const y5 = y0 + LINEHEIGHT * 5;
-    this.drawText('SFX VOLUME', Math.round(x * scale), Math.round(y5 * scale), scale);
-    this.drawText(
-      `${this.sfxVolumeLevel * 10}%`,
-      Math.round(valX * scale), Math.round(y5 * scale), scale
-    );
-
-    // Item 6: MUSIC VOLUME
-    const y6 = y0 + LINEHEIGHT * 6;
-    this.drawText('MUSIC VOLUME', Math.round(x * scale), Math.round(y6 * scale), scale);
+    this.drawText('MUSIC VOLUME', Math.round(x * scale), Math.round(y5 * scale), scale);
     this.drawText(
       `${this.musicVolumeLevel * 10}%`,
-      Math.round(valX * scale), Math.round(y6 * scale), scale
+      Math.round(valX * scale), Math.round(y5 * scale), scale
     );
   }
 

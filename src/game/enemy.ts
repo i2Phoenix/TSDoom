@@ -457,7 +457,7 @@ function monsterHitscan(actor: MapObjState, damage: number): void {
   const dy = fixedMul(MISSILERANGE, finesine[an]);
 
   // Trace walls along the ACTUAL bullet ray to find the nearest wall hit
-  const wallFrac = traceWalls(actor.x, actor.y, dx, dy, slope, shootz);
+  const { frac: wallFrac } = traceWalls(actor.x, actor.y, dx, dy, slope, shootz);
 
   // Now check if the player is hit by this ray BEFORE the wall
   const pdx = playerRef.x - actor.x;

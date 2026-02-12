@@ -11,7 +11,6 @@ interface Settings {
   mouseSensitivity: number;  // 0-9
   trueColor: boolean;
   dynLights: boolean;
-  ssao: boolean;
   sfxVolume: number;    // 0-10 (0%=0, 10%=1, ..., 100%=10)
   musicVolume: number;  // 0-10
 }
@@ -21,7 +20,6 @@ const DEFAULTS: Readonly<Settings> = {
   mouseSensitivity: 3,    // moderate
   trueColor: false,       // classic palette mode
   dynLights: true,        // dynamic lights enabled by default
-  ssao: true,             // ambient occlusion enabled by default
   sfxVolume: 8,           // 80%
   musicVolume: 8,         // 80%
 };
@@ -47,9 +45,6 @@ export function loadSettings(): void {
     if (typeof saved.dynLights === 'boolean') {
       current.dynLights = saved.dynLights;
     }
-    if (typeof saved.ssao === 'boolean') {
-      current.ssao = saved.ssao;
-    }
     if (typeof saved.sfxVolume === 'number') {
       current.sfxVolume = Math.max(0, Math.min(10, saved.sfxVolume));
     }
@@ -72,7 +67,6 @@ export function getResolutionIndex(): number { return current.resolutionIndex; }
 export function getMouseSensitivityLevel(): number { return current.mouseSensitivity; }
 export function getTrueColor(): boolean { return current.trueColor; }
 export function getDynLights(): boolean { return current.dynLights; }
-export function getSsao(): boolean { return current.ssao; }
 export function getSfxVolume(): number { return current.sfxVolume; }
 export function getMusicVolume(): number { return current.musicVolume; }
 
@@ -98,10 +92,6 @@ export function setDynLights(enabled: boolean): void {
   save();
 }
 
-export function setSsao(enabled: boolean): void {
-  current.ssao = enabled;
-  save();
-}
 
 export function setSfxVolume(vol: number): void {
   current.sfxVolume = Math.max(0, Math.min(10, vol));

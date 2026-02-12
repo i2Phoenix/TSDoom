@@ -25,7 +25,6 @@ import { gBuffer } from "./render/gbuffer";
 import { runPostProcess, addPostProcessPass } from "./render/postprocess";
 import { updateDynLights, clearDynLights, spawnStaticLights, dynamicLightsPass, setDynLightView } from "./render/dynlights";
 import { lightSmoothPass } from "./render/lightsmooth";
-import { ssaoPass } from "./render/ssao";
 import {
   SCREENWIDTH,
   SCREENHEIGHT,
@@ -42,6 +41,7 @@ import { runThinkers, tickLevelTime, clearThinkers } from "./game/thinkers";
 import { initSpecials, initSwitchList, setPlayerRef } from "./game/specials";
 import {
   initAnimations,
+  initScrollLines,
   initThingAnimations,
   updateAnimations,
   updateThingAnimations,
@@ -211,6 +211,7 @@ function initMapFresh(mapName: string): void {
     texDataRef.textures.length
   );
   initThingAnimations(mapRef.things);
+  initScrollLines(mapRef.linedefs, mapRef.sidedefs);
 
   initMapObjects(mapRef);
   setCombatMap(mapRef);
@@ -597,7 +598,6 @@ async function main() {
     document.addEventListener('keydown', resumeAudio, { once: false });
 
     // Register post-process passes (order matters)
-    addPostProcessPass(ssaoPass);          // darken corners/crevices first
     addPostProcessPass(lightSmoothPass);   // smooth light boundaries
     addPostProcessPass(dynamicLightsPass); // then add dynamic lights on top
 
