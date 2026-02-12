@@ -3,7 +3,7 @@
 // All positions, patches, and logic match the original DOOM
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';

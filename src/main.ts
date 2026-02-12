@@ -11,14 +11,14 @@ import { GameMap } from "./map";
 import { SoftwareRenderer } from "./render/software/software-renderer";
 import { setRenderer, getRenderer } from "../game/renderer-global";
 // draw.ts used for SCREENWIDTH/SCREENHEIGHT/rgbaBuffer imports
-import { gBuffer } from "./render/gbuffer";
-import { runPostProcess } from "./render/postprocess";
+import { gBuffer } from "./render/software/gbuffer";
+import { runPostProcess } from "./render/software/postprocess";
 import {
   SCREENWIDTH,
   SCREENHEIGHT,
   rgbaBuffer,
   setResolution,
-} from "./render/draw";
+} from "./render/software/draw";
 import { initBrowserInput } from "./input-browser";
 import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "../game/profiler";
 import { Player, PlayerState } from "../game/player";
@@ -60,7 +60,7 @@ import {
   wipeEndCapture,
   isWipeActive,
   wipeTick,
-} from "./render/wipe";
+} from "./render/software/wipe";
 import {
   spawnSectorLights,
   saveSectorState,

@@ -8,7 +8,7 @@ import {
   ANG90, ANGLETOFINESHIFT, FINEANGLES, FINEMASK,
   finesine, finecosine, finetangent, pointToAngle,
 } from '../../../game/math';
-import { SCREENWIDTH, SCREENHEIGHT } from '../draw';
+import { SCREENWIDTH, SCREENHEIGHT } from './draw';
 import {
   FIELDOFVIEW, LIGHTLEVELS, LIGHTSEGSHIFT,
   MAXLIGHTSCALE, LIGHTSCALESHIFT,

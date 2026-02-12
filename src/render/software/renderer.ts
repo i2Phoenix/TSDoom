@@ -3,16 +3,16 @@
 // Reference: r_main.c, r_bsp.c, r_segs.c, r_plane.c
 // ============================================================
 
-import { GameMap, NF_SUBSECTOR, Seg, Sector, MapThing } from '../map';
-import { TextureData, Patch } from '../textures';
-import { PaletteData } from '../palette';
-import { WAD } from '../wad';
+import { GameMap, NF_SUBSECTOR, Seg, Sector, MapThing } from '../../map';
+import { TextureData, Patch } from '../../textures';
+import { PaletteData } from '../../palette';
+import { WAD } from '../../wad';
 import {
   FRACBITS, FRACUNIT, ANG90, ANG180, ANG270,
   ANGLETOFINESHIFT, FINEANGLES, FINEMASK,
   finesine, finecosine, finetangent, tantoangle,
   fixedMul, fixedDiv, pointToAngle, slopeDiv,
-} from '../../game/math';
+} from '../../../game/math';
 import {
   SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, zBuffer, ZFLAG_WALL, Z_DEPTH_MASK,
   clearScreen, dc, setZScale,
@@ -21,14 +21,14 @@ import {
 } from './draw';
 import { gBuffer, initGBuffer, SurfaceType } from './gbuffer';
 import { SpriteData, THING_INFO } from './sprites';
-import { getAnimatedFlat, getAnimatedTexture, getThingAnimFrame } from '../../game/animations';
-import { removedThings } from '../../game/pickups';
-import { getActiveVfx, getVfxSprite, VfxEffect } from '../../game/vfx';
-import { getDroppedItems, DroppedItem, getMapObjectByThingIndex } from '../../game/mobj';
-import { getActiveProjectiles, getProjectileSprite, Projectile } from '../../game/projectiles';
-import { MF_SHADOW } from '../../game/mobjinfo';
-import { shouldSpawnThing } from '../../game/skill';
-import { profilerBegin, profilerEnd } from '../../game/profiler';
+import { getAnimatedFlat, getAnimatedTexture, getThingAnimFrame } from '../../../game/animations';
+import { removedThings } from '../../../game/pickups';
+import { getActiveVfx, getVfxSprite, VfxEffect } from '../../../game/vfx';
+import { getDroppedItems, DroppedItem, getMapObjectByThingIndex } from '../../../game/mobj';
+import { getActiveProjectiles, getProjectileSprite, Projectile } from '../../../game/projectiles';
+import { MF_SHADOW } from '../../../game/mobjinfo';
+import { shouldSpawnThing } from '../../../game/skill';
+import { profilerBegin, profilerEnd } from '../../../game/profiler';
 
 // ---- Constants ----
 const FIELDOFVIEW = 2048;  // half FOV in fine angles
@@ -2145,7 +2145,7 @@ function drawVisSprite(vis: VisSprite): void {
 // Reference: r_things.c R_DrawPSprite
 // ===========================================================
 
-import { getPspriteInfo, WeaponPlayer, PspDef, WEAPONTOP } from '../../game/weapons';
+import { getPspriteInfo, WeaponPlayer, PspDef, WEAPONTOP } from '../../../game/weapons';
 
 let pspritePlayer: WeaponPlayer | null = null;
 

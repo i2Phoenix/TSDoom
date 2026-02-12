@@ -3,7 +3,7 @@
 // Reference: f_finale.c — F_StartFinale, F_Ticker, F_Drawer
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';

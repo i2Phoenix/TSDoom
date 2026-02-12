@@ -6,7 +6,7 @@
 // TrueColor mode: renders with palette 0, applies screen-space
 //   color blend as post-process (smoother, no geometry tinting).
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from "../render/draw";
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from "../render/software/draw";
 import { PaletteData } from "../palette";
 import { PowerType } from '../../game/player';
 

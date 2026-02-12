@@ -13,8 +13,8 @@ import {
   SCREENWIDTH, rgbaBuffer, zBuffer,
   ZFLAG_WALL, Z_DEPTH_MASK,
   writeGBufferSpritePixel,
-} from '../draw';
-import { gBuffer, SurfaceType } from '../gbuffer';
+} from './draw';
+import { gBuffer, SurfaceType } from './gbuffer';
 import { getThingAnimFrame } from '../../../game/animations';
 import { getMapObjectByThingIndex } from '../../../game/mobj';
 import { getActiveVfx, getVfxSprite, type VfxEffect } from '../../../game/vfx';
@@ -22,7 +22,7 @@ import { getDroppedItems, type DroppedItem } from '../../../game/mobj';
 import { getActiveProjectiles, getProjectileSprite, type Projectile } from '../../../game/projectiles';
 import { removedThings } from '../../../game/pickups';
 import { shouldSpawnThing } from '../../../game/skill';
-import { THING_INFO } from '../sprites';
+import { THING_INFO } from './sprites';
 import type { Sector, MapThing } from '../../map';
 import type { Patch } from '../../textures';
 import type { RenderContext, VisSprite } from './render-context';

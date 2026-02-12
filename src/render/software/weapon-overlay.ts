@@ -6,8 +6,8 @@
 import { FRACBITS } from '../../../game/math';
 import { getPspriteInfo, type WeaponPlayer } from '../../../game/weapons';
 import type { Patch } from '../../textures';
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../draw';
-import { gBuffer, SurfaceType } from '../gbuffer';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from './draw';
+import { gBuffer, SurfaceType } from './gbuffer';
 import type { RenderContext } from './render-context';
 import { BASE_WIDTH, LIGHTLEVELS, MAXLIGHTSCALE } from './render-context';
 

@@ -5,10 +5,10 @@
 // ============================================================
 
 import { FRACBITS, FRACUNIT } from '../../../game/math';
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../draw';
-import { gBuffer, SurfaceType } from '../gbuffer';
-import type { GBuffer } from '../gbuffer';
-import type { PostProcessPass } from '../postprocess';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from './draw';
+import { gBuffer, SurfaceType } from './gbuffer';
+import type { GBuffer } from './gbuffer';
+import type { PostProcessPass } from './postprocess';
 import type { MapThing } from '../../map';
 
 // View position (set each frame from renderer for distance culling + psprite lighting)

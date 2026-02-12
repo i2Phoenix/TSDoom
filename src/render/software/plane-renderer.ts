@@ -12,8 +12,8 @@ import {
 import {
   SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, zBuffer,
   ZFLAG_WALL, Z_DEPTH_MASK,
-} from '../draw';
-import { gBuffer, SurfaceType } from '../gbuffer';
+} from './draw';
+import { gBuffer, SurfaceType } from './gbuffer';
 import { getAnimatedFlat } from '../../../game/animations';
 import type { Sector } from '../../map';
 import type { RenderContext, Visplane } from './render-context';

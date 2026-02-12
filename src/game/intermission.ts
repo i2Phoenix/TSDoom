@@ -3,7 +3,7 @@
 // Reference: wi_stuff.c — WI_Start, WI_Ticker, WI_Drawer
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';

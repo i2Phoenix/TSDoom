@@ -3,7 +3,7 @@
 // Reference: r_draw.c — column drawing, span drawing
 // ============================================================
 
-import { FRACBITS, FRACUNIT, fixedMul } from '../../game/math';
+import { FRACBITS, FRACUNIT, fixedMul } from '../../../game/math';
 import { gBuffer, SurfaceType } from './gbuffer';
 
 // Screen dimensions — mutable, changed via setResolution()

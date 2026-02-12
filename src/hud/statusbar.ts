@@ -3,7 +3,7 @@
 // Reference: st_stuff.c — status bar rendering
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';

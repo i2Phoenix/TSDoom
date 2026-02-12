@@ -23,13 +23,13 @@ import {
   getRenderMode as getRenderMode_internal,
   rebuildLightTables as rebuildLightTables_internal,
   renderDepthOverlay,
-} from '../renderer';
+} from './renderer';
 import {
   SCREENWIDTH,
   SCREENHEIGHT,
   rgbaBuffer,
   setResolution as setResolution_internal,
-} from '../draw';
+} from './draw';
 import {
   addDynLight as addDynLight_internal,
   removeDynLightAt,
@@ -41,7 +41,7 @@ import {
   dynamicLightsPass,
 } from './dynlights';
 import { lightSmoothPass } from './lightsmooth';
-import { addPostProcessPass } from '../postprocess';
+import { addPostProcessPass } from './postprocess';
 
 export class SoftwareRenderer implements Renderer {
   private _passesRegistered = false;

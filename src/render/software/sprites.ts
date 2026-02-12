@@ -3,8 +3,8 @@
 // Reference: r_things.c, info.c — sprite definitions
 // ============================================================
 
-import { WAD } from '../wad';
-import { TextureData, Patch } from '../textures';
+import { WAD } from '../../wad';
+import { TextureData, Patch } from '../../textures';
 
 /** A single sprite frame — one rotation */
 export interface SpriteFrame {

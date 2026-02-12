@@ -15,8 +15,8 @@ import { getAnimatedTexture } from '../../../game/animations';
 import {
   SCREENWIDTH, dc, setZScale,
   drawColumnDeferred, drawMaskedColumnDeferred,
-} from '../draw';
-import { SurfaceType } from '../gbuffer';
+} from './draw';
+import { SurfaceType } from './gbuffer';
 import type { Seg, Sector } from '../../map';
 import type { SegCollector } from './bsp-traverser';
 import type { PlaneRenderer } from './plane-renderer';
