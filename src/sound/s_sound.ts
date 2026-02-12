@@ -4,7 +4,7 @@
 // Channel management, spatial audio, volume control
 // ============================================================
 
-import { S_sfx, Sfx, Music, S_music } from './sounds';
+import { S_sfx, Sfx, Music, S_music } from '../../game/sounds';
 import {
   I_InitSound,
   I_ResumeAudioContext,

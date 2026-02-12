@@ -22,7 +22,7 @@ import {
 } from './vfx';
 import { spawnBarrelExplosion } from './vfx';
 import { P_Random } from './random';
-import { addDynLight } from '../render/dynlights';
+import { FX_DynLight } from '../../game/effects';
 import { Player } from './player';
 
 // ---- Projectile types ----
@@ -205,11 +205,11 @@ export function spawnPlayerProjectile(
 
   // Muzzle flash dynamic light
   if (type === ProjectileType.rocket) {
-    addDynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
+    FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
   } else if (type === ProjectileType.plasma) {
-    addDynLight(x, y, z, 64 * FRACUNIT, 80, 80, 255, 0.4, 2);
+    FX_DynLight(x, y, z, 64 * FRACUNIT, 80, 80, 255, 0.4, 2);
   } else if (type === ProjectileType.bfg) {
-    addDynLight(x, y, z, 128 * FRACUNIT, 80, 255, 80, 0.6, 4);
+    FX_DynLight(x, y, z, 128 * FRACUNIT, 80, 255, 80, 0.6, 4);
   }
 }
 
@@ -265,13 +265,13 @@ export function spawnMonsterProjectile(
 
   // Dynamic light for monster fireballs
   if (type === ProjectileType.impFireball) {
-    addDynLight(x, y, z, 64 * FRACUNIT, 255, 128, 32, 0.5, 2);
+    FX_DynLight(x, y, z, 64 * FRACUNIT, 255, 128, 32, 0.5, 2);
   } else if (type === ProjectileType.cacoFireball) {
-    addDynLight(x, y, z, 64 * FRACUNIT, 255, 64, 64, 0.5, 2);
+    FX_DynLight(x, y, z, 64 * FRACUNIT, 255, 64, 64, 0.5, 2);
   } else if (type === ProjectileType.baronFireball) {
-    addDynLight(x, y, z, 80 * FRACUNIT, 64, 255, 64, 0.5, 2);
+    FX_DynLight(x, y, z, 80 * FRACUNIT, 64, 255, 64, 0.5, 2);
   } else if (type === ProjectileType.cyberdemonRocket) {
-    addDynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
+    FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
   }
 }
 
@@ -333,19 +333,19 @@ export function updateProjectiles(): void {
 
     // Flying dynamic light for rockets
     if (proj.type === ProjectileType.rocket) {
-      addDynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
     } else if (proj.type === ProjectileType.plasma) {
-      addDynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 100, 100, 255, 0.55, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 100, 100, 255, 0.55, 2);
     } else if (proj.type === ProjectileType.bfg) {
-      addDynLight(proj.x, proj.y, proj.z, 192 * FRACUNIT, 100, 255, 100, 0.7, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 192 * FRACUNIT, 100, 255, 100, 0.7, 2);
     } else if (proj.type === ProjectileType.impFireball) {
-      addDynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 128, 32, 0.5, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 128, 32, 0.5, 2);
     } else if (proj.type === ProjectileType.cacoFireball) {
-      addDynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 64, 64, 0.5, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 64, 64, 0.5, 2);
     } else if (proj.type === ProjectileType.baronFireball) {
-      addDynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 64, 255, 64, 0.5, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 64, 255, 64, 0.5, 2);
     } else if (proj.type === ProjectileType.cyberdemonRocket) {
-      addDynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
+      FX_DynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
     }
 
     // Safety: remove after ~10 seconds (350 tics) to prevent leaks
@@ -509,12 +509,12 @@ function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: n
       // Splash damage — damages everything in radius including player
       P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius);
       // Explosion light
-      addDynLight(hitX, hitY, hitZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
+      FX_DynLight(hitX, hitY, hitZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
       break;
 
     case ProjectileType.plasma:
       spawnPlasmaHit(hitX, hitY, hitZ);
-      addDynLight(hitX, hitY, hitZ, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
+      FX_DynLight(hitX, hitY, hitZ, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
       break;
 
     case ProjectileType.bfg:
@@ -522,7 +522,7 @@ function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: n
       // BFG tracers: after explosion, fire 40 invisible autoaim rays
       // (simplified: just deal massive damage to things in LOS)
       fireBfgTracers(hitX, hitY, hitZ);
-      addDynLight(hitX, hitY, hitZ, 256 * FRACUNIT, 80, 255, 80, 0.8, 15);
+      FX_DynLight(hitX, hitY, hitZ, 256 * FRACUNIT, 80, 255, 80, 0.8, 15);
       break;
   }
 }
@@ -552,7 +552,7 @@ function fireBfgTracers(hitX: number, hitY: number, hitZ: number): void {
     damageMobj(obj, damage);
 
     // Green flash on target
-    addDynLight(obj.x, obj.y, obj.z + (obj.height >> 1), 64 * FRACUNIT, 80, 255, 80, 0.3, 3);
+    FX_DynLight(obj.x, obj.y, obj.z + (obj.height >> 1), 64 * FRACUNIT, 80, 255, 80, 0.3, 3);
   }
 }
 

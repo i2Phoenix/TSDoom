@@ -1,0 +1,139 @@
+// ============================================================
+// Browser Keyboard + Mouse Input Provider
+// Extracted from src/game/input.ts — implements InputProvider
+// ============================================================
+
+import { InputProvider, InputState, createDefaultInputState, setInputProvider } from '../game/input-system';
+import { gamepadProvider } from './input-gamepad';
+import { CompositeInputProvider } from './input-composite';
+
+const state: InputState = createDefaultInputState();
+let pointerLocked = false;
+
+function handleKey(code: string, down: boolean): void {
+  switch (code) {
+    case 'KeyW':
+    case 'ArrowUp':
+      state.forward = down;
+      break;
+    case 'KeyS':
+    case 'ArrowDown':
+      state.backward = down;
+      break;
+    case 'KeyA':
+      state.strafeLeft = down;
+      break;
+    case 'KeyD':
+      state.strafeRight = down;
+      break;
+    case 'ArrowLeft':
+      state.turnLeft = down;
+      break;
+    case 'ArrowRight':
+      state.turnRight = down;
+      break;
+    case 'Space':
+    case 'KeyE':
+      state.use = down;
+      break;
+    case 'ControlLeft':
+    case 'ControlRight':
+      state.fire = down;
+      break;
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      state.run = down;
+      break;
+    case 'Digit1': if (down) state.weaponSelect = 0; break;
+    case 'Digit2': if (down) state.weaponSelect = 1; break;
+    case 'Digit3': if (down) state.weaponSelect = 2; break;
+    case 'Digit4': if (down) state.weaponSelect = 3; break;
+    case 'Digit5': if (down) state.weaponSelect = 4; break;
+    case 'Digit6': if (down) state.weaponSelect = 5; break;
+    case 'Digit7': if (down) state.weaponSelect = 6; break;
+  }
+}
+
+/** The browser keyboard+mouse input provider */
+const browserKeyboardMouseProvider: InputProvider = {
+  poll(): InputState {
+    return state;
+  },
+  resetAccumulated(): void {
+    state.lookX = 0;
+    state.lookY = 0;
+  },
+  clearAll(): void {
+    state.forward = false;
+    state.backward = false;
+    state.turnLeft = false;
+    state.turnRight = false;
+    state.strafeLeft = false;
+    state.strafeRight = false;
+    state.use = false;
+    state.fire = false;
+    state.run = false;
+    state.lookX = 0;
+    state.lookY = 0;
+    state.weaponSelect = -1;
+  },
+};
+
+/** Is the pointer currently locked? */
+export function isPointerLocked(): boolean {
+  return pointerLocked;
+}
+
+/**
+ * Initialize browser keyboard + mouse input and register as the active provider.
+ * Call once at startup after the canvas is created.
+ * @param menuActiveCheck — function returning true when menu is active (input suppressed)
+ */
+export function initBrowserInput(canvas: HTMLCanvasElement, menuActiveCheck: () => boolean): void {
+  window.addEventListener('keydown', (e) => {
+    if (!menuActiveCheck()) handleKey(e.code, true);
+    e.preventDefault();
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (!menuActiveCheck()) handleKey(e.code, false);
+    e.preventDefault();
+  });
+
+  // Pointer lock for mouse control
+  canvas.addEventListener('click', () => {
+    if (!pointerLocked) {
+      canvas.requestPointerLock();
+    }
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (pointerLocked && !menuActiveCheck()) {
+      state.lookX += e.movementX;
+      state.lookY += e.movementY;
+    }
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (pointerLocked && !menuActiveCheck()) {
+      if (e.button === 0) state.fire = true;
+      if (e.button === 2) state.use = true;
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (e.button === 0) state.fire = false;
+    if (e.button === 2) state.use = false;
+  });
+
+  // Prevent context menu
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Register composite provider: keyboard + gamepad (both always active)
+  const composite = new CompositeInputProvider([browserKeyboardMouseProvider, gamepadProvider]);
+  setInputProvider(composite);
+}

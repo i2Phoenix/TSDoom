@@ -16,8 +16,8 @@ import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player'
 import { setGameAction, setPendingWarpMap, GameAction } from './gamestate';
 import { FRACBITS } from '../math';
 import { areCheatsDisabled } from './skill';
-import { S_ChangeMusic } from '../sound/s_sound';
-import { Music } from '../sound/sounds';
+import { FX_Music } from '../../game/effects';
+import { Music } from '../../game/sounds';
 
 // ---- Cheat flags (bitfield on Player.cheats) ----
 export const CF_GODMODE = 1;
@@ -201,7 +201,7 @@ const cheats: CheatDef[] = [
         p.message = 'IMPOSSIBLE SELECTION';
         return;
       }
-      S_ChangeMusic(musIdx, true);
+      FX_Music(musIdx, true);
       p.message = 'Music Change';
     },
   },

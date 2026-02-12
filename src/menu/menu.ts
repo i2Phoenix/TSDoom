@@ -15,7 +15,7 @@ import {
   setPendingSkill,
 } from '../game/gamestate';
 import { setMouseSensitivity } from '../game/player';
-import { clearInputState } from '../game/input';
+import { clearInputState } from '../../game/input-system';
 import { SkillLevel, SKILL_NAMES } from '../game/skill';
 import { rebuildLightTables } from '../render/renderer';
 import {
@@ -26,7 +26,7 @@ import {
 } from '../game/settings';
 import { setDynLightsEnabled } from '../render/dynlights';
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
-import { Sfx, Music } from '../sound/sounds';
+import { Sfx, Music } from '../../game/sounds';
 
 // ── Resolution presets ───────────────────────────────────────
 // Internal render resolutions — always 8:5 (original DOOM aspect ratio).
@@ -623,6 +623,9 @@ export class MenuSystem {
     return false;
   }
 
+  // ── Gamepad state for edge-triggered menu input ────────────
+  private prevGamepadButtons: boolean[] = [];
+
   // ── Tick (skull animation -- 8 tics between frames) ────────
   tick(): void {
     this.skullAnimCounter++;
@@ -631,6 +634,38 @@ export class MenuSystem {
       this.whichSkull = 1 - this.whichSkull;
     }
     this.titleBlink++;
+
+    // Poll gamepad for menu navigation
+    this.pollGamepad();
+  }
+
+  /** Poll gamepad and feed edge-triggered presses to handleKey */
+  private pollGamepad(): void {
+    const gamepads = navigator.getGamepads();
+    const gp = gamepads[0];
+    if (!gp) return;
+
+    const curr = gp.buttons.map(b => b.pressed);
+    const prev = this.prevGamepadButtons;
+
+    // Helper: true only on press edge (not held)
+    const justPressed = (idx: number) => curr[idx] && !prev[idx];
+
+    // Map gamepad buttons to menu key codes
+    // D-pad: 12=Up, 13=Down, 14=Left, 15=Right
+    if (justPressed(12)) this.handleKey('ArrowUp', '');
+    if (justPressed(13)) this.handleKey('ArrowDown', '');
+    if (justPressed(14)) this.handleKey('ArrowLeft', '');
+    if (justPressed(15)) this.handleKey('ArrowRight', '');
+
+    // A button (0) = confirm
+    if (justPressed(0)) this.handleKey('Enter', '');
+    // B button (1) = back/escape
+    if (justPressed(1)) this.handleKey('Escape', '');
+    // Start button (9) = open/close menu
+    if (justPressed(9)) this.handleKey('Escape', '');
+
+    this.prevGamepadButtons = curr;
   }
 
   // ── Draw title screen (called by main.ts for GS_DEMOSCREEN) ──

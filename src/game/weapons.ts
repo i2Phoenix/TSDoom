@@ -4,11 +4,11 @@
 // ============================================================
 
 import { FRACBITS, FRACUNIT, FINEMASK, finesine, finecosine, fixedMul } from '../math';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_Sound, FX_SetExtraLight } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 import { levelTime } from './thinkers';
 import { P_Random } from './random';
-import { setExtraLight } from '../render/renderer';
+
 import {
   P_BulletSlope, P_GunShot, P_AimLineAttack, P_LineAttack,
   getBulletSlope, MELEERANGE,
@@ -282,17 +282,17 @@ function A_Raise(wp: WeaponPlayer): void { weaponRaise(wp); }
 function A_ReFire(wp: WeaponPlayer): void { weaponReFire(wp); }
 
 function A_FirePistol(wp: WeaponPlayer): void {
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.pistol);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.pistol);
   fireHitscan(wp, 1, !wp.refire);
 }
 
 function A_FireShotgun(wp: WeaponPlayer): void {
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.shotgn);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.shotgn);
   fireHitscan(wp, 7, false);
 }
 
 function A_FireCGun(wp: WeaponPlayer): void {
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.pistol);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.pistol);
   fireHitscan(wp, 1, !wp.refire);
 }
 
@@ -309,7 +309,7 @@ function A_Punch(wp: WeaponPlayer): void {
 
   // Sound: hit sound only if we hit something
   if (linetarget) {
-    S_StartSound({ x: wp.x, y: wp.y }, Sfx.punch);
+    FX_Sound({ x: wp.x, y: wp.y }, Sfx.punch);
   }
 }
 
@@ -322,9 +322,9 @@ function A_Saw(wp: WeaponPlayer): void {
 
   // Sound: hit or miss
   if (linetarget) {
-    S_StartSound({ x: wp.x, y: wp.y }, Sfx.sawhit);
+    FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawhit);
   } else {
-    S_StartSound({ x: wp.x, y: wp.y }, Sfx.sawful);
+    FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawful);
   }
 }
 
@@ -336,14 +336,14 @@ function A_GunFlash(wp: WeaponPlayer): void {
 }
 function A_FireMissile(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.misl]--;
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.rlaunc);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.rlaunc);
   // Autoaim slope for vertical aiming
   P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
   spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.rocket);
 }
 function A_FirePlasma(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.cell]--;
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.plasma);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.plasma);
   // Random flash state (original DOOM: P_Random()&1 picks flash1 or flash2)
   const flashOffset = P_Random() & 1;
   const flashBase = weaponinfo[wp.readyweapon].flashstate;
@@ -356,14 +356,14 @@ function A_FirePlasma(wp: WeaponPlayer): void {
 }
 function A_FireBFG(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.cell] -= 40;
-  S_StartSound({ x: wp.x, y: wp.y }, Sfx.bfg);
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.bfg);
   // Autoaim slope
   P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
   spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.bfg);
 }
-function A_Light0(_wp: WeaponPlayer): void { setExtraLight(0); }
-function A_Light1(_wp: WeaponPlayer): void { setExtraLight(1); }
-function A_Light2(_wp: WeaponPlayer): void { setExtraLight(2); }
+function A_Light0(_wp: WeaponPlayer): void { FX_SetExtraLight(0); }
+function A_Light1(_wp: WeaponPlayer): void { FX_SetExtraLight(1); }
+function A_Light2(_wp: WeaponPlayer): void { FX_SetExtraLight(2); }
 
 // ---- State table (from info.c) ----
 const states: Map<StateNum, WeaponState> = new Map();
@@ -529,7 +529,7 @@ function weaponReady(wp: WeaponPlayer): void {
 
   // Chainsaw idle sound
   if (wp.readyweapon === WeaponType.chainsaw) {
-    S_StartSound({ x: wp.x, y: wp.y }, Sfx.sawidl);
+    FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawidl);
   }
 
   // Weapon bobbing

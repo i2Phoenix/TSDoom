@@ -5,7 +5,7 @@
 
 import { GameMap, LineDef, ML_BLOCKING, ML_TWOSIDED } from '../map';
 import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEANGLES, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from '../math';
-import { getInput, resetMouseAccumulation } from './input';
+import { getInput, resetInputAccumulated } from '../../game/input-system';
 import { useSpecialLine, crossSpecialLine } from './specials';
 import { checkPickups } from './pickups';
 import { CF_GODMODE, CF_NOCLIP } from './cheats';
@@ -16,8 +16,8 @@ import {
   weaponinfo, dropWeapon, bringUpWeapon,
 } from './weapons';
 import { levelTime } from './thinkers';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_Sound } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 
 const USERANGE = 64 << FRACBITS; // 64 map units — how far the player can reach
 
@@ -161,7 +161,7 @@ export class Player {
 
     // Clear accumulated mouse input so stale movement from
     // death / wipe doesn't override the spawn angle on first tick
-    resetMouseAccumulation();
+    resetInputAccumulated();
   }
 
   /**
@@ -224,7 +224,7 @@ export class Player {
     this.bob = 0;
 
     // Clear accumulated mouse input
-    resetMouseAccumulation();
+    resetInputAccumulated();
   }
 
   /** Process input and update player state */
@@ -253,10 +253,10 @@ export class Player {
     }
 
     // Mouse turning
-    if (input.mouseX !== 0) {
-      this.angle = (this.angle - (input.mouseX * MOUSE_SENSITIVITY << 16)) >>> 0;
+    if (input.lookX !== 0) {
+      this.angle = (this.angle - (input.lookX * MOUSE_SENSITIVITY << 16)) >>> 0;
     }
-    resetMouseAccumulation();
+    resetInputAccumulated();
 
     // Thrust (momentum-based, like original DOOM P_Thrust)
     // Original: P_Thrust(mo, mo->angle, cmd->forwardmove * 2048);
@@ -639,14 +639,14 @@ export class Player {
     if (this.health <= 0) {
       this.health = 0;
       this.playerstate = PlayerState.DEAD;
-      S_StartSound(null, Sfx.pldeth);
+      FX_Sound(null, Sfx.pldeth);
       dropWeapon(this);
       console.log('[player] DEAD — health reached 0');
       return true;
     }
 
     // Pain sound (only if still alive)
-    S_StartSound(null, Sfx.plpain);
+    FX_Sound(null, Sfx.plpain);
     return false;
   }
 
@@ -694,6 +694,27 @@ export class Player {
       this.momy = fixedMul(this.momy, 0xE800);
       if (Math.abs(this.momx) < 0x1000) this.momx = 0;
       if (Math.abs(this.momy) < 0x1000) this.momy = 0;
+    }
+
+    // Update Z position after knockback movement — keep player on floor
+    // (normal tick() does this but deathThink() returns early, skipping it)
+    const ssZ = this.map.pointInSubsector(this.x, this.y);
+    if (ssZ.sector) {
+      const floorH = ssZ.sector.floorHeight;
+      const ceilH = ssZ.sector.ceilingHeight;
+      // Snap to floor (dead players don't jump/fall)
+      this.z = floorH;
+      this.momz = 0;
+      // Clamp to ceiling
+      if (this.z + PLAYERHEIGHT > ceilH) {
+        this.z = ceilH - PLAYERHEIGHT;
+        if (this.z < floorH) this.z = floorH;
+      }
+      // Recalculate viewz with corrected z
+      this.viewz = this.z + this.viewheight;
+      if (this.viewz > ceilH - 4 * FRACUNIT) {
+        this.viewz = ceilH - 4 * FRACUNIT;
+      }
     }
 
     // Press Use to respawn (DOOM: BT_USE)

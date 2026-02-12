@@ -14,9 +14,8 @@ import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
   setMonsterState,
 } from './animations';
-import { removeDynLightAt } from '../render/dynlights';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_RemoveDynLight, FX_Sound } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 import { shouldSpawnThing } from './skill';
 import {
   MT, MobjInfo, mobjinfo, getMTForDoomedNum, isMonsterType,
@@ -316,7 +315,7 @@ export function damageMobj(
         setMonsterPain(target.thingIndex, target.type);
         // Play pain sound
         if (animDef.painSound !== undefined) {
-          S_StartSound({ x: target.x, y: target.y }, animDef.painSound);
+          FX_Sound({ x: target.x, y: target.y }, animDef.painSound);
         }
       }
     }
@@ -351,7 +350,7 @@ function killMobj(target: MapObjState): void {
     target.removed = true;
     removedThings.add(target.thingIndex);
     // Remove static barrel light
-    removeDynLightAt(target.x, target.y);
+    FX_RemoveDynLight(target.x, target.y);
     return;
   }
 
@@ -371,10 +370,10 @@ function killMobj(target: MapObjState): void {
   if (animDef) {
     if (overkill) {
       // XDeath = universal gib/slop sound
-      S_StartSound({ x: target.x, y: target.y }, Sfx.slop);
+      FX_Sound({ x: target.x, y: target.y }, Sfx.slop);
     } else if (animDef.deathSound && animDef.deathSound.length > 0) {
       const sfx = animDef.deathSound[P_Random() % animDef.deathSound.length];
-      S_StartSound({ x: target.x, y: target.y }, sfx);
+      FX_Sound({ x: target.x, y: target.y }, sfx);
     }
   }
 }

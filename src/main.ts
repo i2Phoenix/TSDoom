@@ -31,10 +31,11 @@ import {
   rgbaBuffer,
   setResolution,
 } from "./render/draw";
-import { initInput } from "./game/input";
+import { initBrowserInput } from "./input-browser";
 import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "./game/profiler";
 import { Player, PlayerState } from "./game/player";
 import { GameLoop } from "./game/loop";
+import { createBrowserClock } from "../game/clock";
 import { StatusBar } from "./hud/statusbar";
 import { MenuSystem, RESOLUTIONS } from "./menu/menu";
 import { runThinkers, tickLevelTime, clearThinkers } from "./game/thinkers";
@@ -62,8 +63,9 @@ import { feedCheatKey, resetCheatBuffer } from "./game/cheats";
 import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "./game/projectiles";
 import { setGameSkill } from "./game/skill";
 import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
-import { Music } from "./sound/sounds";
+import { Music } from "../game/sounds";
 import { I_ResumeAudioContext } from "./sound/i_sound";
+import { initClientEffects } from "./effects-client";
 import {
   wipeStartCapture,
   wipeEndCapture,
@@ -200,7 +202,10 @@ function initMapFresh(mapName: string): void {
   clearVfx();
   clearProjectiles();
   initSpecials(mapRef);
-  initSwitchList(texDataRef);
+  initSwitchList(
+    (name) => texDataRef.textureNumForName(name),
+    (idx) => texDataRef.textures[idx]?.height ?? 0,
+  );
   saveSectorState(mapRef);
   spawnSectorLights(mapRef);
 
@@ -315,7 +320,7 @@ function musicForMap(mapName: string): Music {
 
 function ensureInput(): void {
   if (!inputInitialized) {
-    initInput(canvas);
+    initBrowserInput(canvas, () => menuactive);
     inputInitialized = true;
   }
 }
@@ -588,6 +593,7 @@ async function main() {
 
     loadingEl.textContent = "Loading sounds...";
     S_Init(wad, Math.round(getSfxVolume() * 1.5), Math.round(getMusicVolume() * 1.5));
+    initClientEffects();
 
     loadingEl.textContent = "Initializing...";
     createCanvas();
@@ -892,7 +898,8 @@ async function main() {
           profilerDiv.style.display = 'none';
           fpsDiv.textContent = `${loop.fps} FPS`;
         }
-      }
+      },
+      createBrowserClock(),
     );
 
     loop.start();

@@ -7,7 +7,7 @@
 import { FRACBITS, FRACUNIT } from '../math';
 import { GameMap } from '../map';
 import { P_Random } from './random';
-import { addDynLight } from '../render/dynlights';
+import { FX_DynLight } from '../../game/effects';
 
 // ---- Frame data from info.c ----
 // Frame number with bit 15 set = fullbright
@@ -92,7 +92,7 @@ export function spawnPuff(x: number, y: number, z: number, melee: boolean): void
 
   // Small flash at bullet impact point
   if (!melee) {
-    addDynLight(x, y, jitterZ, 48 * FRACUNIT, 255, 200, 100, 0.3, 2);
+    FX_DynLight(x, y, jitterZ, 48 * FRACUNIT, 255, 200, 100, 0.3, 2);
   }
 }
 
@@ -208,7 +208,7 @@ export function spawnRocketExplosion(x: number, y: number, z: number): void {
     totalTics: 0,
   };
   activeEffects.push(effect);
-  addDynLight(x, y, z, 160 * FRACUNIT, 255, 180, 60, 0.5, 8);
+  FX_DynLight(x, y, z, 160 * FRACUNIT, 255, 180, 60, 0.5, 8);
 }
 
 // ---- Plasma hit: PLSE frames A/B/C/D/E (S_PLASEXP..5) ----
@@ -231,7 +231,7 @@ export function spawnPlasmaHit(x: number, y: number, z: number): void {
     totalTics: 0,
   };
   activeEffects.push(effect);
-  addDynLight(x, y, z, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
+  FX_DynLight(x, y, z, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
 }
 
 // ---- BFG hit: BFE1 frames A/B/C/D/E/F (S_BFGLAND..6) ----
@@ -255,7 +255,7 @@ export function spawnBfgHit(x: number, y: number, z: number): void {
     totalTics: 0,
   };
   activeEffects.push(effect);
-  addDynLight(x, y, z, 192 * FRACUNIT, 80, 255, 80, 0.7, 12);
+  FX_DynLight(x, y, z, 192 * FRACUNIT, 80, 255, 80, 0.7, 12);
 }
 
 // ---- Teleport fog: TFOG frames A→J (S_TFOG..S_TFOG10) ----
@@ -284,6 +284,6 @@ export function spawnTeleportFog(x: number, y: number, z: number): void {
   };
   activeEffects.push(effect);
   // Green-tinted dynamic light for teleport flash
-  addDynLight(x, y, z, 128 * FRACUNIT, 50, 255, 50, 0.6, 10);
+  FX_DynLight(x, y, z, 128 * FRACUNIT, 50, 255, 50, 0.6, 10);
 }
 

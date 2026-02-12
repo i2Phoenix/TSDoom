@@ -7,8 +7,8 @@ import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
-import { S_StartSound, S_ChangeMusic } from '../sound/s_sound';
-import { Sfx, Music } from '../sound/sounds';
+import { FX_Sound, FX_Music } from '../../game/effects';
+import { Sfx, Music } from '../../game/sounds';
 
 // ---- Constants (from wi_stuff.c) ----
 
@@ -264,9 +264,9 @@ export class Intermission {
     // Start intermission music on first tick
     if (this.bcnt === 1) {
       if (this.wbs?.isCommercial) {
-        S_ChangeMusic(Music.dm2int, true);
+        FX_Music(Music.dm2int, true);
       } else {
-        S_ChangeMusic(Music.inter, true);
+        FX_Music(Music.inter, true);
       }
     }
 
@@ -297,46 +297,46 @@ export class Intermission {
       this.cnt_secret = Math.floor((this.wbs.ssecret * 100) / maxs);
       this.cnt_time = Math.floor(this.wbs.stime / TICRATE);
       this.cnt_par = Math.floor(this.wbs.partime / TICRATE);
-      S_StartSound(null, Sfx.barexp);
+      FX_Sound(null, Sfx.barexp);
       this.sp_state = 10;
     }
 
     if (this.sp_state === 2) {
       // Counting kills
       this.cnt_kills += 2;
-      if (!(this.bcnt & 3)) S_StartSound(null, Sfx.pistol);
+      if (!(this.bcnt & 3)) FX_Sound(null, Sfx.pistol);
 
       const target = Math.floor((this.wbs.skills * 100) / (this.wbs.maxkills || 1));
       if (this.cnt_kills >= target) {
         this.cnt_kills = target;
-        S_StartSound(null, Sfx.barexp);
+        FX_Sound(null, Sfx.barexp);
         this.sp_state++;
       }
     } else if (this.sp_state === 4) {
       // Counting items
       this.cnt_items += 2;
-      if (!(this.bcnt & 3)) S_StartSound(null, Sfx.pistol);
+      if (!(this.bcnt & 3)) FX_Sound(null, Sfx.pistol);
 
       const target = Math.floor((this.wbs.sitems * 100) / (this.wbs.maxitems || 1));
       if (this.cnt_items >= target) {
         this.cnt_items = target;
-        S_StartSound(null, Sfx.barexp);
+        FX_Sound(null, Sfx.barexp);
         this.sp_state++;
       }
     } else if (this.sp_state === 6) {
       // Counting secrets
       this.cnt_secret += 2;
-      if (!(this.bcnt & 3)) S_StartSound(null, Sfx.pistol);
+      if (!(this.bcnt & 3)) FX_Sound(null, Sfx.pistol);
 
       const target = Math.floor((this.wbs.ssecret * 100) / (this.wbs.maxsecret || 1));
       if (this.cnt_secret >= target) {
         this.cnt_secret = target;
-        S_StartSound(null, Sfx.barexp);
+        FX_Sound(null, Sfx.barexp);
         this.sp_state++;
       }
     } else if (this.sp_state === 8) {
       // Counting time
-      if (!(this.bcnt & 3)) S_StartSound(null, Sfx.pistol);
+      if (!(this.bcnt & 3)) FX_Sound(null, Sfx.pistol);
 
       this.cnt_time += 3;
       const targetTime = Math.floor(this.wbs.stime / TICRATE);
@@ -347,14 +347,14 @@ export class Intermission {
       if (this.cnt_par >= targetPar) {
         this.cnt_par = targetPar;
         if (this.cnt_time >= targetTime) {
-          S_StartSound(null, Sfx.barexp);
+          FX_Sound(null, Sfx.barexp);
           this.sp_state++;
         }
       }
     } else if (this.sp_state === 10) {
       // Waiting for player to continue
       if (this.accelerate) {
-        S_StartSound(null, Sfx.sgcock);
+        FX_Sound(null, Sfx.sgcock);
         if (this.wbs.isCommercial) {
           this.initNoState();
         } else {

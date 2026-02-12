@@ -5,7 +5,7 @@
 // ============================================================
 
 import type { WAD } from '../wad';
-import { S_sfx, Sfx } from './sounds';
+import { S_sfx, Sfx } from '../../game/sounds';
 
 // ---- Constants ----
 const NUM_CHANNELS = 8;

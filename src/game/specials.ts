@@ -7,8 +7,8 @@ import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../map';
 import { FRACBITS, FRACUNIT, fixedMul, fixedDiv } from '../math';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
-import { SoundOrigin, S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_Sound, SoundOrigin } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 import { spawnTeleportFog } from './vfx';
 import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
 import type { Player } from './player';
@@ -282,11 +282,11 @@ function doorTick(t: Thinker): void {
           case DoorType.blazeRaise:
           case DoorType.normal:
             door.direction = -1; // time to go back down
-            S_StartSound(sectorSoundOrg(door.sector), Sfx.dorcls);
+            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
             break;
           case DoorType.close30ThenOpen:
             door.direction = 1;
-            S_StartSound(sectorSoundOrg(door.sector), Sfx.doropn);
+            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
             break;
         }
       }
@@ -310,7 +310,7 @@ function doorTick(t: Thinker): void {
           case DoorType.blazeClose:
           case DoorType.normal:
           case DoorType.close:
-            S_StartSound(sectorSoundOrg(door.sector), Sfx.dorcls);
+            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
             sectorSpecialData.delete(door.sector);
             removeThinker(door);
             break;
@@ -326,7 +326,7 @@ function doorTick(t: Thinker): void {
             break; // DO NOT GO BACK UP
           default:
             door.direction = 1;
-            S_StartSound(sectorSoundOrg(door.sector), Sfx.doropn);
+            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
             break;
         }
       }
@@ -407,7 +407,7 @@ function evDoDoor(line: LineDef, type: DoorType): boolean {
         break;
     }
 
-    S_StartSound(sectorSoundOrg(sec), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
+    FX_Sound(sectorSoundOrg(sec), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
     addThinker(door);
     sectorSpecialData.set(sec, door);
   }
@@ -427,7 +427,7 @@ function evVerticalDoor(line: LineDef, player: Player | null): void {
       case 32:
         if (!player.keys[0] && !player.keys[3]) {
           player.message = 'You need a blue key to open this door';
-          S_StartSound(null, Sfx.oof);
+          FX_Sound(null, Sfx.oof);
           return;
         }
         break;
@@ -435,7 +435,7 @@ function evVerticalDoor(line: LineDef, player: Player | null): void {
       case 34:
         if (!player.keys[1] && !player.keys[4]) {
           player.message = 'You need a yellow key to open this door';
-          S_StartSound(null, Sfx.oof);
+          FX_Sound(null, Sfx.oof);
           return;
         }
         break;
@@ -443,7 +443,7 @@ function evVerticalDoor(line: LineDef, player: Player | null): void {
       case 33:
         if (!player.keys[2] && !player.keys[5]) {
           player.message = 'You need a red key to open this door';
-          S_StartSound(null, Sfx.oof);
+          FX_Sound(null, Sfx.oof);
           return;
         }
         break;
@@ -506,7 +506,7 @@ function evVerticalDoor(line: LineDef, player: Player | null): void {
 
   door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
 
-  S_StartSound(sectorSoundOrg(sec), Sfx.doropn);
+  FX_Sound(sectorSoundOrg(sec), Sfx.doropn);
   addThinker(door);
   sectorSpecialData.set(sec, door);
 }
@@ -524,7 +524,7 @@ function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): b
     case 133:
       if (!player.keys[0] && !player.keys[3]) {
         player.message = 'You need a blue key to activate this object';
-        S_StartSound(null, Sfx.oof);
+        FX_Sound(null, Sfx.oof);
         return false;
       }
       break;
@@ -532,7 +532,7 @@ function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): b
     case 135:
       if (!player.keys[2] && !player.keys[5]) {
         player.message = 'You need a red key to activate this object';
-        S_StartSound(null, Sfx.oof);
+        FX_Sound(null, Sfx.oof);
         return false;
       }
       break;
@@ -540,7 +540,7 @@ function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): b
     case 137:
       if (!player.keys[1] && !player.keys[4]) {
         player.message = 'You need a yellow key to activate this object';
-        S_StartSound(null, Sfx.oof);
+        FX_Sound(null, Sfx.oof);
         return false;
       }
       break;
@@ -581,7 +581,7 @@ function platTick(t: Thinker): void {
       } else if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
-        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstop);
+        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
         switch (plat.type) {
           case PlatType.blazeDWUS:
           case PlatType.downWaitUpStay:
@@ -599,7 +599,7 @@ function platTick(t: Thinker): void {
       if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
-        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstop);
+        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
       }
       break;
     }
@@ -611,7 +611,7 @@ function platTick(t: Thinker): void {
         } else {
           plat.status = PlatStatus.down;
         }
-        S_StartSound(sectorSoundOrg(plat.sector), Sfx.pstart);
+        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstart);
       }
       break;
 
@@ -714,7 +714,7 @@ function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean {
         break;
     }
 
-    S_StartSound(sectorSoundOrg(sec), Sfx.pstart);
+    FX_Sound(sectorSoundOrg(sec), Sfx.pstart);
     addThinker(plat);
     sectorSpecialData.set(sec, plat);
     addActivePlat(plat);
@@ -767,7 +767,7 @@ function floorTick(t: Thinker): void {
  * Reference: p_floor.c P_FindShortestTextureAround
  */
 function findShortestTextureAround(sec: Sector): number {
-  if (!texDataRef || !currentMap) return FRACUNIT; // fallback: 1 unit
+  if (!currentMap) return FRACUNIT; // fallback: 1 unit
 
   let minSize = 0x7FFFFFFF;
 
@@ -784,9 +784,9 @@ function findShortestTextureAround(sec: Sector): number {
 
       // Check top, bottom, mid textures — skip index 0 ("no texture")
       for (const texIdx of [side.topTexture, side.bottomTexture, side.midTexture]) {
-        if (texIdx > 0 && texIdx < texDataRef.textures.length) {
-          const h = texDataRef.textures[texIdx].height;
-          if (h < minSize) {
+        if (texIdx > 0) {
+          const h = _textureHeight(texIdx);
+          if (h > 0 && h < minSize) {
             minSize = h;
           }
         }
@@ -1036,7 +1036,7 @@ function ceilingTick(t: Thinker): void {
       // Play movement sound every 8 tics (not for silent type)
       if (!(ceilingTick_counter & 7)) {
         if (ceiling.type !== CeilingType.silentCrushAndRaise) {
-          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
+          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
         }
       }
 
@@ -1044,7 +1044,7 @@ function ceilingTick(t: Thinker): void {
         if (ceiling.type === CeilingType.raiseToHighest) {
           removeActiveCeiling(ceiling);
         } else if (ceiling.type === CeilingType.silentCrushAndRaise) {
-          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
+          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
           ceiling.direction = -1;
         } else if (ceiling.type === CeilingType.fastCrushAndRaise ||
                    ceiling.type === CeilingType.crushAndRaise) {
@@ -1061,13 +1061,13 @@ function ceilingTick(t: Thinker): void {
       // Play movement sound every 8 tics (not for silent type)
       if (!(ceilingTick_counter & 7)) {
         if (ceiling.type !== CeilingType.silentCrushAndRaise) {
-          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
+          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
         }
       }
 
       if (res === MoveResult.pastdest) {
         if (ceiling.type === CeilingType.silentCrushAndRaise) {
-          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
+          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
           ceiling.speed = CEILSPEED;
           ceiling.direction = 1;
         } else if (ceiling.type === CeilingType.crushAndRaise) {
@@ -1263,15 +1263,20 @@ const SWITCH_PAIRS: [string, string][] = [
 const switchMap: Map<number, number> = new Map();
 let switchesInitialized = false;
 
-import { TextureData } from '../textures';
-let texDataRef: TextureData | null = null;
+// Platform-independent texture callbacks (injected at init)
+type TextureNameLookup = (name: string) => number;
+type TextureHeightLookup = (texIdx: number) => number;
+let _textureHeight: TextureHeightLookup = () => FRACUNIT; // fallback
 
-export function initSwitchList(texData: TextureData): void {
-  texDataRef = texData;
+export function initSwitchList(
+  textureNumForName: TextureNameLookup,
+  textureHeight?: TextureHeightLookup,
+): void {
+  if (textureHeight) _textureHeight = textureHeight;
   switchMap.clear();
   for (const [name1, name2] of SWITCH_PAIRS) {
-    const idx1 = texData.textureNumForName(name1);
-    const idx2 = texData.textureNumForName(name2);
+    const idx1 = textureNumForName(name1);
+    const idx2 = textureNumForName(name2);
     if (idx1 >= 0 && idx2 >= 0) {
       switchMap.set(idx1, idx2);
       switchMap.set(idx2, idx1);
@@ -1292,7 +1297,7 @@ function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
     const partner = switchMap.get(tex);
     if (partner !== undefined) {
       // Switch sound: swtchn for turning on (SW1→SW2), swtchx for turning off (SW2→SW1)
-      S_StartSound(null, useAgain ? Sfx.swtchn : Sfx.swtchx);
+      FX_Sound(null, useAgain ? Sfx.swtchn : Sfx.swtchx);
       (side as any)[prop] = partner;
       return;
     }
@@ -1610,7 +1615,7 @@ function evTeleport(line: LineDef, side: number, actor: TeleportActor): boolean 
 
     // Spawn fog at OLD position
     spawnTeleportFog(oldX, oldY, oldZ);
-    S_StartSound({ x: oldX, y: oldY }, Sfx.telept);
+    FX_Sound({ x: oldX, y: oldY }, Sfx.telept);
 
     // Move actor to destination
     const destZ = ss.sector.floorHeight;
@@ -1641,7 +1646,7 @@ function evTeleport(line: LineDef, side: number, actor: TeleportActor): boolean 
     const fogX = thingX + Math.round(TELEPORTOFFSET * Math.cos(fineAngle * Math.PI * 2 / 8192));
     const fogY = thingY + Math.round(TELEPORTOFFSET * Math.sin(fineAngle * Math.PI * 2 / 8192));
     spawnTeleportFog(fogX, fogY, destZ);
-    S_StartSound({ x: fogX, y: fogY }, Sfx.telept);
+    FX_Sound({ x: fogX, y: fogY }, Sfx.telept);
 
     return true;
   }

@@ -3,12 +3,15 @@
 // Reference: d_main.c — D_DoomLoop
 // ============================================================
 
+import { PlatformClock } from '../../game/clock';
+
 const TICRATE = 35; // 35 tics per second
 const TICTIME = 1000 / TICRATE; // ms per tic
 
 export class GameLoop {
   private tickFn: () => void;
   private drawFn: () => void;
+  private clock: PlatformClock;
   private lastTime = 0;
   private accumulator = 0;
   private running = false;
@@ -16,20 +19,22 @@ export class GameLoop {
   private fpsTime = 0;
   fps = 0;
 
-  constructor(tick: () => void, draw: () => void) {
+  constructor(tick: () => void, draw: () => void, clock: PlatformClock) {
     this.tickFn = tick;
     this.drawFn = draw;
+    this.clock = clock;
   }
 
   start(): void {
     this.running = true;
-    this.lastTime = performance.now();
+    this.lastTime = this.clock.now();
     this.fpsTime = this.lastTime;
     this.loop(this.lastTime);
   }
 
   stop(): void {
     this.running = false;
+    this.clock.cancelFrame();
   }
 
   private loop = (time: number): void => {
@@ -58,6 +63,6 @@ export class GameLoop {
       this.fpsTime = time;
     }
 
-    requestAnimationFrame(this.loop);
+    this.clock.requestFrame(this.loop);
   };
 }

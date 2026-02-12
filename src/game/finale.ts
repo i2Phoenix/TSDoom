@@ -7,8 +7,8 @@ import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
-import { S_ChangeMusic } from '../sound/s_sound';
-import { Music } from '../sound/sounds';
+import { FX_Music } from '../../game/effects';
+import { Music } from '../../game/sounds';
 
 // ---- Constants (from f_finale.c) ----
 
@@ -298,7 +298,7 @@ export class Finale {
     this.artPatch = null;
 
     // Start finale music
-    S_ChangeMusic(config.music, true);
+    FX_Music(config.music, true);
   }
 
   // ============================================================

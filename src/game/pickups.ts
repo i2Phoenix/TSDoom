@@ -9,13 +9,13 @@
 
 import { FRACBITS, FRACUNIT } from '../math';
 import { MapThing } from '../map';
-import { THING_INFO } from '../render/sprites';
+
 import { WeaponType, AmmoType, weaponinfo, MAX_AMMO, CLIP_AMMO } from './weapons';
 import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player';
 import { getDroppedItems, removeDroppedItem } from './mobj';
 import { isDoubleAmmo } from './skill';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_Sound } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 import { addPlayerItem } from './intermission';
 
 // Touch radius for pickups (20 map units — matches DOOM's MELEERANGE check)
@@ -87,7 +87,7 @@ export function checkPickups(
         player.message = result.message;
       }
       // Pickup sound
-      S_StartSound(null, result.sound ?? Sfx.itemup);
+      FX_Sound(null, result.sound ?? Sfx.itemup);
     }
   }
 
@@ -108,7 +108,7 @@ export function checkPickups(
       if (result.message) {
         player.message = result.message;
       }
-      S_StartSound(null, result.sound ?? Sfx.itemup);
+      FX_Sound(null, result.sound ?? Sfx.itemup);
     }
   }
 }

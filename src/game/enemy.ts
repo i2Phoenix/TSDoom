@@ -15,8 +15,8 @@ import { P_Random } from './random';
 import { Player } from './player';
 import { registerActionCallback, setMonsterState, getThingAnimDef } from './animations';
 import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from './p_move';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+import { FX_Sound } from '../../game/effects';
+import { Sfx } from '../../game/sounds';
 import { spawnMonsterProjectile, ProjectileType } from './projectiles';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
@@ -277,7 +277,7 @@ function A_Look_impl(thingIndex: number): void {
     // Play see sound (randomized from array)
     if (animDef.seeSound && animDef.seeSound.length > 0) {
       const sfx = animDef.seeSound[P_Random() % animDef.seeSound.length];
-      S_StartSound({ x: actor.x, y: actor.y }, sfx);
+      FX_Sound({ x: actor.x, y: actor.y }, sfx);
     }
   }
 }
@@ -371,7 +371,7 @@ function A_Chase_impl(thingIndex: number): void {
   if (P_Random() < 3) {
     const animDef2 = getThingAnimDef(actor.type);
     if (animDef2?.activeSound !== undefined) {
-      S_StartSound({ x: actor.x, y: actor.y }, animDef2.activeSound);
+      FX_Sound({ x: actor.x, y: actor.y }, animDef2.activeSound);
     }
   }
 }
@@ -498,7 +498,7 @@ function A_PosAttack_impl(thingIndex: number): void {
   if (!actor || !actor.target) return;
   if (playerRef && playerRef.health <= 0) return;
 
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.pistol);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.pistol);
   const damage = ((P_Random() % 5) + 1) * 3;  // 3-15 damage
   monsterHitscan(actor, damage);
 }
@@ -510,7 +510,7 @@ function A_SPosAttack_impl(thingIndex: number): void {
   if (!actor || !actor.target) return;
   if (playerRef && playerRef.health <= 0) return;
 
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.shotgn);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
 
   // 3 bullets, each individually traced (can be blocked by walls separately)
   for (let i = 0; i < 3; i++) {
@@ -525,7 +525,7 @@ function A_CPosAttack_impl(thingIndex: number): void {
   if (!actor || !actor.target) return;
   if (playerRef && playerRef.health <= 0) return;
 
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.shotgn);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
   const damage = ((P_Random() % 5) + 1) * 3;
   monsterHitscan(actor, damage);
 }
@@ -561,13 +561,13 @@ function A_TroopAttack_impl(thingIndex: number): void {
 
   if (P_CheckMeleeRange(actor)) {
     // Melee: 1-24 damage (3*(rand%8+1))
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.claw);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.claw);
     const damage = ((P_Random() % 8) + 1) * 3;
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
     // Ranged: imp fireball
     spawnMonsterProjectile(actor, actor.target, ProjectileType.impFireball);
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.firsht);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
@@ -579,7 +579,7 @@ function A_SargAttack_impl(thingIndex: number): void {
   A_FaceTarget_impl(thingIndex);
 
   if (P_CheckMeleeRange(actor)) {
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.sgtatk);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.sgtatk);
     const damage = ((P_Random() % 10) + 1) * 4;  // 4-40 damage
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   }
@@ -597,7 +597,7 @@ function A_HeadAttack_impl(thingIndex: number): void {
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
     spawnMonsterProjectile(actor, actor.target, ProjectileType.cacoFireball);
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.firsht);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
@@ -610,11 +610,11 @@ function A_BruisAttack_impl(thingIndex: number): void {
 
   if (P_CheckMeleeRange(actor)) {
     const damage = ((P_Random() % 8) + 1) * 10;  // 10-80 damage
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.claw);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.claw);
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
     spawnMonsterProjectile(actor, actor.target, ProjectileType.baronFireball);
-    S_StartSound({ x: actor.x, y: actor.y }, Sfx.firsht);
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
@@ -626,7 +626,7 @@ function A_CyberAttack_impl(thingIndex: number): void {
   A_FaceTarget_impl(thingIndex);
 
   spawnMonsterProjectile(actor, actor.target, ProjectileType.cyberdemonRocket);
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.rlaunc);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.rlaunc);
 }
 
 // ---- A_SkullAttack — Lost Soul: charge at player ----
@@ -666,7 +666,7 @@ function A_VileStart_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
   A_FaceTarget_impl(thingIndex);
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.vilatk);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.vilatk);
 }
 
 // ---- A_VileTarget — Arch-vile: mark target, store reference ----
@@ -678,7 +678,7 @@ function A_VileTarget_impl(thingIndex: number): void {
   A_FaceTarget_impl(thingIndex);
   // Store target reference for the attack (tracer field)
   actor.tracer = actor.target;
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.flamst);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.flamst);
 }
 
 // ---- A_VileAttack — Arch-vile: deal damage + vertical launch ----
@@ -696,7 +696,7 @@ function A_VileAttack_impl(thingIndex: number): void {
   if (!map) return;
   if (!P_CheckSight(actor, target, map)) return;
 
-  S_StartSound({ x: actor.x, y: actor.y }, Sfx.barexp);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.barexp);
 
   // Direct damage: 20 hp
   // For player targets, use playerRef.takeDamage

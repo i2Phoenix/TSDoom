@@ -10,7 +10,7 @@ import {
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
 } from '../math';
 import { GameMap, ML_TWOSIDED, LineDef } from '../map';
-import { addDynLight } from '../render/dynlights';
+import { FX_DynLight, FX_Sound } from '../../game/effects';
 import { P_Random } from './random';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
@@ -18,8 +18,8 @@ import {
 } from './mobj';
 import { spawnPuff, spawnBlood, spawnBarrelExplosion } from './vfx';
 import { Player } from './player';
-import { S_StartSound } from '../sound/s_sound';
-import { Sfx } from '../sound/sounds';
+
+import { Sfx } from '../../game/sounds';
 import { shootSpecialLine } from './specials';
 
 // ---- Constants (from p_local.h) ----
@@ -516,7 +516,7 @@ export function P_GunShot(
   P_LineAttack(x, y, z, shotAngle, MISSILERANGE, bulletslope, damage);
 
   // Muzzle flash dynamic light (yellow-white, short)
-  addDynLight(x, y, z, 96 * FRACUNIT, 255, 224, 128, 0.5, 3);
+  FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 224, 128, 0.5, 3);
 }
 
 // ============================================================
@@ -530,8 +530,8 @@ export function P_RadiusAttack(
   damage: number
 ): void {
   // Explosion dynamic light (orange, moderate)
-  addDynLight(spotX, spotY, spotZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
-  S_StartSound({ x: spotX, y: spotY }, Sfx.barexp);
+  FX_DynLight(spotX, spotY, spotZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
+  FX_Sound({ x: spotX, y: spotY }, Sfx.barexp);
 
   const mapObjs = getMapObjects();
 
