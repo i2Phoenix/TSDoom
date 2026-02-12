@@ -3,9 +3,9 @@
 // Reference: p_user.c, p_mobj.c — movement, collision
 // ============================================================
 
-import { GameMap, LineDef, ML_BLOCKING, ML_TWOSIDED } from '../map';
-import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEANGLES, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from '../math';
-import { getInput, resetInputAccumulated } from '../../game/input-system';
+import { GameMap, LineDef, ML_BLOCKING, ML_TWOSIDED } from '../src/map';
+import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEANGLES, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from './math';
+import { getInput, resetInputAccumulated } from './input-system';
 import { useSpecialLine, crossSpecialLine } from './specials';
 import { checkPickups } from './pickups';
 import { CF_GODMODE, CF_NOCLIP } from './cheats';
@@ -16,8 +16,8 @@ import {
   weaponinfo, dropWeapon, bringUpWeapon,
 } from './weapons';
 import { levelTime } from './thinkers';
-import { FX_Sound } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
+import { FX_Sound } from './effects';
+import { Sfx } from './sounds';
 
 const USERANGE = 64 << FRACBITS; // 64 map units — how far the player can reach
 
@@ -306,9 +306,11 @@ export class Player {
       this.attackdown = false;
     }
 
-    // Weapon switching via number keys (DOOM: P_PlayerThink → BT_WEAPONMASK)
-    // Mapping: 1=fist/chainsaw, 2=pistol, 3=shotgun, 4=chaingun, 5=missile, 6=plasma, 7=bfg
+    // Weapon switching via number keys or gamepad D-pad
+    // weaponSelect: 0-6 = direct slot, -2 = next, -3 = prev, -1 = none
+    // Mapping: 0=fist/chainsaw, 1=pistol, 2=shotgun, 3=chaingun, 4=missile, 5=plasma, 6=bfg
     if (input.weaponSelect >= 0) {
+      // Direct weapon slot selection (keyboard 1-7)
       const weaponMap: WeaponType[] = [
         WeaponType.fist,      // 1
         WeaponType.pistol,    // 2
@@ -320,9 +322,7 @@ export class Player {
       ];
       const desired = weaponMap[input.weaponSelect];
       if (desired !== undefined && desired !== this.readyweapon) {
-        // Check if player owns the weapon
         if (this.weaponowned[desired]) {
-          // Check if it has ammo (or is a no-ammo weapon)
           const ammoType = weaponinfo[desired]?.ammo;
           if (ammoType === AmmoType.noammo || ammoType === undefined ||
               (ammoType >= 0 && this.ammo[ammoType] > 0)) {
@@ -330,12 +330,36 @@ export class Player {
           }
         }
       }
-      // Special: key 1 toggles between fist and chainsaw
+      // Special: key 1 toggles fist ↔ chainsaw
       if (input.weaponSelect === 0 && this.readyweapon === WeaponType.fist &&
           this.weaponowned[WeaponType.chainsaw]) {
         this.pendingweapon = WeaponType.chainsaw;
       } else if (input.weaponSelect === 0 && this.readyweapon === WeaponType.chainsaw) {
         this.pendingweapon = WeaponType.fist;
+      }
+      input.weaponSelect = -1; // consume
+    } else if (input.weaponSelect === -2 || input.weaponSelect === -3) {
+      // Next/prev weapon cycling (gamepad D-pad)
+      // Order: fist, chainsaw, pistol, shotgun, chaingun, missile, plasma, bfg
+      const cycleOrder: WeaponType[] = [
+        WeaponType.fist, WeaponType.chainsaw, WeaponType.pistol,
+        WeaponType.shotgun, WeaponType.chaingun, WeaponType.missile,
+        WeaponType.plasma, WeaponType.bfg,
+      ];
+      const current = this.pendingweapon !== WeaponType.nochange
+        ? this.pendingweapon : this.readyweapon;
+      const curIdx = cycleOrder.indexOf(current);
+      const dir = input.weaponSelect === -2 ? 1 : -1;
+      // Scan for the next owned weapon with ammo
+      for (let i = 1; i < cycleOrder.length; i++) {
+        const idx = ((curIdx + dir * i) % cycleOrder.length + cycleOrder.length) % cycleOrder.length;
+        const wp = cycleOrder[idx];
+        if (!this.weaponowned[wp]) continue;
+        const ammoType = weaponinfo[wp]?.ammo;
+        if (ammoType !== AmmoType.noammo && ammoType !== undefined &&
+            ammoType >= 0 && this.ammo[ammoType] <= 0) continue;
+        this.pendingweapon = wp;
+        break;
       }
       input.weaponSelect = -1; // consume
     }

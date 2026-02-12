@@ -3,12 +3,12 @@
 // Reference: p_doors.c, p_plats.c, p_floor.c, p_spec.c, p_switch.c
 // ============================================================
 
-import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../map';
-import { FRACBITS, FRACUNIT, fixedMul, fixedDiv } from '../math';
+import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../src/map';
+import { FRACBITS, FRACUNIT, fixedMul, fixedDiv } from './math';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
-import { FX_Sound, SoundOrigin } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
+import { FX_Sound, SoundOrigin } from './effects';
+import { Sfx } from './sounds';
 import { spawnTeleportFog } from './vfx';
 import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
 import type { Player } from './player';

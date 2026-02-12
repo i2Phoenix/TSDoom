@@ -5,7 +5,7 @@
 
 import { WAD } from './wad';
 import { TextureData } from './textures';
-import { FRACBITS, FRACUNIT } from './math';
+import { FRACBITS, FRACUNIT } from '../game/math';
 
 // Map lump ordering (relative to map label)
 const ML_THINGS = 1;

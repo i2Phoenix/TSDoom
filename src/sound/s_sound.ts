@@ -24,14 +24,14 @@ import {
   I_ResumeSong,
   I_SetMusicVolume,
 } from './i_music';
-import { P_Random } from '../game/random';
+import { P_Random } from '../../game/random';
 import {
   FRACBITS,
   ANGLETOFINESHIFT,
   finesine,
   fixedMul,
   pointToAngle,
-} from '../math';
+} from '../../game/math';
 import type { WAD } from '../wad';
 
 // ---- Constants (from s_sound.c) ----

@@ -8,7 +8,7 @@
 
 import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from "../render/draw";
 import { PaletteData } from "../palette";
-import { PowerType } from "./player";
+import { PowerType } from '../../game/player';
 
 // PLAYPAL palette index constants (from st_stuff.c)
 const STARTREDPALS = 1;

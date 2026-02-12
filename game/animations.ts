@@ -4,8 +4,8 @@
 // ============================================================
 
 import { levelTime } from './thinkers';
-import { FRACUNIT } from '../math';
-import type { SideDef, LineDef } from '../map';
+import { FRACUNIT } from './math';
+import type { SideDef, LineDef } from '../src/map';
 
 // ===========================================================
 // 1) Flat / Wall Texture Animations (P_UpdateSpecials)

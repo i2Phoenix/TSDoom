@@ -5,7 +5,7 @@
 // ============================================================
 
 import { GBuffer } from './gbuffer';
-import { profilerBegin, profilerEnd } from '../game/profiler';
+import { profilerBegin, profilerEnd } from '../../game/profiler';
 
 /**
  * A single post-process pass.

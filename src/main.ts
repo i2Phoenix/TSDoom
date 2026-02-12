@@ -4,7 +4,7 @@
 // ============================================================
 
 import { loadWAD, WAD } from "./wad";
-import { initTables } from "./math";
+import { initTables } from "../game/math";
 import { PaletteData } from "./palette";
 import { TextureData } from "./textures";
 import { GameMap } from "./map";
@@ -32,22 +32,22 @@ import {
   setResolution,
 } from "./render/draw";
 import { initBrowserInput } from "./input-browser";
-import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "./game/profiler";
-import { Player, PlayerState } from "./game/player";
+import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "../game/profiler";
+import { Player, PlayerState } from "../game/player";
 import { GameLoop } from "./game/loop";
 import { createBrowserClock } from "../game/clock";
 import { StatusBar } from "./hud/statusbar";
 import { MenuSystem, RESOLUTIONS } from "./menu/menu";
-import { runThinkers, tickLevelTime, clearThinkers } from "./game/thinkers";
-import { initSpecials, initSwitchList, setPlayerRef } from "./game/specials";
+import { runThinkers, tickLevelTime, clearThinkers } from "../game/thinkers";
+import { initSpecials, initSwitchList, setPlayerRef } from "../game/specials";
 import {
   initAnimations,
   initScrollLines,
   initThingAnimations,
   updateAnimations,
   updateThingAnimations,
-} from "./game/animations";
-import { clearRemovedThings } from "./game/pickups";
+} from "../game/animations";
+import { clearRemovedThings } from "../game/pickups";
 import { updatePaletteFlash, resetPaletteFlash, applyScreenTint } from "./game/palette_flash";
 import {
   initMapObjects,
@@ -55,13 +55,13 @@ import {
   updateMobjFloorZ,
   tickMonsterRespawn,
   clearDroppedItems,
-} from "./game/mobj";
-import { setCombatMap, setCombatPlayer } from "./game/combat";
-import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "./game/enemy";
-import { updateVfx, clearVfx } from "./game/vfx";
-import { feedCheatKey, resetCheatBuffer } from "./game/cheats";
-import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "./game/projectiles";
-import { setGameSkill } from "./game/skill";
+} from "../game/mobj";
+import { setCombatMap, setCombatPlayer } from "../game/combat";
+import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "../game/enemy";
+import { updateVfx, clearVfx } from "../game/vfx";
+import { feedCheatKey, resetCheatBuffer } from "../game/cheats";
+import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "../game/projectiles";
+import { setGameSkill } from "../game/skill";
 import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
 import { Music } from "../game/sounds";
 import { I_ResumeAudioContext } from "./sound/i_sound";
@@ -76,15 +76,15 @@ import {
   spawnSectorLights,
   saveSectorState,
   restoreSectorState,
-} from "./game/lights";
+} from "../game/lights";
 import {
   captureGameState,
   applyGameState,
   saveToSlot,
   loadFromSlot,
   GameSaveData,
-} from "./game/savegame";
-import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "./game/settings";
+} from "../game/savegame";
+import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "../game/settings";
 import {
   GameState,
   GameAction,
@@ -103,10 +103,10 @@ import {
   pendingSaveSlot,
   pendingWarpMap,
   pendingSkill,
-} from "./game/gamestate";
-import { getNextMap, parseMapName } from "./game/mapflow";
+} from "../game/gamestate";
+import { getNextMap, parseMapName } from "../game/mapflow";
 import { Intermission, WBStartStruct, resetLevelStats, totalKills, totalItems, totalSecrets, playerKills, playerItems, playerSecrets, addTotalItem, addTotalSecret } from "./game/intermission";
-import { levelTime } from "./game/thinkers";
+import { levelTime } from "../game/thinkers";
 import { Finale, FinaleConfig, getFinaleConfig } from "./game/finale";
 
 // ---- Module refs ----
@@ -546,7 +546,7 @@ function applyLoadedData(data: GameSaveData): void {
 // F6 quicksave / F9 quickload helpers
 // ============================================================
 
-import { setPendingSaveSlot } from "./game/gamestate";
+import { setPendingSaveSlot } from "../game/gamestate";
 
 function quickSave(): void {
   if (!usergame || gamestate !== GameState.GS_LEVEL) return;

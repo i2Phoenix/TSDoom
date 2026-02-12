@@ -5,8 +5,8 @@
 // Reference: p_mobj.h, p_mobj.c, info.c (mobjinfo[])
 // ============================================================
 
-import { FRACBITS, FRACUNIT } from '../math';
-import { MapThing, GameMap } from '../map';
+import { FRACBITS, FRACUNIT } from './math';
+import { MapThing, GameMap } from '../src/map';
 import { removedThings } from './pickups';
 import { getGameSkill, SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
 import { P_Random } from './random';
@@ -14,8 +14,8 @@ import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
   setMonsterState,
 } from './animations';
-import { FX_RemoveDynLight, FX_Sound } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
+import { FX_RemoveDynLight, FX_Sound } from './effects';
+import { Sfx } from './sounds';
 import { shouldSpawnThing } from './skill';
 import {
   MT, MobjInfo, mobjinfo, getMTForDoomedNum, isMonsterType,
@@ -25,7 +25,7 @@ import {
 
 // Re-export flags for backward compatibility with combat.ts, etc.
 export { MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD, MF_COUNTKILL } from './mobjinfo';
-import { addTotalKill, addPlayerKill } from './intermission';
+import { addTotalKill, addPlayerKill } from '../src/game/intermission';
 
 // ---- Combat info for thing types ----
 export interface ThingCombatInfo {

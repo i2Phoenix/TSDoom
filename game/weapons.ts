@@ -3,9 +3,9 @@
 // Reference: p_pspr.c, d_items.c, info.c
 // ============================================================
 
-import { FRACBITS, FRACUNIT, FINEMASK, finesine, finecosine, fixedMul } from '../math';
-import { FX_Sound, FX_SetExtraLight } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
+import { FRACBITS, FRACUNIT, FINEMASK, finesine, finecosine, fixedMul } from './math';
+import { FX_Sound, FX_SetExtraLight, FX_Vibrate } from './effects';
+import { Sfx } from './sounds';
 import { levelTime } from './thinkers';
 import { P_Random } from './random';
 
@@ -283,16 +283,19 @@ function A_ReFire(wp: WeaponPlayer): void { weaponReFire(wp); }
 
 function A_FirePistol(wp: WeaponPlayer): void {
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.pistol);
+  FX_Vibrate(0.2, 0.1, 80);
   fireHitscan(wp, 1, !wp.refire);
 }
 
 function A_FireShotgun(wp: WeaponPlayer): void {
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.shotgn);
+  FX_Vibrate(0.5, 0.4, 120);
   fireHitscan(wp, 7, false);
 }
 
 function A_FireCGun(wp: WeaponPlayer): void {
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.pistol);
+  FX_Vibrate(0.15, 0.1, 50);
   fireHitscan(wp, 1, !wp.refire);
 }
 
@@ -310,6 +313,7 @@ function A_Punch(wp: WeaponPlayer): void {
   // Sound: hit sound only if we hit something
   if (linetarget) {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.punch);
+    FX_Vibrate(0.3, 0.5, 100);
   }
 }
 
@@ -323,8 +327,10 @@ function A_Saw(wp: WeaponPlayer): void {
   // Sound: hit or miss
   if (linetarget) {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawhit);
+    FX_Vibrate(0.4, 0.3, 80);
   } else {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawful);
+    FX_Vibrate(0.1, 0.05, 40);
   }
 }
 
@@ -337,6 +343,7 @@ function A_GunFlash(wp: WeaponPlayer): void {
 function A_FireMissile(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.misl]--;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.rlaunc);
+  FX_Vibrate(0.7, 0.8, 200);
   // Autoaim slope for vertical aiming
   P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
   spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.rocket);
@@ -344,6 +351,7 @@ function A_FireMissile(wp: WeaponPlayer): void {
 function A_FirePlasma(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.cell]--;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.plasma);
+  FX_Vibrate(0.3, 0.2, 60);
   // Random flash state (original DOOM: P_Random()&1 picks flash1 or flash2)
   const flashOffset = P_Random() & 1;
   const flashBase = weaponinfo[wp.readyweapon].flashstate;
@@ -357,6 +365,7 @@ function A_FirePlasma(wp: WeaponPlayer): void {
 function A_FireBFG(wp: WeaponPlayer): void {
   wp.ammo[AmmoType.cell] -= 40;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.bfg);
+  FX_Vibrate(1.0, 1.0, 350);
   // Autoaim slope
   P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
   spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.bfg);
@@ -751,7 +760,7 @@ export function dropWeapon(wp: WeaponPlayer): void {
 }
 
 /** Build a lightweight MapObjState from WeaponPlayer position for P_NoiseAlert */
-function createPlayerMobjFromWP(wp: WeaponPlayer, map: import('../map').GameMap): MapObjState {
+function createPlayerMobjFromWP(wp: WeaponPlayer, map: import('../src/map').GameMap): MapObjState {
   const ss = map.pointInSubsector(wp.x, wp.y);
   return {
     thingIndex: -1,

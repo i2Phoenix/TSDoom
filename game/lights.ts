@@ -3,7 +3,7 @@
 // Reference: p_lights.c — flicker, strobe, glow thinkers
 // ============================================================
 
-import { Sector, GameMap } from '../map';
+import { Sector, GameMap } from '../src/map';
 import { addThinker, Thinker } from './thinkers';
 
 // ---- Saved original sector state (for respawn) ----

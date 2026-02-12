@@ -7,9 +7,9 @@ import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
-import { Player } from '../game/player';
-import { AmmoType, WeaponType, weaponinfo } from '../game/weapons';
-import { CF_GODMODE } from '../game/cheats';
+import { Player } from '../../game/player';
+import { AmmoType, WeaponType, weaponinfo } from '../../game/weapons';
+import { CF_GODMODE } from '../../game/cheats';
 
 const STBAR_HEIGHT_ORIG = 32;
 function getScale(): number { return SCREENWIDTH / 320; }

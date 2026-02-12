@@ -4,10 +4,10 @@
 // Reference: p_mobj.c (P_SpawnPuff, P_SpawnBlood)
 // ============================================================
 
-import { FRACBITS, FRACUNIT } from '../math';
-import { GameMap } from '../map';
+import { FRACBITS, FRACUNIT } from './math';
+import { GameMap } from '../src/map';
 import { P_Random } from './random';
-import { FX_DynLight } from '../../game/effects';
+import { FX_DynLight } from './effects';
 
 // ---- Frame data from info.c ----
 // Frame number with bit 15 set = fullbright

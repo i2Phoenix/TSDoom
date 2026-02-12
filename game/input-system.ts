@@ -18,7 +18,7 @@ export interface InputState {
   run: boolean;
   lookX: number;      // accumulated analog turn (mouse or stick), reset each tick
   lookY: number;      // vertical (for free look)
-  weaponSelect: number; // -1 = none, 0-6 = weapon slot
+  weaponSelect: number; // -1 = none, 0-6 = weapon slot, -2 = next, -3 = prev
 }
 
 /** Provider interface — implemented per-platform */

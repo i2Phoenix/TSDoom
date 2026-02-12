@@ -3,8 +3,8 @@
 // Reference: p_saveg.c, g_game.c (G_DoSaveGame, G_DoLoadGame)
 // ============================================================
 
-import { GameMap, Sector } from '../map';
-import { FRACBITS } from '../math';
+import { GameMap, Sector } from '../src/map';
+import { FRACBITS } from './math';
 import { Player, PlayerState } from './player';
 import { WeaponType, StateNum, PspDef, getWeaponState } from './weapons';
 import { levelTime } from './thinkers';

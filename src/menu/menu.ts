@@ -13,17 +13,17 @@ import {
   setMenuActive, setGameAction,
   setPendingSaveSlot,
   setPendingSkill,
-} from '../game/gamestate';
-import { setMouseSensitivity } from '../game/player';
+} from '../../game/gamestate';
+import { setMouseSensitivity } from '../../game/player';
 import { clearInputState } from '../../game/input-system';
-import { SkillLevel, SKILL_NAMES } from '../game/skill';
+import { SkillLevel, SKILL_NAMES } from '../../game/skill';
 import { rebuildLightTables } from '../render/renderer';
 import {
   getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights,
   getSfxVolume, getMusicVolume,
   setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights,
   setSfxVolume as setSfxVolumeSetting, setMusicVolume as setMusicVolumeSetting,
-} from '../game/settings';
+} from '../../game/settings';
 import { setDynLightsEnabled } from '../render/dynlights';
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
 import { Sfx, Music } from '../../game/sounds';

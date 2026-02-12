@@ -38,6 +38,14 @@ export interface EffectHandler {
 
   /** Set extra light level (muzzle flash: 0 = off, 1-2 = flash) */
   setExtraLight(level: number): void;
+
+  /**
+   * Trigger controller vibration / haptic feedback.
+   * @param weakMagnitude  — high-frequency motor (0..1)
+   * @param strongMagnitude — low-frequency motor (0..1)
+   * @param durationMs — how long to vibrate in milliseconds
+   */
+  vibrate(weakMagnitude: number, strongMagnitude: number, durationMs: number): void;
 }
 
 // ---- Null (no-op) handler for server / tests ----
@@ -49,6 +57,7 @@ function createNullHandler(): EffectHandler {
     dynLight() {},
     removeDynLight() {},
     setExtraLight() {},
+    vibrate() {},
   };
 }
 
@@ -92,4 +101,9 @@ export function FX_RemoveDynLight(x: number, y: number, tolerance?: number): voi
 /** Set extra light level (muzzle flash) */
 export function FX_SetExtraLight(level: number): void {
   _handler.setExtraLight(level);
+}
+
+/** Trigger controller vibration */
+export function FX_Vibrate(weakMagnitude: number, strongMagnitude: number, durationMs: number): void {
+  _handler.vibrate(weakMagnitude, strongMagnitude, durationMs);
 }

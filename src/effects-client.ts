@@ -31,6 +31,22 @@ const clientEffects: EffectHandler = {
   setExtraLight(level: number): void {
     setExtraLight(level);
   },
+
+  vibrate(weakMagnitude: number, strongMagnitude: number, durationMs: number): void {
+    try {
+      const gp = navigator.getGamepads?.()[0];
+      if (!gp) return;
+      const actuator = (gp as any).vibrationActuator;
+      if (actuator?.playEffect) {
+        actuator.playEffect('dual-rumble', {
+          startDelay: 0,
+          duration: durationMs,
+          weakMagnitude: Math.min(1, Math.max(0, weakMagnitude)),
+          strongMagnitude: Math.min(1, Math.max(0, strongMagnitude)),
+        });
+      }
+    } catch { /* haptics not supported */ }
+  },
 };
 
 /** Initialize the client-side effect handler. Call once at startup. */

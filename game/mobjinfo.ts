@@ -4,7 +4,7 @@
 // Only includes monsters/projectiles relevant for AI system
 // ============================================================
 
-import { FRACUNIT } from '../math';
+import { FRACUNIT } from './math';
 
 // --- MF_* flags from p_mobj.h ---
 export const MF_SPECIAL      = 0x0001;

@@ -8,9 +8,9 @@
 import {
   FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
-} from '../math';
-import { GameMap, ML_TWOSIDED, LineDef } from '../map';
-import { FX_DynLight, FX_Sound } from '../../game/effects';
+} from './math';
+import { GameMap, ML_TWOSIDED, LineDef } from '../src/map';
+import { FX_DynLight, FX_Sound } from './effects';
 import { P_Random } from './random';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
@@ -19,7 +19,7 @@ import {
 import { spawnPuff, spawnBlood, spawnBarrelExplosion } from './vfx';
 import { Player } from './player';
 
-import { Sfx } from '../../game/sounds';
+import { Sfx } from './sounds';
 import { shootSpecialLine } from './specials';
 
 // ---- Constants (from p_local.h) ----

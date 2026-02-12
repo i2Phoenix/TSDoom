@@ -14,10 +14,10 @@
 import { WeaponType, AmmoType, MAX_AMMO } from './weapons';
 import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player';
 import { setGameAction, setPendingWarpMap, GameAction } from './gamestate';
-import { FRACBITS } from '../math';
+import { FRACBITS } from './math';
 import { areCheatsDisabled } from './skill';
-import { FX_Music } from '../../game/effects';
-import { Music } from '../../game/sounds';
+import { FX_Music } from './effects';
+import { Music } from './sounds';
 
 // ---- Cheat flags (bitfield on Player.cheats) ----
 export const CF_GODMODE = 1;

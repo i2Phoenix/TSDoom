@@ -3,11 +3,11 @@
 // Port of p_enemy.c — A_Look, P_NoiseAlert, P_LookForPlayers
 // ============================================================
 
-import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from '../math';
+import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from './math';
 
 // ANG90/2 for gradual turning in A_Chase (original DOOM uses ANG90/2 = 0x20000000)
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
-import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../map';
+import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../src/map';
 import { MapObjState, getMapObjects, getMapObjectByThingIndex, getCurrentMap, DI_NODIR, damageMobj } from './mobj';
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE } from './mobjinfo';
 import { P_CheckSight } from './sight';
@@ -15,8 +15,8 @@ import { P_Random } from './random';
 import { Player } from './player';
 import { registerActionCallback, setMonsterState, getThingAnimDef } from './animations';
 import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from './p_move';
-import { FX_Sound } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
+import { FX_Sound } from './effects';
+import { Sfx } from './sounds';
 import { spawnMonsterProjectile, ProjectileType } from './projectiles';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';

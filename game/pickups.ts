@@ -7,16 +7,16 @@
 //  2. Applying the pickup effect (health, armor, ammo, weapon, key, powerup)
 //  3. Marking the thing as removed so it stops rendering
 
-import { FRACBITS, FRACUNIT } from '../math';
-import { MapThing } from '../map';
+import { FRACBITS, FRACUNIT } from './math';
+import { MapThing } from '../src/map';
 
 import { WeaponType, AmmoType, weaponinfo, MAX_AMMO, CLIP_AMMO } from './weapons';
 import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player';
 import { getDroppedItems, removeDroppedItem } from './mobj';
 import { isDoubleAmmo } from './skill';
-import { FX_Sound } from '../../game/effects';
-import { Sfx } from '../../game/sounds';
-import { addPlayerItem } from './intermission';
+import { FX_Sound } from './effects';
+import { Sfx } from './sounds';
+import { addPlayerItem } from '../src/game/intermission';
 
 // Touch radius for pickups (20 map units — matches DOOM's MELEERANGE check)
 const PICKUP_RADIUS = 20 << FRACBITS;

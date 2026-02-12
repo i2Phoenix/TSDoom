@@ -14,7 +14,7 @@ function hasActivity(state: InputState): boolean {
     state.strafeLeft || state.strafeRight ||
     state.use || state.fire || state.run ||
     Math.abs(state.lookX) > 0.01 ||
-    state.weaponSelect >= 0
+    state.weaponSelect !== -1
   );
 }
 
@@ -76,8 +76,8 @@ export class CompositeInputProvider implements InputProvider {
       // Analog axes: sum (mouse + right stick)
       lookX: a.lookX + b.lookX,
       lookY: a.lookY + b.lookY,
-      // Weapon select: prefer most recent non-negative
-      weaponSelect: b.weaponSelect >= 0 ? b.weaponSelect : a.weaponSelect,
+      // Weapon select: prefer most recent non-idle (-1 = idle)
+      weaponSelect: b.weaponSelect !== -1 ? b.weaponSelect : a.weaponSelect,
     };
   }
 }

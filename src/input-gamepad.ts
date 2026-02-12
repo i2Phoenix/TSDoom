@@ -25,8 +25,8 @@ function applyDeadzone(value: number, dz: number): number {
 /** Track previous D-pad state for edge-triggered weapon switching */
 let prevDpadUp = false;
 let prevDpadDown = false;
-let currentWeaponSlot = -1;
 
+/** Weapon select: -1 = none, -2 = next, -3 = prev, 0-6 = direct slot */
 function pollWeaponDpad(gp: Gamepad): number {
   const up = gp.buttons[12]?.pressed ?? false;
   const down = gp.buttons[13]?.pressed ?? false;
@@ -35,13 +35,9 @@ function pollWeaponDpad(gp: Gamepad): number {
 
   // Edge-triggered: only on press, not hold
   if (up && !prevDpadUp) {
-    // Next weapon
-    currentWeaponSlot = Math.min(6, currentWeaponSlot + 1);
-    select = currentWeaponSlot;
+    select = -2; // next weapon
   } else if (down && !prevDpadDown) {
-    // Previous weapon
-    currentWeaponSlot = Math.max(0, currentWeaponSlot - 1);
-    select = currentWeaponSlot;
+    select = -3; // previous weapon
   }
 
   prevDpadUp = up;
@@ -83,7 +79,6 @@ export const gamepadProvider: InputProvider = {
   },
 
   clearAll(): void {
-    currentWeaponSlot = -1;
     prevDpadUp = false;
     prevDpadDown = false;
   },

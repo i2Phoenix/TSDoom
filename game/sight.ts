@@ -3,8 +3,8 @@
 // Port of p_sight.c — uses REJECT lookup table + BSP traversal
 // ============================================================
 
-import { FRACBITS } from '../math';
-import { GameMap, NF_SUBSECTOR, ML_TWOSIDED } from '../map';
+import { FRACBITS } from './math';
+import { GameMap, NF_SUBSECTOR, ML_TWOSIDED } from '../src/map';
 import { MapObjState } from './mobj';
 
 // Global traversal counter (incremented each P_CheckSight call)

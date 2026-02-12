@@ -6,8 +6,8 @@
 import {
   FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
-} from '../math';
-import { GameMap, ML_TWOSIDED } from '../map';
+} from './math';
+import { GameMap, ML_TWOSIDED } from '../src/map';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
   MF_SHOOTABLE, MF_NOBLOOD,
@@ -22,7 +22,7 @@ import {
 } from './vfx';
 import { spawnBarrelExplosion } from './vfx';
 import { P_Random } from './random';
-import { FX_DynLight } from '../../game/effects';
+import { FX_DynLight } from './effects';
 import { Player } from './player';
 
 // ---- Projectile types ----
