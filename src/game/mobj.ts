@@ -8,10 +8,11 @@
 import { FRACBITS, FRACUNIT } from '../math';
 import { MapThing, GameMap } from '../map';
 import { removedThings } from './pickups';
-import { getGameSkill, SkillLevel } from './skill';
+import { getGameSkill, SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
 import { P_Random } from './random';
 import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
+  setMonsterState,
 } from './animations';
 import { removeDynLightAt } from '../render/dynlights';
 import { S_StartSound } from '../sound/s_sound';
@@ -25,6 +26,7 @@ import {
 
 // Re-export flags for backward compatibility with combat.ts, etc.
 export { MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD, MF_COUNTKILL } from './mobjinfo';
+import { addTotalKill, addPlayerKill } from './intermission';
 
 // ---- Combat info for thing types ----
 export interface ThingCombatInfo {
@@ -108,6 +110,12 @@ export interface MapObjState {
   ceilingz: number;    // ceiling height at current position (fixed_t)
   tracer: MapObjState | null;  // for Revenant homing, Arch-vile fire
   info: MobjInfo | null;       // pointer into mobjinfo table
+
+  // --- Respawn fields (Nightmare) ---
+  spawnX: number;      // original spawn X (fixed_t)
+  spawnY: number;      // original spawn Y (fixed_t)
+  spawnAngle: number;  // original spawn angle (BAM)
+  respawnTimer: number; // tics until respawn (0 = not counting)
 }
 
 // ---- Dropped Items ----
@@ -213,8 +221,18 @@ export function initMapObjects(gameMap: GameMap): void {
       ceilingz: ceilZ,
       tracer: null,
       info: mInfo || null,
+      // Respawn fields
+      spawnX: tx,
+      spawnY: ty,
+      spawnAngle: bamAngle,
+      respawnTimer: 0,
     };
     mapObjects.push(obj);
+
+    // Count monsters for intermission stats
+    if (fl & MF_COUNTKILL) {
+      addTotalKill();
+    }
   }
   dyingMonsters.clear();
   droppedItems.length = 0;
@@ -343,6 +361,11 @@ function killMobj(target: MapObjState): void {
   setMonsterDeath(target.thingIndex, target.type, overkill);
   dyingMonsters.add(mapObjects.indexOf(target));
 
+  // Count the kill for intermission stats
+  if (target.flags & MF_COUNTKILL) {
+    addPlayerKill();
+  }
+
   // Play death sound
   const animDef = getThingAnimDef(target.type);
   if (animDef) {
@@ -380,5 +403,117 @@ export function updateMonsterDeaths(): void {
         });
       }
     }
+  }
+}
+
+/**
+ * updateMobjFloorZ — sync map object z with current sector floor.
+ * Called each tick. Handles objects on moving floors (lifts, crushers).
+ * In original DOOM, P_MobjThinker does this for every mobj.
+ * Objects sitting on the floor follow it when it moves.
+ */
+export function updateMobjFloorZ(): void {
+  if (!currentMap) return;
+
+  for (const obj of mapObjects) {
+    if (obj.removed) continue;
+
+    // Look up current sector at object position
+    const ss = currentMap.pointInSubsector(obj.x, obj.y);
+    if (!ss.sector) continue;
+
+    const newFloorZ = ss.sector.floorHeight;
+    const newCeilZ = ss.sector.ceilingHeight;
+
+    // Object was on the floor — keep it on the floor
+    if (obj.z <= obj.floorz) {
+      obj.z = newFloorZ;
+    }
+    // Object is above the new ceiling — push it down
+    else if (obj.z + obj.height > newCeilZ) {
+      obj.z = newCeilZ - obj.height;
+    }
+    // Object is below the new floor (floor rose under it) — push up
+    else if (obj.z < newFloorZ) {
+      obj.z = newFloorZ;
+    }
+
+    obj.floorz = newFloorZ;
+    obj.ceilingz = newCeilZ;
+  }
+}
+
+// ---- Nightmare monster respawn (~12 seconds = 420 tics) ----
+const RESPAWN_TICS = 420;  // 12 * 35 = 420 tics
+
+/**
+ * tickMonsterRespawn — Nightmare-only monster respawn.
+ * Dead monsters (MF_COUNTKILL) get a countdown timer.
+ * When it expires, they respawn at their original spawn position.
+ *
+ * Reference: P_RespawnSpecials (p_mobj.c)
+ * Called each tick from the game loop, only when isRespawnMonsters() is true.
+ */
+export function tickMonsterRespawn(): void {
+  if (!isRespawnMonsters()) return;
+  if (!currentMap) return;
+
+  for (const obj of mapObjects) {
+    if (obj.removed) continue;
+
+    // Only respawn dead monsters (MF_COUNTKILL was set at spawn)
+    if (obj.health > 0) continue;
+    if (!obj.info) continue;
+    if (!isMonsterType(obj.mobjType as MT)) continue;
+
+    // Start countdown if not yet running
+    if (obj.respawnTimer === 0) {
+      obj.respawnTimer = RESPAWN_TICS;
+    }
+
+    obj.respawnTimer--;
+
+    if (obj.respawnTimer > 0) continue;
+
+    // ---- Respawn the monster ----
+
+    // Restore position to original spawn point
+    const ss = currentMap.pointInSubsector(obj.spawnX, obj.spawnY);
+    const floorZ = ss.sector ? ss.sector.floorHeight : 0;
+    const ceilZ = ss.sector ? ss.sector.ceilingHeight : 0;
+
+    obj.x = obj.spawnX;
+    obj.y = obj.spawnY;
+    obj.z = floorZ;
+    obj.floorz = floorZ;
+    obj.ceilingz = ceilZ;
+    obj.angle = obj.spawnAngle;
+
+    // Restore health and flags from mobjinfo
+    obj.health = obj.info.spawnhealth;
+    obj.flags = obj.info.flags;
+    obj.radius = obj.info.radius;
+    obj.height = obj.info.height;
+
+    // Reset AI state
+    obj.target = null;
+    obj.threshold = 0;
+    obj.reactiontime = 0; // Nightmare: always 0
+    obj.movedir = DI_NODIR;
+    obj.movecount = 0;
+    obj.momx = 0;
+    obj.momy = 0;
+    obj.momz = 0;
+    obj.tracer = null;
+    obj.deathHandled = false;
+    obj.respawnTimer = 0;
+
+    // Reset animation to spawn/idle state
+    const animDef = getThingAnimDef(obj.type);
+    if (animDef) {
+      setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive');
+    }
+
+    // TODO: Spawn telefog VFX at respawn position when VFX system supports it
   }
 }

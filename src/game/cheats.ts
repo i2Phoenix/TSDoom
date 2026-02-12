@@ -16,6 +16,8 @@ import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player'
 import { setGameAction, setPendingWarpMap, GameAction } from './gamestate';
 import { FRACBITS } from '../math';
 import { areCheatsDisabled } from './skill';
+import { S_ChangeMusic } from '../sound/s_sound';
+import { Music } from '../sound/sounds';
 
 // ---- Cheat flags (bitfield on Player.cheats) ----
 export const CF_GODMODE = 1;
@@ -183,13 +185,24 @@ const cheats: CheatDef[] = [
     },
   },
 
-  // ---- IDMUS## — Change music (stub) ----
+  // ---- IDMUS## — Change music ----
   {
     sequence: 'idmus',
     paramCount: 2,
     handler: (p, extra) => {
       if (!extra || extra.length < 2) return;
-      p.message = `Music Change (not implemented)`;
+      const d1 = parseInt(extra[0]);
+      const d2 = parseInt(extra[1]);
+      if (isNaN(d1) || isNaN(d2)) return;
+
+      // Doom I: digits are episode and map → music index = (ep-1)*9 + map
+      const musIdx = (d1 - 1) * 9 + d2;
+      if (musIdx < 1 || musIdx >= Music.NUMMUSIC) {
+        p.message = 'IMPOSSIBLE SELECTION';
+        return;
+      }
+      S_ChangeMusic(musIdx, true);
+      p.message = 'Music Change';
     },
   },
 ];

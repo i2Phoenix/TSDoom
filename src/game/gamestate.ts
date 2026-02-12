@@ -9,6 +9,8 @@
 export enum GameState {
   GS_DEMOSCREEN,  // title / demo screens
   GS_LEVEL,       // active gameplay
+  GS_INTERMISSION, // intermission stats screen between levels
+  GS_FINALE,      // text screen between episodes / end of game
 }
 
 /** Deferred actions — set by menu/input, processed by G_Ticker in main loop */

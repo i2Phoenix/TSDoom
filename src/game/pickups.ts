@@ -16,6 +16,7 @@ import { getDroppedItems, removeDroppedItem } from './mobj';
 import { isDoubleAmmo } from './skill';
 import { S_StartSound } from '../sound/s_sound';
 import { Sfx } from '../sound/sounds';
+import { addPlayerItem } from './intermission';
 
 // Touch radius for pickups (20 map units — matches DOOM's MELEERANGE check)
 const PICKUP_RADIUS = 20 << FRACBITS;
@@ -81,6 +82,7 @@ export function checkPickups(
     if (result.picked) {
       removedThings.add(i);
       player.bonuscount = 6; // gold screen flash for 6 tics
+      addPlayerItem();
       if (result.message) {
         player.message = result.message;
       }

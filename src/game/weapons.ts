@@ -726,13 +726,18 @@ export function getPspriteInfo(wp: WeaponPlayer, slot: number): {
   sprite: string; frame: number; sx: number; sy: number;
 } | null {
   const psp = wp.psprites[slot];
-  if (!psp.state) return null;
+  if (!psp || !psp.state) return null;
   return {
     sprite: psp.state.sprite,
     frame: psp.state.frame & 0x7FFF, // strip fullbright flag
     sx: psp.sx,
     sy: psp.sy,
   };
+}
+
+/** Resolve a StateNum to its WeaponState object (for save/load) */
+export function getWeaponState(stnum: StateNum): WeaponState | null {
+  return states.get(stnum) ?? null;
 }
 
 export { weaponinfo, PS_WEAPON, PS_FLASH, WEAPONTOP, WEAPONBOTTOM };
@@ -777,5 +782,9 @@ function createPlayerMobjFromWP(wp: WeaponPlayer, map: import('../map').GameMap)
     ceilingz: ss.sector ? ss.sector.ceilingHeight : 0,
     info: null,
     tracer: null,
+    spawnX: wp.x,
+    spawnY: wp.y,
+    spawnAngle: wp.angle,
+    respawnTimer: 0,
   };
 }

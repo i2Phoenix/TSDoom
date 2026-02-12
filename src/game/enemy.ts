@@ -3,9 +3,12 @@
 // Port of p_enemy.c — A_Look, P_NoiseAlert, P_LookForPlayers
 // ============================================================
 
-import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, finesine, finecosine, fixedMul } from '../math';
+import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from '../math';
+
+// ANG90/2 for gradual turning in A_Chase (original DOOM uses ANG90/2 = 0x20000000)
+const ANG90_HALF = (ANG90 >>> 1) >>> 0;
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../map';
-import { MapObjState, getMapObjects, getMapObjectByThingIndex, getCurrentMap, DI_NODIR } from './mobj';
+import { MapObjState, getMapObjects, getMapObjectByThingIndex, getCurrentMap, DI_NODIR, damageMobj } from './mobj';
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
@@ -15,9 +18,12 @@ import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from '.
 import { S_StartSound } from '../sound/s_sound';
 import { Sfx } from '../sound/sounds';
 import { spawnMonsterProjectile, ProjectileType } from './projectiles';
+import { traceWalls } from './combat';
+import { P_AimLineAttack, P_LineAttack } from './combat';
 
 // ---- Constants ----
 const MELEERANGE = 64 * FRACUNIT;
+const MISSILERANGE = 32 * 64 * FRACUNIT;  // 2048 map units
 
 // ---- Sound propagation (P_RecursiveSound / P_NoiseAlert) ----
 let soundValidcount = 0;
@@ -136,6 +142,10 @@ export function createPlayerMobj(player: Player, map: GameMap): MapObjState {
     ceilingz: ceilZ,
     tracer: null,
     info: null,
+    spawnX: player.x,
+    spawnY: player.y,
+    spawnAngle: player.angle,
+    respawnTimer: 0,
   };
 }
 
@@ -295,9 +305,16 @@ function A_Chase_impl(thingIndex: number): void {
     }
   }
 
-  // Turn towards movement direction
+  // Turn towards movement direction (gradual — ANG90/2 per tick, matching original DOOM)
   if (actor.movedir < 8) {
-    actor.angle = (actor.movedir << 29) >>> 0;
+    const exact = (actor.movedir << 29) >>> 0;
+    actor.angle = (actor.angle & (7 << 29)) >>> 0;
+    const delta = ((actor.angle - exact) | 0);
+    if (delta > 0) {
+      actor.angle = (actor.angle - ANG90_HALF) >>> 0;
+    } else if (delta < 0) {
+      actor.angle = (actor.angle + ANG90_HALF) >>> 0;
+    }
   }
 
   // If no target or target is dead → look for players, return to idle
@@ -315,22 +332,27 @@ function A_Chase_impl(thingIndex: number): void {
   }
 
   // Don't attack twice in a row (MF_JUSTATTACKED)
+  // Original DOOM: clear flag, call P_NewChaseDir, then return (skip attack + force movement)
   if (actor.flags & MF_JUSTATTACKED) {
     actor.flags &= ~MF_JUSTATTACKED;
-    // Skip attack this frame but still move
-  } else {
-    // Check melee attack
-    const animDef = getThingAnimDef(actor.type);
-    if (animDef && animDef.meleeState !== undefined) {
-      if (P_CheckMeleeRange(actor)) {
-        // TODO: Play attack sound
-        setMonsterState(thingIndex, actor.type, animDef.meleeState, 'attacking');
-        return;
-      }
-    }
+    P_NewChaseDir(actor);
+    return;
+  }
 
-    // Check ranged attack
-    if (animDef && animDef.missileState !== undefined) {
+  // Check melee attack
+  const animDef = getThingAnimDef(actor.type);
+  if (animDef && animDef.meleeState !== undefined) {
+    if (P_CheckMeleeRange(actor)) {
+      // TODO: Play attack sound
+      setMonsterState(thingIndex, actor.type, animDef.meleeState, 'attacking');
+      return;
+    }
+  }
+
+  // Check ranged attack — gated by movecount (original DOOM: skip if movecount > 0)
+  // This ensures monsters walk several steps between ranged attacks
+  if (animDef && animDef.missileState !== undefined) {
+    if (actor.movecount <= 0) {
       if (P_CheckMissileRange(actor)) {
         setMonsterState(thingIndex, actor.type, animDef.missileState, 'attacking');
         actor.flags |= MF_JUSTATTACKED;
@@ -395,78 +417,117 @@ export function initAICallbacks(): void {
   registerActionCallback('A_Metal', () => {});       // metal footstep sound (cosmetic)
   registerActionCallback('A_CPosAttack', A_CPosAttack_impl);
   registerActionCallback('A_CPosRefire', A_CPosRefire_impl);
+
+  // Arch-vile
+  registerActionCallback('A_VileChase', A_VileChase_impl);
+  registerActionCallback('A_VileStart', A_VileStart_impl);
+  registerActionCallback('A_VileTarget', A_VileTarget_impl);
+  registerActionCallback('A_VileAttack', A_VileAttack_impl);
 }
 
 // ---- Attack helper: hitscan toward target ----
+// Port of original DOOM monster hitscan: A_FaceTarget + ray trace.
+// Traces the bullet along the actual spread angle, checks walls via traceWalls,
+// and only damages the player if the bullet reaches them without hitting a wall.
 
-function monsterHitscan(actor: MapObjState, spread: number, damage: number): void {
+function monsterHitscan(actor: MapObjState, damage: number): void {
   if (!actor.target || !playerRef) return;
-  if (actor.target.health <= 0) return;  // don't attack dead target
+  // Check both playerRef (live data) and target for being dead
+  if (playerRef.health <= 0) return;
+  if (actor.target.health <= 0) return;
+
   A_FaceTarget_impl(actor.thingIndex);
 
-  // Base angle with random spread
-  // Original DOOM: angle += (P_Random()-P_Random()) << 20; (BAM angle)
-  // Conversion: << 20 BAM to radians = multiply by 2π / 4096
-  const dx = actor.target.x - actor.x;
-  const dy = actor.target.y - actor.y;
-  let angle = Math.atan2(dy / FRACUNIT, dx / FRACUNIT);
-  if (spread > 0) {
-    angle += (P_Random() - P_Random()) * spread;
-  }
+  // Add random spread: (P_Random()-P_Random()) << 20 in BAM
+  const angle = (actor.angle + ((P_Random() - P_Random()) << 20)) >>> 0;
 
-  // Check LOS first
-  const map = getCurrentMap();
-  if (!map || !P_CheckSight(actor, actor.target, map)) return;
+  // Shoot height: actor z + half height + 8 (same as original DOOM shootz)
+  const shootz = actor.z + (actor.height >> 1) + 8 * FRACUNIT;
 
-  // Apply damage to player
+  // Compute slope toward the target (vertical aiming)
+  const tdx = actor.target.x - actor.x;
+  const tdy = actor.target.y - actor.y;
+  const tDist = Math.max(1, Math.abs(tdx >> FRACBITS) + Math.abs(tdy >> FRACBITS));
+  const targetMidZ = actor.target.z + (actor.target.height >> 1);
+  const slope = ((targetMidZ - shootz) / tDist) | 0;
+
+  // Ray direction from the spread angle
+  const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
+  const dx = fixedMul(MISSILERANGE, finecosine(an));
+  const dy = fixedMul(MISSILERANGE, finesine[an]);
+
+  // Trace walls along the ACTUAL bullet ray to find the nearest wall hit
+  const wallFrac = traceWalls(actor.x, actor.y, dx, dy, slope, shootz);
+
+  // Now check if the player is hit by this ray BEFORE the wall
+  const pdx = playerRef.x - actor.x;
+  const pdy = playerRef.y - actor.y;
+
+  // Project player position onto ray direction (distance along ray)
+  const dot = fixedMul(pdx, finecosine(an)) + fixedMul(pdy, finesine[an]);
+  if (dot <= 0 || dot > MISSILERANGE) return; // player behind or out of range
+
+  // Perpendicular distance from ray to player center
+  const perp = Math.abs(fixedMul(pdx, finesine[an]) - fixedMul(pdy, finecosine(an)));
+  const playerRadius = 16 * FRACUNIT;
+  if (perp > playerRadius) return; // bullet misses player cylinder
+
+  // Fraction along the ray where the player is
+  const playerFrac = fixedDiv(dot, MISSILERANGE);
+
+  // Wall is closer than the player — bullet blocked!
+  if (playerFrac >= wallFrac) return;
+
+  // Vertical check: does the bullet z at player distance match?
+  const hitZ = shootz + fixedMul(slope, dot);
+  const pz = playerRef.z;
+  const pH = 56 * FRACUNIT; // player height
+  if (hitZ < pz || hitZ > pz + pH) return;
+
+  // Also fire P_LineAttack to hit map objects (monsters, barrels) along the way
+  // and spawn puffs/blood. This won't damage the player (not in mapObjects).
+  P_LineAttack(actor.x, actor.y, shootz, angle, MISSILERANGE, slope, damage);
+
+  // Apply damage to player — bullet passed all checks
   playerRef.takeDamage(damage, actor.x, actor.y);
 }
-
-// DOOM hitscan spread constant: (1 << 20) BAM → radians = 2π / 4096
-const HITSCAN_SPREAD = 2 * Math.PI / 4096;  // ~0.00153 rad per random unit
 
 // ---- A_PosAttack — Zombieman: single bullet ----
 function A_PosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  if (playerRef && playerRef.health <= 0) return;
 
   S_StartSound({ x: actor.x, y: actor.y }, Sfx.pistol);
   const damage = ((P_Random() % 5) + 1) * 3;  // 3-15 damage
-  monsterHitscan(actor, HITSCAN_SPREAD, damage);
+  monsterHitscan(actor, damage);
 }
 
 // ---- A_SPosAttack — Shotgun Guy: 3 bullets ----
+// Original DOOM: 3 separate P_LineAttack calls, each with spread
 function A_SPosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  if (playerRef && playerRef.health <= 0) return;
 
   S_StartSound({ x: actor.x, y: actor.y }, Sfx.shotgn);
 
-  const map = getCurrentMap();
-  if (!map || !P_CheckSight(actor, actor.target, map)) return;
-  if (!playerRef) return;
-
-  // 3 bullets, each with spread (original DOOM: << 20 BAM)
-  let totalDamage = 0;
+  // 3 bullets, each individually traced (can be blocked by walls separately)
   for (let i = 0; i < 3; i++) {
-    totalDamage += ((P_Random() % 5) + 1) * 3;
+    const damage = ((P_Random() % 5) + 1) * 3;
+    monsterHitscan(actor, damage);
   }
-  playerRef.takeDamage(totalDamage, actor.x, actor.y);
 }
 
 // ---- A_CPosAttack — Chaingunner: 1 bullet per frame ----
 function A_CPosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
 
   S_StartSound({ x: actor.x, y: actor.y }, Sfx.shotgn);
   const damage = ((P_Random() % 5) + 1) * 3;
-  monsterHitscan(actor, HITSCAN_SPREAD, damage);
+  monsterHitscan(actor, damage);
 }
 
 // ---- A_CPosRefire — Chaingunner refire check ----
@@ -495,7 +556,7 @@ function A_CPosRefire_impl(thingIndex: number): void {
 function A_TroopAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   if (P_CheckMeleeRange(actor)) {
@@ -514,7 +575,7 @@ function A_TroopAttack_impl(thingIndex: number): void {
 function A_SargAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   if (P_CheckMeleeRange(actor)) {
@@ -528,7 +589,7 @@ function A_SargAttack_impl(thingIndex: number): void {
 function A_HeadAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   if (P_CheckMeleeRange(actor)) {
@@ -544,7 +605,7 @@ function A_HeadAttack_impl(thingIndex: number): void {
 function A_BruisAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   if (P_CheckMeleeRange(actor)) {
@@ -561,7 +622,7 @@ function A_BruisAttack_impl(thingIndex: number): void {
 function A_CyberAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   spawnMonsterProjectile(actor, actor.target, ProjectileType.cyberdemonRocket);
@@ -572,7 +633,7 @@ function A_CyberAttack_impl(thingIndex: number): void {
 function A_SkullAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
-  if (actor.target.health <= 0) return;
+  if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   // Set momentum directly toward target (charge attack)
@@ -591,10 +652,103 @@ function A_SkullAttack_impl(thingIndex: number): void {
   actor.momz = Math.round((dz / FRACUNIT) / dist * (speed / FRACUNIT)) * FRACUNIT;
 }
 
+// ---- A_VileChase — Arch-vile chase (with resurrection ability) ----
+// In original DOOM, A_VileChase scans for nearby corpses to resurrect.
+// For now, it behaves like A_Chase. Resurrection can be added later.
+function A_VileChase_impl(thingIndex: number): void {
+  // TODO: Add corpse resurrection scan here
+  // For now, just use standard chase behavior
+  A_Chase_impl(thingIndex);
+}
+
+// ---- A_VileStart — Arch-vile attack start: play attack sound ----
+function A_VileStart_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  A_FaceTarget_impl(thingIndex);
+  S_StartSound({ x: actor.x, y: actor.y }, Sfx.vilatk);
+}
+
+// ---- A_VileTarget — Arch-vile: mark target, store reference ----
+// In original DOOM this spawns MT_FIRE at target position.
+// We store the target reference on the actor's tracer field for A_VileAttack.
+function A_VileTarget_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  A_FaceTarget_impl(thingIndex);
+  // Store target reference for the attack (tracer field)
+  actor.tracer = actor.target;
+  S_StartSound({ x: actor.x, y: actor.y }, Sfx.flamst);
+}
+
+// ---- A_VileAttack — Arch-vile: deal damage + vertical launch ----
+// Original DOOM: 20 direct damage, 70 radius damage, momz = 1000*FRACUNIT/mass
+function A_VileAttack_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  const target = actor.target;
+
+  // Check line of sight
+  const map = getCurrentMap();
+  if (!map) return;
+  if (!P_CheckSight(actor, target, map)) return;
+
+  S_StartSound({ x: actor.x, y: actor.y }, Sfx.barexp);
+
+  // Direct damage: 20 hp
+  // For player targets, use playerRef.takeDamage
+  if (playerRef && target === playerMobj) {
+    playerRef.takeDamage(20, actor.x, actor.y);
+  } else {
+    damageMobj(target, 20, actor);
+  }
+
+  // Vertical launch: momz = 1000 * FRACUNIT / target.info.mass
+  // This is the iconic Arch-vile "bounce" — sends player flying
+  const mass = target.info ? target.info.mass : 100;
+  if (playerRef && target === playerMobj) {
+    playerRef.momz = Math.round((1000 * FRACUNIT) / mass);
+  } else {
+    target.momz = Math.round((1000 * FRACUNIT) / mass);
+  }
+
+  // Radius blast: 70 damage (like a small explosion)
+  // In original DOOM this uses P_RadiusAttack with 70 damage
+  // For simplicity, apply additional 70 - distance based damage to player
+  if (playerRef && playerRef.health > 0) {
+    const dx = Math.abs(playerRef.x - target.x) >> FRACBITS;
+    const dy = Math.abs(playerRef.y - target.y) >> FRACBITS;
+    const dist = Math.max(dx, dy);
+    if (dist < 70) {
+      const blastDamage = 70 - dist;
+      playerRef.takeDamage(blastDamage, actor.x, actor.y);
+    }
+  }
+}
+
 // ---- A_SpidRefire — Spiderdemon refire check ----
+// Original DOOM uses threshold 10 (not 40 like Chaingunner) — Spiderdemon fires sustained bursts
 function A_SpidRefire_impl(thingIndex: number): void {
-  // Same logic as CPosRefire
-  A_CPosRefire_impl(thingIndex);
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+
+  A_FaceTarget_impl(thingIndex);
+
+  // Only ~4% chance to stop firing per tic (vs chaingunner's ~16%)
+  if (P_Random() < 10) return;
+
+  // Stop if target is dead or lost sight
+  const map = getCurrentMap();
+  if (!map) return;
+  if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map)) {
+    const animDef = getThingAnimDef(actor.type);
+    if (animDef && animDef.seeState !== undefined) {
+      setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing');
+    }
+  }
 }
 
 /**

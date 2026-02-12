@@ -88,11 +88,12 @@ export function lineIntersectFrac(
 // FRACUNIT if it reaches full range unblocked.
 // ============================================================
 
-function traceWalls(
+export function traceWalls(
   x1: number, y1: number,
   dx: number, dy: number,
   slope: number,
   shootz: number,
+  range: number = MISSILERANGE,
 ): number {
   if (!currentMap) return FRACUNIT;
 
@@ -133,8 +134,8 @@ function traceWalls(
     }
 
     // Check if the shot z at this point passes through the opening
-    const dist = frac; // frac is 0..FRACUNIT
-    const hitZ = shootz + fixedMul(slope, dist);
+    // hitZ = shootz + slope * actualDistance, where actualDistance = frac * range
+    const hitZ = shootz + fixedMul(slope, fixedMul(frac, range));
 
     if (hitZ < openbottom || hitZ > opentop) {
       bestFrac = frac;
@@ -379,7 +380,7 @@ export function P_LineAttack(
   const shootz = shooterZ;
 
   // Get wall block distance
-  const wallFrac = traceWalls(shooterX, shooterY, dx, dy, slope, shootz);
+  const wallFrac = traceWalls(shooterX, shooterY, dx, dy, slope, shootz, range);
 
   // Check thing hits (find closest within wall block distance)
   let bestFrac = wallFrac;

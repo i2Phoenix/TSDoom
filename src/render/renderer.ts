@@ -26,6 +26,7 @@ import { removedThings } from '../game/pickups';
 import { getActiveVfx, getVfxSprite, VfxEffect } from '../game/vfx';
 import { getDroppedItems, DroppedItem, getMapObjectByThingIndex } from '../game/mobj';
 import { getActiveProjectiles, getProjectileSprite, Projectile } from '../game/projectiles';
+import { MF_SHADOW } from '../game/mobjinfo';
 import { shouldSpawnThing } from '../game/skill';
 
 // ---- Constants ----
@@ -194,6 +195,7 @@ interface VisSprite {
   colormap: number; // light level
   dist: number;     // distance for sorting
   clipOffset: number; // offset into shared clip buffer (floor then ceiling, each x2-x1+1)
+  isFuzz: boolean;  // true for MF_SHADOW things (Spectre, invisible player)
 }
 let vissprites: VisSprite[] = [];
 
@@ -440,6 +442,54 @@ export function resolveGBuffer(): void {
     if (lightLvl < 0) lightLvl = 0;
     const colormap = palData.getColormapLookup(lightLvl);
     rgbaBuffer[i] = colormap[paletteIdx];
+  }
+}
+
+/**
+ * Resolve fuzz (Spectre/invisibility) pixels — Pass 2b.
+ * Must be called AFTER resolveGBuffer so that surrounding pixels
+ * have valid RGBA values to sample from.
+ *
+ * Replicates DOOM's R_DrawFuzzColumn:
+ * - Reads a neighboring pixel (offset by ±1 row using the fuzz table)
+ * - Darkens it by halving RGB channels
+ *
+ * Reference: r_draw.c R_DrawFuzzColumn, fuzzoffset[] table
+ */
+// Classic DOOM fuzz offset table (49 entries, +1 or -1 row offset)
+const FUZZOFFSET = [
+   1, -1,  1, -1,  1,  1, -1,
+   1,  1, -1,  1,  1,  1, -1,
+   1,  1,  1, -1, -1, -1, -1,
+   1, -1, -1,  1,  1,  1,  1, -1,
+   1, -1,  1,  1, -1, -1,  1,
+   1, -1, -1, -1, -1,  1,  1,
+   1,  1, -1,  1,  1, -1,
+];
+let fuzzpos = 0;
+
+export function resolveFuzzPixels(): void {
+  const len = SCREENWIDTH * SCREENHEIGHT;
+  const g = gBuffer;
+
+  for (let i = 0; i < len; i++) {
+    if (g.flags[i] !== SurfaceType.FUZZ) continue;
+
+    // Calculate fuzz offset (±1 row in the framebuffer)
+    const offset = FUZZOFFSET[fuzzpos] * SCREENWIDTH;
+    fuzzpos = (fuzzpos + 1) % FUZZOFFSET.length;
+
+    // Sample neighboring pixel (clamped to buffer bounds)
+    let srcIdx = i + offset;
+    if (srcIdx < 0) srcIdx = 0;
+    if (srcIdx >= len) srcIdx = len - 1;
+
+    // Read existing RGBA from neighboring pixel and darken (halve RGB)
+    const existing = rgbaBuffer[srcIdx];
+    const r = ((existing & 0xFF) >> 1);
+    const g2 = (((existing >> 8) & 0xFF) >> 1);
+    const b = (((existing >> 16) & 0xFF) >> 1);
+    rgbaBuffer[i] = (255 << 24) | (b << 16) | (g2 << 8) | r;
   }
 }
 
@@ -1574,6 +1624,9 @@ function projectSprite(
     startFrac += absXiscale * (cx1 - x1);
   }
 
+  // Check MF_SHADOW flag for fuzz rendering (Spectre, partial invisibility)
+  const hasFuzz = mobj ? !!(mobj.flags & MF_SHADOW) : (thing.type === 58); // type 58 = Spectre
+
   vissprites.push({
     x1: cx1,
     x2: cx2,
@@ -1590,6 +1643,7 @@ function projectSprite(
     colormap: lightLevel,
     dist: trx,
     clipOffset: clipOff,
+    isFuzz: hasFuzz,
   });
 }
 
@@ -1689,6 +1743,7 @@ function projectDropSprite(item: DroppedItem, sector: Sector): void {
     texturemid, patch, flip,
     colormap: lightLevel, dist: trx,
     clipOffset: clipOff2,
+    isFuzz: false,
   });
 }
 
@@ -1757,6 +1812,7 @@ function projectVfxSprite(e: VfxEffect, sector: Sector): void {
     colormap: lightLevel,
     dist: trx,
     clipOffset: clipOff3,
+    isFuzz: false,
   });
 }
 
@@ -1816,6 +1872,7 @@ function projectProjectileSprite(proj: Projectile, sector: Sector): void {
     texturemid, patch, flip,
     colormap: lightLevel, dist: trx,
     clipOffset: clipOff,
+    isFuzz: false,
   });
 }
 
@@ -2015,7 +2072,12 @@ function drawVisSprite(vis: VisSprite): void {
         // Sprite world Z: interpolate between gzt (top) and gz (bottom)
         const sprFrac = (y - sprtopscreen) / Math.max(1, sprBottomScreen - sprtopscreen);
         const wz = vis.gzt - ((sprFrac * (vis.gzt - vis.gz)) | 0);
-        writeGBufferSpritePixel(dest, pixel, colormapIdx, vis.gx, vis.gy, wz);
+        if (vis.isFuzz) {
+          // Fuzz effect: just mark in G-Buffer, resolved later
+          gBuffer.flags[dest] = SurfaceType.FUZZ;
+        } else {
+          writeGBufferSpritePixel(dest, pixel, colormapIdx, vis.gx, vis.gy, wz);
+        }
         zBuffer[dest] = spriteScale;
       }
     }

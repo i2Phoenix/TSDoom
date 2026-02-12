@@ -13,6 +13,7 @@ export const enum SurfaceType {
   SPRITE  = 4,
   SKY     = 5,
   PSPRITE = 6,  // weapon overlay — lit uniformly by player-position light
+  FUZZ    = 7,  // spectre / partial invisibility fuzz effect
 }
 
 /**

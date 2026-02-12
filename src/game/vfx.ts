@@ -258,3 +258,32 @@ export function spawnBfgHit(x: number, y: number, z: number): void {
   addDynLight(x, y, z, 192 * FRACUNIT, 80, 255, 80, 0.7, 12);
 }
 
+// ---- Teleport fog: TFOG frames A→J (S_TFOG..S_TFOG10) ----
+const TFOG_FRAMES: VfxFrame[] = [
+  { sprite: 'TFOG', frame: 0 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 1 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 0 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 1 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 2 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 3 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 4 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 5 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 6 | FF_FULLBRIGHT, tics: 6 },
+  { sprite: 'TFOG', frame: 7 | FF_FULLBRIGHT, tics: 6 },
+];
+
+/** Spawn teleport fog VFX (green flash) at a position */
+export function spawnTeleportFog(x: number, y: number, z: number): void {
+  const effect: VfxEffect = {
+    x, y, z,
+    frames: TFOG_FRAMES,
+    frameIndex: 0,
+    ticsLeft: TFOG_FRAMES[0].tics,
+    done: false,
+    totalTics: 0,
+  };
+  activeEffects.push(effect);
+  // Green-tinted dynamic light for teleport flash
+  addDynLight(x, y, z, 128 * FRACUNIT, 50, 255, 50, 0.6, 10);
+}
+

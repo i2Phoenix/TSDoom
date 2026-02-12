@@ -4,11 +4,14 @@
 // ============================================================
 
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../map';
-import { FRACBITS, FRACUNIT, fixedMul } from '../math';
+import { FRACBITS, FRACUNIT, fixedMul, fixedDiv } from '../math';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
-import { S_StartSound, SoundOrigin } from '../sound/s_sound';
+import { SoundOrigin, S_StartSound } from '../sound/s_sound';
 import { Sfx } from '../sound/sounds';
+import { spawnTeleportFog } from './vfx';
+import type { Player } from './player';
+import type { MapObjState } from './mobj';
 
 const PLAYERHEIGHT = 56 << FRACBITS;  // must match player.ts
 
@@ -415,7 +418,37 @@ function evDoDoor(line: LineDef, type: DoorType): boolean {
  * EV_VerticalDoor — manual door (no tag, uses back sector)
  * Reference: p_doors.c
  */
-function evVerticalDoor(line: LineDef): void {
+function evVerticalDoor(line: LineDef, player: Player | null): void {
+  // Check for locks (DOOM: p_doors.c EV_VerticalDoor)
+  if (player) {
+    switch (line.special) {
+      case 26: // Blue Lock
+      case 32:
+        if (!player.keys[0] && !player.keys[3]) {
+          player.message = 'You need a blue key to open this door';
+          S_StartSound(null, Sfx.oof);
+          return;
+        }
+        break;
+      case 27: // Yellow Lock
+      case 34:
+        if (!player.keys[1] && !player.keys[4]) {
+          player.message = 'You need a yellow key to open this door';
+          S_StartSound(null, Sfx.oof);
+          return;
+        }
+        break;
+      case 28: // Red Lock
+      case 33:
+        if (!player.keys[2] && !player.keys[5]) {
+          player.message = 'You need a red key to open this door';
+          S_StartSound(null, Sfx.oof);
+          return;
+        }
+        break;
+    }
+  }
+
   // Get the back sector (door sector)
   const sideIdx = line.sidenum[1];
   if (sideIdx === -1 || sideIdx === 0xFFFF) return;
@@ -475,6 +508,44 @@ function evVerticalDoor(line: LineDef): void {
   S_StartSound(sectorSoundOrg(sec), Sfx.doropn);
   addThinker(door);
   sectorSpecialData.set(sec, door);
+}
+
+/**
+ * EV_DoLockedDoor — open locked doors by tag (switch/button-triggered)
+ * Reference: p_doors.c EV_DoLockedDoor
+ * Checks key, sets message if locked, then delegates to evDoDoor.
+ */
+function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): boolean {
+  if (!player) return false;
+
+  switch (line.special) {
+    case 99:  // Blue Lock
+    case 133:
+      if (!player.keys[0] && !player.keys[3]) {
+        player.message = 'You need a blue key to activate this object';
+        S_StartSound(null, Sfx.oof);
+        return false;
+      }
+      break;
+    case 134: // Red Lock
+    case 135:
+      if (!player.keys[2] && !player.keys[5]) {
+        player.message = 'You need a red key to activate this object';
+        S_StartSound(null, Sfx.oof);
+        return false;
+      }
+      break;
+    case 136: // Yellow Lock
+    case 137:
+      if (!player.keys[1] && !player.keys[4]) {
+        player.message = 'You need a yellow key to activate this object';
+        S_StartSound(null, Sfx.oof);
+        return false;
+      }
+      break;
+  }
+
+  return evDoDoor(line, type);
 }
 
 // ===============================================
@@ -753,6 +824,352 @@ function evDoFloor(line: LineDef, floortype: FloorType): boolean {
 }
 
 // ===============================================
+// STAIR BUILDING — EV_BuildStairs
+// Reference: p_floor.c EV_BuildStairs
+// ===============================================
+
+const STAIRSPEED = FLOORSPEED;       // Normal stair speed
+const TURBOSTAIRSPEED = FLOORSPEED * 4; // Turbo stair speed
+
+/**
+ * EV_BuildStairs — build stairs from tagged sectors.
+ * Finds sectors by tag, then cascades through neighbors with matching
+ * floor texture, raising each sector by stepSize more than the previous.
+ * Reference: p_floor.c EV_BuildStairs
+ */
+function evBuildStairs(line: LineDef, turbo: boolean): boolean {
+  const stepSize = turbo ? (16 << FRACBITS) : (8 << FRACBITS);
+  const speed = turbo ? TURBOSTAIRSPEED : STAIRSPEED;
+
+  let rtn = false;
+  const sectors = findSectorsFromTag(line.tag, currentMap);
+
+  for (const sec of sectors) {
+    if (sectorSpecialData.has(sec)) continue;
+
+    rtn = true;
+    let height = sec.floorHeight + stepSize;
+    const stairFloorPic = sec.floorPic;
+
+    // Create floor mover for the first sector
+    const firstFloor: FloorThinker = {
+      action: floorTick,
+      removed: false,
+      type: FloorType.raiseFloor,
+      sector: sec,
+      speed,
+      floordestheight: height,
+      crush: false,
+      direction: 1,
+    };
+    addThinker(firstFloor);
+    sectorSpecialData.set(sec, firstFloor);
+
+    // Cascade through neighboring sectors with same floor texture
+    let prevSec = sec;
+    let ok = true;
+    while (ok) {
+      ok = false;
+      const lines = sectorLines.get(prevSec);
+      if (!lines) break;
+
+      for (const sline of lines) {
+        // Must be two-sided
+        if (!(sline.flags & ML_TWOSIDED)) continue;
+
+        // Get the sector on the other side
+        const nextSec = sline.frontsector === prevSec
+          ? sline.backsector
+          : (sline.backsector === prevSec ? sline.frontsector : null);
+        if (!nextSec) continue;
+
+        // Must have the same floor texture
+        if (nextSec.floorPic !== stairFloorPic) continue;
+
+        // Already has a thinker — skip
+        if (sectorSpecialData.has(nextSec)) continue;
+
+        // Found next stair sector
+        height += stepSize;
+        const nextFloor: FloorThinker = {
+          action: floorTick,
+          removed: false,
+          type: FloorType.raiseFloor,
+          sector: nextSec,
+          speed,
+          floordestheight: height,
+          crush: false,
+          direction: 1,
+        };
+        addThinker(nextFloor);
+        sectorSpecialData.set(nextSec, nextFloor);
+
+        prevSec = nextSec;
+        ok = true;
+        break; // restart search from the new sector
+      }
+    }
+  }
+
+  return rtn;
+}
+
+// ===============================================
+// CRUSHING CEILINGS — T_MoveCeiling
+// Reference: p_ceilng.c
+// ===============================================
+
+const CEILSPEED = FRACUNIT;       // Normal ceiling speed
+const MAXCEILINGS = 30;
+
+export enum CeilingType {
+  lowerToFloor,
+  raiseToHighest,
+  lowerAndCrush,
+  crushAndRaise,
+  fastCrushAndRaise,
+  silentCrushAndRaise,
+}
+
+export interface CeilingThinker extends Thinker {
+  type: CeilingType;
+  sector: Sector;
+  bottomheight: number;
+  topheight: number;
+  speed: number;
+  crush: boolean;
+  direction: number;    // -1=down, 0=stasis, 1=up
+  olddirection: number; // saved direction when in stasis
+  tag: number;
+}
+
+const activeCeilings: (CeilingThinker | null)[] = new Array(MAXCEILINGS).fill(null);
+
+/** Find highest ceiling height in surrounding sectors */
+function findHighestCeilingSurrounding(sec: Sector, map: GameMap): number {
+  let height = 0;
+  const lines = sectorLines.get(sec);
+  if (!lines) return height;
+  for (const line of lines) {
+    const other = getNextSector(line, sec, map);
+    if (!other) continue;
+    if (other.ceilingHeight > height) height = other.ceilingHeight;
+  }
+  return height;
+}
+
+/** Track tick count for sound timing (ceiling movement sounds every 8 tics) */
+let ceilingTick_counter = 0;
+export function tickCeilingCounter(): void { ceilingTick_counter++; }
+
+function ceilingTick(t: Thinker): void {
+  const ceiling = t as CeilingThinker;
+
+  switch (ceiling.direction) {
+    case 0: // IN STASIS
+      break;
+
+    case 1: { // UP
+      const res = movePlane(ceiling.sector, ceiling.speed,
+        ceiling.topheight, false, 1, ceiling.direction);
+
+      // Play movement sound every 8 tics (not for silent type)
+      if (!(ceilingTick_counter & 7)) {
+        if (ceiling.type !== CeilingType.silentCrushAndRaise) {
+          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
+        }
+      }
+
+      if (res === MoveResult.pastdest) {
+        if (ceiling.type === CeilingType.raiseToHighest) {
+          removeActiveCeiling(ceiling);
+        } else if (ceiling.type === CeilingType.silentCrushAndRaise) {
+          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
+          ceiling.direction = -1;
+        } else if (ceiling.type === CeilingType.fastCrushAndRaise ||
+                   ceiling.type === CeilingType.crushAndRaise) {
+          ceiling.direction = -1;
+        }
+      }
+      break;
+    }
+
+    case -1: { // DOWN
+      const res = movePlane(ceiling.sector, ceiling.speed,
+        ceiling.bottomheight, ceiling.crush, 1, ceiling.direction);
+
+      // Play movement sound every 8 tics (not for silent type)
+      if (!(ceilingTick_counter & 7)) {
+        if (ceiling.type !== CeilingType.silentCrushAndRaise) {
+          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
+        }
+      }
+
+      if (res === MoveResult.pastdest) {
+        if (ceiling.type === CeilingType.silentCrushAndRaise) {
+          S_StartSound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
+          ceiling.speed = CEILSPEED;
+          ceiling.direction = 1;
+        } else if (ceiling.type === CeilingType.crushAndRaise) {
+          ceiling.speed = CEILSPEED;
+          ceiling.direction = 1;
+        } else if (ceiling.type === CeilingType.fastCrushAndRaise) {
+          ceiling.direction = 1;
+        } else if (ceiling.type === CeilingType.lowerAndCrush ||
+                   ceiling.type === CeilingType.lowerToFloor) {
+          removeActiveCeiling(ceiling);
+        }
+      } else if (res === MoveResult.crushed) {
+        // Slow down when actively crushing something
+        switch (ceiling.type) {
+          case CeilingType.silentCrushAndRaise:
+          case CeilingType.crushAndRaise:
+          case CeilingType.lowerAndCrush:
+            ceiling.speed = CEILSPEED >> 3; // CEILSPEED / 8
+            break;
+          default:
+            break;
+        }
+
+        // Apply crush damage to player (10 hp per contact)
+        if (playerRef && playerInSector(ceiling.sector)) {
+          // Damage will be applied via the player's sector damage check
+          // Here we signal it by narrowing the gap
+        }
+      }
+      break;
+    }
+  }
+}
+
+function addActiveCeiling(ceiling: CeilingThinker): void {
+  for (let i = 0; i < MAXCEILINGS; i++) {
+    if (activeCeilings[i] === null) {
+      activeCeilings[i] = ceiling;
+      return;
+    }
+  }
+}
+
+function removeActiveCeiling(ceiling: CeilingThinker): void {
+  for (let i = 0; i < MAXCEILINGS; i++) {
+    if (activeCeilings[i] === ceiling) {
+      sectorSpecialData.delete(ceiling.sector);
+      removeThinker(ceiling);
+      activeCeilings[i] = null;
+      return;
+    }
+  }
+}
+
+/** Reactivate ceilings that were put in stasis (for same tag) */
+function activateInStasisCeiling(line: LineDef): void {
+  for (let i = 0; i < MAXCEILINGS; i++) {
+    const c = activeCeilings[i];
+    if (c && c.tag === line.tag && c.direction === 0) {
+      c.direction = c.olddirection;
+      // Re-enable the thinker action
+      c.action = ceilingTick;
+    }
+  }
+}
+
+/**
+ * EV_DoCeiling — move a ceiling up/down.
+ * Reference: p_ceilng.c EV_DoCeiling
+ */
+function evDoCeiling(line: LineDef, type: CeilingType): boolean {
+  // Reactivate in-stasis ceilings for crush types
+  switch (type) {
+    case CeilingType.fastCrushAndRaise:
+    case CeilingType.silentCrushAndRaise:
+    case CeilingType.crushAndRaise:
+      activateInStasisCeiling(line);
+      break;
+    default:
+      break;
+  }
+
+  let rtn = false;
+  const sectors = findSectorsFromTag(line.tag, currentMap);
+
+  for (const sec of sectors) {
+    if (sectorSpecialData.has(sec)) continue;
+
+    rtn = true;
+    const ceiling: CeilingThinker = {
+      action: ceilingTick,
+      removed: false,
+      type,
+      sector: sec,
+      bottomheight: 0,
+      topheight: 0,
+      speed: CEILSPEED,
+      crush: false,
+      direction: 0,
+      olddirection: 0,
+      tag: sec.tag,
+    };
+
+    switch (type) {
+      case CeilingType.fastCrushAndRaise:
+        ceiling.crush = true;
+        ceiling.topheight = sec.ceilingHeight;
+        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
+        ceiling.direction = -1;
+        ceiling.speed = CEILSPEED * 2;
+        break;
+      case CeilingType.silentCrushAndRaise:
+      case CeilingType.crushAndRaise:
+        ceiling.crush = true;
+        ceiling.topheight = sec.ceilingHeight;
+        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
+        ceiling.direction = -1;
+        ceiling.speed = CEILSPEED;
+        break;
+      case CeilingType.lowerAndCrush:
+        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
+        ceiling.direction = -1;
+        ceiling.speed = CEILSPEED;
+        break;
+      case CeilingType.lowerToFloor:
+        ceiling.bottomheight = sec.floorHeight;
+        ceiling.direction = -1;
+        ceiling.speed = CEILSPEED;
+        break;
+      case CeilingType.raiseToHighest:
+        ceiling.topheight = findHighestCeilingSurrounding(sec, currentMap);
+        ceiling.direction = 1;
+        ceiling.speed = CEILSPEED;
+        break;
+    }
+
+    addThinker(ceiling);
+    sectorSpecialData.set(sec, ceiling);
+    addActiveCeiling(ceiling);
+  }
+
+  return rtn;
+}
+
+/**
+ * EV_CeilingCrushStop — stop a ceiling from crushing.
+ * Reference: p_ceilng.c EV_CeilingCrushStop
+ */
+function evCeilingCrushStop(line: LineDef): boolean {
+  let rtn = false;
+  for (let i = 0; i < MAXCEILINGS; i++) {
+    const c = activeCeilings[i];
+    if (c && c.tag === line.tag && c.direction !== 0) {
+      c.olddirection = c.direction;
+      c.direction = 0; // in stasis
+      rtn = true;
+    }
+  }
+  return rtn;
+}
+
+// ===============================================
 // Switch texture toggling
 // Reference: p_switch.c
 // ===============================================
@@ -820,7 +1237,7 @@ function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
 // P_UseSpecialLine — main dispatch
 // Reference: p_switch.c P_UseSpecialLine
 // ===============================================
-export function useSpecialLine(line: LineDef): boolean {
+export function useSpecialLine(line: LineDef, player: Player | null): boolean {
   switch (line.special) {
     // MANUALS (doors you press Use on)
     case 1:   // Vertical Door (raise)
@@ -833,7 +1250,7 @@ export function useSpecialLine(line: LineDef): boolean {
     case 34:  // Yellow locked door open
     case 117: // Blazing door raise
     case 118: // Blazing door open
-      evVerticalDoor(line);
+      evVerticalDoor(line, player);
       return true;
 
     // SWITCHES (one-shot)
@@ -847,8 +1264,18 @@ export function useSpecialLine(line: LineDef): boolean {
       changeSwitchTexture(line, false);
       G_SecretExitLevel();
       return true;
-    case 7:  // Build stairs (not implemented)
-      return false;
+    case 7:  // S1 Build Stairs 8
+      if (evBuildStairs(line, false))
+        changeSwitchTexture(line, false);
+      return true;
+    case 127: // S1 Build Stairs 16 (turbo)
+      if (evBuildStairs(line, true))
+        changeSwitchTexture(line, false);
+      return true;
+    case 49: // S1 Ceiling Crush And Raise
+      if (evDoCeiling(line, CeilingType.crushAndRaise))
+        changeSwitchTexture(line, false);
+      return true;
     case 9:  // Change donut (not implemented)
       return false;
     case 21: // PlatDownWaitUpStay (switch)
@@ -889,6 +1316,14 @@ export function useSpecialLine(line: LineDef): boolean {
       return true;
     case 71: // Turbo lower floor
       if (evDoFloor(line, FloorType.turboLower))
+        changeSwitchTexture(line, false);
+      return true;
+
+    // LOCKED DOOR SWITCHES (one-shot)
+    case 133: // BlzOpenDoor BLUE
+    case 135: // BlzOpenDoor RED
+    case 137: // BlzOpenDoor YELLOW
+      if (evDoLockedDoor(line, DoorType.blazeOpen, player))
         changeSwitchTexture(line, false);
       return true;
 
@@ -933,6 +1368,14 @@ export function useSpecialLine(line: LineDef): boolean {
       if (evDoFloor(line, FloorType.turboLower))
         changeSwitchTexture(line, true);
       return true;
+
+    // LOCKED DOOR BUTTONS (repeatable)
+    case 99:  // BlzOpenDoor BLUE
+    case 134: // BlzOpenDoor RED
+    case 136: // BlzOpenDoor YELLOW
+      if (evDoLockedDoor(line, DoorType.blazeOpen, player))
+        changeSwitchTexture(line, true);
+      return true;
   }
 
   return false;
@@ -944,17 +1387,141 @@ export function useSpecialLine(line: LineDef): boolean {
  */
 export function monsterUseSpecialLine(line: LineDef): boolean {
   if (line.special === 1) {
-    evVerticalDoor(line);
+    evVerticalDoor(line, null);
     return true;
   }
   return false;
 }
 
+// ===============================================
+// TELEPORTERS — EV_Teleport
+// Reference: p_telept.c
+// ===============================================
+
 /**
- * P_CrossSpecialLine — triggered when player crosses a line 
+ * Teleportable actor — either a Player or MapObjState.
+ * We duck-type: if it has `viewheight`, it's a Player.
+ */
+export interface TeleportActor {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+  momx: number;
+  momy: number;
+  momz: number;
+  // Player-specific (optional)
+  viewheight?: number;
+  deltaviewheight?: number;
+  viewz?: number;
+  reactiontime?: number;
+}
+
+function isPlayerActor(actor: TeleportActor): boolean {
+  return 'viewheight' in actor && 'deltaviewheight' in actor;
+}
+
+/**
+ * EV_Teleport — teleport an actor to a destination thing.
+ * Finds thing type 14 in sectors matching the line's tag.
+ * Reference: p_telept.c EV_Teleport
+ */
+function evTeleport(line: LineDef, side: number, actor: TeleportActor): boolean {
+  // Don't teleport if you're on the back side of the teleporter line
+  // (prevents teleporting back immediately after arriving)
+  if (side === 1) return false;
+  if (!currentMap) return false;
+
+  const tag = line.tag;
+  if (tag === 0) return false;
+
+  // Find sectors with this tag
+  const sectors = findSectorsFromTag(tag, currentMap);
+  if (sectors.length === 0) return false;
+
+  // Find a teleport destination thing (type 14) in one of those sectors
+  for (const thing of currentMap.things) {
+    if (thing.type !== 14) continue; // T_TELEPORTMAN = 14
+
+    // Check if this thing is inside one of the tagged sectors
+    const thingX = thing.x << FRACBITS;
+    const thingY = thing.y << FRACBITS;
+    const ss = currentMap.pointInSubsector(thingX, thingY);
+    if (!ss.sector) continue;
+    if (!sectors.includes(ss.sector)) continue;
+
+    // Found destination! Perform teleport.
+    const oldX = actor.x;
+    const oldY = actor.y;
+    const oldZ = actor.z;
+
+    // Destination angle (MapThing.angle is in degrees)
+    const destAngle = ((thing.angle * 0xFFFFFFFF / 360) >>> 0);
+
+    // Spawn fog at OLD position
+    spawnTeleportFog(oldX, oldY, oldZ);
+    S_StartSound({ x: oldX, y: oldY }, Sfx.telept);
+
+    // Move actor to destination
+    const destZ = ss.sector.floorHeight;
+    actor.x = thingX;
+    actor.y = thingY;
+    actor.z = destZ;
+    actor.angle = destAngle;
+
+    // Zero momentum
+    actor.momx = 0;
+    actor.momy = 0;
+    actor.momz = 0;
+
+    // Player-specific: reset view for smooth transition
+    if (isPlayerActor(actor)) {
+      const VIEWHEIGHT = 41 << FRACBITS;
+      actor.viewheight = VIEWHEIGHT;
+      actor.deltaviewheight = 0;
+      actor.viewz = destZ + VIEWHEIGHT;
+      actor.reactiontime = 18; // freeze controls briefly (18 tics)
+    }
+
+    // Spawn fog at NEW position (offset slightly in front based on angle)
+    // Original DOOM spawns fog 20 units in front of destination
+    const fineAngle = (destAngle >>> 19) & 0x1FFF;
+    const TELEPORTOFFSET = 20 << FRACBITS;
+    // Use lookup for cos/sin
+    const fogX = thingX + Math.round(TELEPORTOFFSET * Math.cos(fineAngle * Math.PI * 2 / 8192));
+    const fogY = thingY + Math.round(TELEPORTOFFSET * Math.sin(fineAngle * Math.PI * 2 / 8192));
+    spawnTeleportFog(fogX, fogY, destZ);
+    S_StartSound({ x: fogX, y: fogY }, Sfx.telept);
+
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * P_CrossSpecialLine — triggered when player/monster crosses a line 
  * Reference: p_spec.c P_CrossSpecialLine
  */
-export function crossSpecialLine(line: LineDef): void {
+export function crossSpecialLine(line: LineDef, side: number = 0, actor?: TeleportActor): void {
+  // Monster filter: in original DOOM (p_spec.c), monsters can only trigger
+  // walk-over doors, lifts/platforms, and teleports — NOT exits, floors, ceilings, etc.
+  if (actor && !isPlayerActor(actor)) {
+    switch (line.special) {
+      // Doors: W1 / WR
+      case 2: case 3: case 4: case 16: case 108: case 109: case 110:  // W1 doors
+      case 75: case 76: case 86: case 90:                              // WR doors
+      // Lifts/platforms: W1 / WR
+      case 10: case 22:                                                // W1 lifts
+      case 87: case 88: case 95:                                       // WR lifts
+      // Teleporters
+      case 39: case 97: case 125: case 126:
+        break; // allowed — continue to the switch below
+      default:
+        return; // all other specials are player-only
+    }
+  }
+
   switch (line.special) {
     case 2: // Open door (walk trigger)
       evDoDoor(line, DoorType.open);
@@ -1000,6 +1567,34 @@ export function crossSpecialLine(line: LineDef): void {
       evDoFloor(line, FloorType.lowerFloorToLowest);
       line.special = 0;
       break;
+    case 6: // W1 Ceiling Crush And Raise (with stop)
+      evDoCeiling(line, CeilingType.crushAndRaise);
+      line.special = 0;
+      break;
+    case 25: // W1 Crush And Raise
+      evDoCeiling(line, CeilingType.crushAndRaise);
+      line.special = 0;
+      break;
+    case 44: // W1 Lower And Crush
+      evDoCeiling(line, CeilingType.lowerAndCrush);
+      line.special = 0;
+      break;
+    case 40: // W1 Raise Ceiling To Highest
+      evDoCeiling(line, CeilingType.raiseToHighest);
+      line.special = 0;
+      break;
+    case 41: // W1 Lower Ceiling To Floor
+      evDoCeiling(line, CeilingType.lowerToFloor);
+      line.special = 0;
+      break;
+    case 57: // W1 Ceiling Crush Stop
+      evCeilingCrushStop(line);
+      line.special = 0;
+      break;
+    case 141: // W1 Silent Crush And Raise
+      evDoCeiling(line, CeilingType.silentCrushAndRaise);
+      line.special = 0;
+      break;
     case 52: // EXIT (walk trigger)
       G_ExitLevel();
       line.special = 0;
@@ -1022,7 +1617,17 @@ export function crossSpecialLine(line: LineDef): void {
       break;
 
     // RETRIGGERS (don't clear special)
-    case 72: case 73: case 74: // Ceiling stuff (not implemented)
+    case 72: // WR Lower Ceiling And Crush
+      evDoCeiling(line, CeilingType.lowerAndCrush);
+      break;
+    case 73: // WR Crush And Raise
+      evDoCeiling(line, CeilingType.crushAndRaise);
+      break;
+    case 74: // WR Ceiling Crush Stop
+      evCeilingCrushStop(line);
+      break;
+    case 77: // WR Fast Crush And Raise
+      evDoCeiling(line, CeilingType.fastCrushAndRaise);
       break;
     case 75: // Close door (retrigger)
       evDoDoor(line, DoorType.close);
@@ -1063,6 +1668,42 @@ export function crossSpecialLine(line: LineDef): void {
       break;
     case 98: // Lower floor turbo (retrigger)
       evDoFloor(line, FloorType.turboLower);
+      break;
+
+    // STAIR BUILDING
+    case 8: // W1 Build Stairs 8
+      evBuildStairs(line, false);
+      line.special = 0;
+      break;
+    case 100: // W1 Build Stairs 16 (turbo)
+      evBuildStairs(line, true);
+      line.special = 0;
+      break;
+
+    // TELEPORTERS
+    case 39: // W1 Teleport
+      if (actor) {
+        if (evTeleport(line, side, actor)) {
+          line.special = 0;
+        }
+      }
+      break;
+    case 97: // WR Teleport (retrigger)
+      if (actor) {
+        evTeleport(line, side, actor);
+      }
+      break;
+    case 125: // W1 Teleport — monsters only
+      if (actor && !isPlayerActor(actor)) {
+        if (evTeleport(line, side, actor)) {
+          line.special = 0;
+        }
+      }
+      break;
+    case 126: // WR Teleport — monsters only (retrigger)
+      if (actor && !isPlayerActor(actor)) {
+        evTeleport(line, side, actor);
+      }
       break;
   }
 }

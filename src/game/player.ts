@@ -13,7 +13,7 @@ import { getDamageMultiplier } from './skill';
 import {
   WeaponType, AmmoType, WeaponPlayer, PspDef,
   initPlayerWeapons, movePsprites, fireWeapon, getPspriteInfo,
-  weaponinfo, dropWeapon,
+  weaponinfo, dropWeapon, bringUpWeapon,
 } from './weapons';
 import { levelTime } from './thinkers';
 import { S_StartSound } from '../sound/s_sound';
@@ -177,6 +177,54 @@ export class Player {
     this.bonuscount = 0;
     this.cheats = 0;      // cancel god mode etc.
     this.message = null;
+  }
+
+  /**
+   * Respawn the player at the new map's start position.
+   * KEEPS weapons, ammo, health, and armor (level transition).
+   * Only resets position, momentum, viewheight, and weapon state machine.
+   * Reference: g_game.c — G_DoCompleted does NOT call G_PlayerReborn.
+   */
+  respawnAtStart(): void {
+    const p1Start = this.map.things.find(t => t.type === 1);
+    if (p1Start) {
+      this.x = p1Start.x << FRACBITS;
+      this.y = p1Start.y << FRACBITS;
+      this.angle = ((p1Start.angle * 0x100000000 / 360) >>> 0);
+    } else {
+      this.x = 0;
+      this.y = 0;
+      this.angle = 0;
+    }
+
+    // Find floor height at spawn position
+    const ss = this.map.pointInSubsector(this.x, this.y);
+    this.z = ss.sector ? ss.sector.floorHeight : 0;
+    this.viewheight = VIEWHEIGHT;
+    this.deltaviewheight = 0;
+    this.viewz = this.z + VIEWHEIGHT;
+    this.momx = 0;
+    this.momy = 0;
+    this.momz = 0;
+    this.stuckTicks = 0;
+
+    // Reset weapon state machine (psprites) but keep owned weapons & ammo
+    this.pendingweapon = WeaponType.nochange;
+    this.attackdown = false;
+    this.refire = 0;
+    this.psprites = [
+      { state: null, stateNum: 0 as any, tics: 0, sx: FRACUNIT, sy: 128 * FRACUNIT },
+      { state: null, stateNum: 0 as any, tics: 0, sx: FRACUNIT, sy: 128 * FRACUNIT },
+    ];
+    // Bring up current weapon
+    bringUpWeapon(this);
+
+    // Reset player state
+    this.playerstate = PlayerState.LIVE;
+    this.bob = 0;
+
+    // Clear accumulated mouse input
+    resetMouseAccumulation();
   }
 
   /** Process input and update player state */
@@ -1038,7 +1086,7 @@ export class Player {
     }
 
     if (bestLine) {
-      useSpecialLine(bestLine);
+      useSpecialLine(bestLine, this);
     }
   }
 
@@ -1064,7 +1112,7 @@ export class Player {
       const newSide = this.lineSide(this.x, this.y, v1, v2);
 
       if (oldSide !== newSide) {
-        crossSpecialLine(ld);
+        crossSpecialLine(ld, newSide, this);
       }
     }
   }

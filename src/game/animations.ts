@@ -603,6 +603,62 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     seeSound: [45, 46, 47], painSound: 36, deathSound: [68, 69, 70], activeSound: 84,
   },
 
+  // Arch-vile (MT_VILE) — fire attack + resurrect
+  // Original DOOM: sprite VILE, DoomEd 64
+  64: {
+    states: [
+      // 0-1: spawn (idle)
+      { sprite: 'VILE', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
+      { sprite: 'VILE', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
+      // 2-3: pain
+      { sprite: 'VILE', frame: 16, tics: 5, nextState: 3 },
+      { sprite: 'VILE', frame: 16, tics: 5, nextState: 12 },  // pain → seeState
+      // 4-11: death (S_VILE_DIE1..DIE10)
+      { sprite: 'VILE', frame: 16, tics: 7, nextState: 5 },
+      { sprite: 'VILE', frame: 17, tics: 7, nextState: 6 },
+      { sprite: 'VILE', frame: 18, tics: 7, nextState: 7 },
+      { sprite: 'VILE', frame: 19, tics: 7, nextState: 8 },
+      { sprite: 'VILE', frame: 20, tics: 7, nextState: 9 },
+      { sprite: 'VILE', frame: 21, tics: 7, nextState: 10 },
+      { sprite: 'VILE', frame: 22, tics: 7, nextState: 11 },
+      { sprite: 'VILE', frame: 23, tics: -1, nextState: 11 },
+      // 12-23: see (walk/chase) — A_VileChase (like A_Chase but can resurrect)
+      { sprite: 'VILE', frame: 0, tics: 2, nextState: 13, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 0, tics: 2, nextState: 14, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 1, tics: 2, nextState: 15, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 1, tics: 2, nextState: 16, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 2, tics: 2, nextState: 17, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 2, tics: 2, nextState: 18, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 3, tics: 2, nextState: 19, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 3, tics: 2, nextState: 20, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 4, tics: 2, nextState: 21, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 4, tics: 2, nextState: 22, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 5, tics: 2, nextState: 23, action: 'A_VileChase' },
+      { sprite: 'VILE', frame: 5, tics: 2, nextState: 12, action: 'A_VileChase' },
+      // 24-33: missile (attack sequence)
+      // S_VILE_ATK1: face target, play vilatk sound
+      { sprite: 'VILE', frame: 6, tics: 0, nextState: 25, action: 'A_VileStart' },
+      // S_VILE_ATK2: raise arms, spawn fire
+      { sprite: 'VILE', frame: 6, tics: 10, nextState: 26, action: 'A_VileTarget' },
+      // S_VILE_ATK3-ATK10: wind-up frames (fire tracks target)
+      { sprite: 'VILE', frame: 7, tics: 8, nextState: 27, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 8, tics: 8, nextState: 28, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 9, tics: 8, nextState: 29, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 10, tics: 8, nextState: 30, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 11, tics: 8, nextState: 31, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 12, tics: 8, nextState: 32, action: 'A_FaceTarget' },
+      { sprite: 'VILE', frame: 13, tics: 8, nextState: 33, action: 'A_FaceTarget' },
+      // S_VILE_ATK11: actual attack — damage + launch
+      { sprite: 'VILE', frame: 14, tics: 8, nextState: 34, action: 'A_VileAttack' },
+      // Return to see state
+      { sprite: 'VILE', frame: 15, tics: 20, nextState: 12 },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    seeState: 12, missileState: 24,
+    painChance: 10,
+    seeSound: [57], painSound: 37, deathSound: [80], activeSound: 89,
+  },
+
   // ============================================================
   // Decorations & Pickups
   // ============================================================

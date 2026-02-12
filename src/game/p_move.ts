@@ -10,7 +10,7 @@ import { MapObjState, getMapObjects, getCurrentMap, DI_EAST, DI_NORTHEAST, DI_NO
 import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT } from './mobjinfo';
 import { P_Random } from './random';
 import { P_CheckSight } from './sight';
-import { monsterUseSpecialLine } from './specials';
+import { monsterUseSpecialLine, crossSpecialLine } from './specials';
 
 // ---- Constants ----
 const MAXMOVE       = 30 * FRACUNIT;  // max movement per tic
@@ -204,6 +204,10 @@ export function P_Move(actor: MapObjState): boolean {
   const map = getCurrentMap();
   if (!map) return false;
 
+  // Save old position for line-crossing detection
+  const oldX = actor.x;
+  const oldY = actor.y;
+
   const speed = actor.info ? actor.info.speed : 8;
   const tryx = actor.x + fixedMul(speed * FRACUNIT, xspeed[actor.movedir]);
   const tryy = actor.y + fixedMul(speed * FRACUNIT, yspeed[actor.movedir]);
@@ -256,7 +260,52 @@ export function P_Move(actor: MapObjState): boolean {
     }
   }
 
+  // Check if monster crossed a teleport line (walk triggers)
+  checkMonsterLineCrossings(actor, oldX, oldY, map);
+
   return true;
+}
+
+/**
+ * Check if a monster crossed any walk-trigger linedefs during its move.
+ * Primarily handles teleport lines (39, 97, 125, 126).
+ * Reference: P_CrossSpecialLine in p_spec.c
+ */
+function checkMonsterLineCrossings(
+  actor: MapObjState, oldX: number, oldY: number, map: GameMap
+): void {
+  if (actor.x === oldX && actor.y === oldY) return;
+
+  const radius = actor.radius || (20 << FRACBITS);
+
+  for (const ld of map.linedefs) {
+    if (ld.special === 0) continue;
+
+    const v1 = map.vertices[ld.v1];
+    const v2 = map.vertices[ld.v2];
+
+    // Quick distance rejection
+    const midx = (v1.x + v2.x) >> 1;
+    const midy = (v1.y + v2.y) >> 1;
+    if (Math.abs(midx - actor.x) > radius * 4 ||
+        Math.abs(midy - actor.y) > radius * 4) continue;
+
+    // Check if the monster crossed from one side to the other
+    const ldx = v2.x - v1.x;
+    const ldy = v2.y - v1.y;
+
+    const oldCross = ((oldX - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
+                     ((oldY - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+    const newCross = ((actor.x - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
+                     ((actor.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+
+    const oldSide = oldCross <= 0 ? 1 : 0;
+    const newSide = newCross <= 0 ? 1 : 0;
+
+    if (oldSide !== newSide) {
+      crossSpecialLine(ld, newSide, actor);
+    }
+  }
 }
 
 /**
@@ -412,39 +461,30 @@ export function P_CheckMissileRange(actor: MapObjState): boolean {
 
   if (dist < 0) dist = 0;
 
-  // Per-monster distance adjustments (from DOOM p_enemy.c)
+  // Per-monster distance adjustments (from DOOM p_enemy.c, exact ordering)
   const mt = actor.mobjType;
 
-  // Arch-vile: capped at 14*64 = 896 — won't try further
-  if (mt === MT.MT_VILE && dist > 896) return false;
+  // Arch-vile: max range 14*64 = 896
+  if (mt === MT.MT_VILE && dist > 14 * 64) return false;
 
-  // Revenant: won't fire if under ~196 (prefers melee range otherwise)
+  // Revenant: won't fire if under 196 (prefers fist attack), halve dist
   if (mt === MT.MT_UNDEAD) {
     if (dist < 196) return false;
-    dist >>= 1;  // halve effective distance → more aggressive
-  }
-
-  // Mancubus: halve distance → fires more often
-  if (mt === MT.MT_FATSO) dist >>= 1;
-
-  // Arachnotron/Pain Elemental: halve distance
-  if (mt === MT.MT_BABY || mt === MT.MT_PAIN) dist >>= 1;
-
-  // Lost Soul: very aggressive, cap at 160
-  if (mt === MT.MT_SKULL) {
     dist >>= 1;
-    if (dist > 160) dist = 160;
   }
 
-  // Cyberdemon/Spider: cap at 160 (they fire readily)
-  if (mt === MT.MT_CYBORG || mt === MT.MT_SPIDER) {
-    if (dist > 160) dist = 160;
+  // Cyberdemon, Spider, Lost Soul: halve effective distance (fire more aggressively)
+  if (mt === MT.MT_CYBORG || mt === MT.MT_SPIDER || mt === MT.MT_SKULL) {
+    dist >>= 1;
   }
 
-  // General cap for all other monsters
+  // General cap: no monster fires less than P_Random() < 200
   if (dist > 200) dist = 200;
 
-  // Random chance based on distance
+  // Cyberdemon-specific: even more aggressive cap
+  if (mt === MT.MT_CYBORG && dist > 160) dist = 160;
+
+  // Random chance based on distance — higher dist = less likely to fire
   if (P_Random() < dist) return false;
 
   return true;

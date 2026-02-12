@@ -6,7 +6,7 @@
 import { GameMap, Sector } from '../map';
 import { FRACBITS } from '../math';
 import { Player, PlayerState } from './player';
-import { WeaponType, StateNum, PspDef } from './weapons';
+import { WeaponType, StateNum, PspDef, getWeaponState } from './weapons';
 import { levelTime } from './thinkers';
 import { getThinkersList, setLevelTime, clearThinkers, Thinker } from './thinkers';
 import { removedThings, setRemovedThings } from './pickups';
@@ -126,8 +126,8 @@ export interface GameSaveData {
 }
 
 const SAVE_VERSION = 1;
-const STORAGE_PREFIX = 'jdoom_save_';
-const QUICKSAVE_KEY = 'jdoom_quicksave';
+const STORAGE_PREFIX = 'tsdoom_save_';
+const QUICKSAVE_KEY = 'tsdoom_quicksave';
 
 // ============================================================
 // captureGameState — snapshot current state
@@ -335,13 +335,21 @@ export function applyGameState(
   player.damagecount = p.damagecount;
   player.bonuscount = p.bonuscount;
   player.playerstate = p.playerstate as PlayerState;
-  // Restore psprites — only tics/sx/sy/stateNum; state object resolved by weapons system
+  // Restore psprites — tics/sx/sy/stateNum + resolve state object from stateNum
   if (p.psprites) {
+    // Ensure psprites array has enough slots (on cold load, it may be empty)
+    while (player.psprites.length < p.psprites.length) {
+      player.psprites.push({ state: null, stateNum: StateNum.S_NULL as any, tics: 0, sx: 0, sy: 0 });
+    }
     for (let i = 0; i < p.psprites.length && i < player.psprites.length; i++) {
       player.psprites[i].tics = p.psprites[i].tics;
       player.psprites[i].sx = p.psprites[i].sx;
       player.psprites[i].sy = p.psprites[i].sy;
-      player.psprites[i].stateNum = p.psprites[i].stateNum as StateNum;
+      const sn = p.psprites[i].stateNum as StateNum;
+      player.psprites[i].stateNum = sn;
+      // Resolve the state object from stateNum (critical — without this,
+      // getPspriteInfo crashes because psp.state is null)
+      player.psprites[i].state = sn !== StateNum.S_NULL ? getWeaponState(sn) : null;
     }
   }
 

@@ -1,5 +1,5 @@
 // ============================================================
-// JDoom — Main Entry Point
+// TSDoom — Main Entry Point
 // Reference: d_main.c (D_DoomLoop, D_Display, D_ProcessEvents)
 // ============================================================
 
@@ -16,6 +16,7 @@ import {
   cycleRenderMode,
   getRenderMode,
   resolveGBuffer,
+  resolveFuzzPixels,
   drawPSprites,
   renderDepthOverlay,
 } from "./render/renderer";
@@ -49,6 +50,8 @@ import { updatePaletteFlash, resetPaletteFlash, applyScreenTint } from "./game/p
 import {
   initMapObjects,
   updateMonsterDeaths,
+  updateMobjFloorZ,
+  tickMonsterRespawn,
   clearDroppedItems,
 } from "./game/mobj";
 import { setCombatMap, setCombatPlayer } from "./game/combat";
@@ -98,7 +101,10 @@ import {
   pendingWarpMap,
   pendingSkill,
 } from "./game/gamestate";
-import { getNextMap } from "./game/mapflow";
+import { getNextMap, parseMapName } from "./game/mapflow";
+import { Intermission, WBStartStruct, resetLevelStats, totalKills, totalItems, totalSecrets, playerKills, playerItems, playerSecrets, addTotalItem, addTotalSecret } from "./game/intermission";
+import { levelTime } from "./game/thinkers";
+import { Finale, FinaleConfig, getFinaleConfig } from "./game/finale";
 
 // ---- Module refs ----
 let wad: WAD;
@@ -115,6 +121,9 @@ let imageBuffer: Uint32Array;
 let fpsDiv: HTMLDivElement;
 let menu: MenuSystem;
 let inputInitialized = false;
+let intermission: Intermission | null = null;
+let finale: Finale | null = null;
+let pendingNextMap: string = '';
 
 // ============================================================
 // Canvas
@@ -210,6 +219,10 @@ function initMapFresh(mapName: string): void {
   clearDynLights();
   spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
 
+  // Count items and secrets for intermission stats
+  countMapItems(mapRef);
+  countMapSecrets(mapRef);
+
   // Sound: stop all sounds and re-init for new level
   S_Start();
 
@@ -217,6 +230,42 @@ function initMapFresh(mapName: string): void {
   const mus = musicForMap(mapName);
   if (mus !== Music.None) {
     S_ChangeMusic(mus, true);
+  }
+}
+
+/** Count pickup items on the map for intermission totalItems */
+function countMapItems(map: GameMap): void {
+  // In original DOOM, COUNTITEM flag is on things like health bonuses,
+  // armor bonuses, soul spheres, mega spheres, invulnerability, etc.
+  // We approximate by counting all pickup thing types
+  const COUNTABLE_ITEMS: Set<number> = new Set([
+    // Health bonuses/pickups
+    2014, 2011, 2012, 2013,
+    // Armor bonuses/pickups
+    2015, 2018, 2019,
+    // Ammo
+    2007, 2048, 2008, 2049, 2010, 2046, 2047, 17,
+    // Backpack
+    8,
+    // Weapons
+    2001, 82, 2002, 2003, 2004, 2006, 2005,
+    // Powerups
+    2023, 2022, 2024, 2025, 2026, 2045,
+    // Keys (not counted in original DOOM, but some modern ports do)
+  ]);
+  for (const thing of map.things) {
+    if (COUNTABLE_ITEMS.has(thing.type)) {
+      addTotalItem();
+    }
+  }
+}
+
+/** Count secret sectors for intermission totalSecrets */
+function countMapSecrets(map: GameMap): void {
+  for (const sector of map.sectors) {
+    if ((sector.special & 0xFF) === 9) { // sector special 9 = secret
+      addTotalSecret();
+    }
   }
 }
 
@@ -311,6 +360,7 @@ function G_DoNewGame(): void {
   // Apply selected skill level
   setGameSkill(pendingSkill);
 
+  resetLevelStats();
   initMapFresh("E1M1");
   player.spawn();
   ensureInput();
@@ -329,6 +379,7 @@ function G_DoWarp(): void {
   const mapName = pendingWarpMap;
   if (!mapName) return;
 
+  resetLevelStats();
   initMapFresh(mapName);
   player.spawn();
   resetCheatBuffer();
@@ -342,7 +393,7 @@ function G_DoWarp(): void {
   console.log(`[main] Warped to ${mapName} (IDCLEV)`);
 }
 
-/** G_DoCompleted — transition to the next map after a level exit */
+/** G_DoCompleted — transition to the intermission screen after a level exit */
 function G_DoCompleted(): void {
   setGameAction(GameAction.ga_nothing);
 
@@ -354,19 +405,82 @@ function G_DoCompleted(): void {
   // Determine next map
   const currentName = mapRef.name;
   const nextMap = getNextMap(currentName, secretExit);
+  pendingNextMap = nextMap;
 
   console.log(`[main] Level completed: ${currentName} → ${nextMap}${secretExit ? ' (secret)' : ''}`);
 
-  // Load the next map
-  initMapFresh(nextMap);
-  player.spawn();
+  // Build intermission data struct (from wi_stuff.c WI_Start)
+  const cur = parseMapName(currentName);
+  const nxt = parseMapName(nextMap);
+  const wbs: WBStartStruct = {
+    epsd: cur.isCommercial ? 0 : cur.episode - 1,
+    last: cur.isCommercial ? cur.map - 1 : cur.map - 1,
+    next: nxt.isCommercial ? nxt.map - 1 : nxt.map - 1,
+    maxkills: totalKills || 1,
+    maxitems: totalItems || 1,
+    maxsecret: totalSecrets || 1,
+    skills: playerKills,
+    sitems: playerItems,
+    ssecret: playerSecrets,
+    stime: levelTime,
+    partime: 0, // par times are inside Intermission class
+    isCommercial: cur.isCommercial,
+    lastMapName: currentName,
+    nextMapName: nextMap,
+  };
+
+  // Initialize intermission
+  if (!intermission) {
+    intermission = new Intermission(wad, palData, texDataRef);
+  }
+  intermission.start(wbs, () => {
+    // Called when intermission finishes
+    // Check if we should show a finale text screen
+    const finaleConfig = getFinaleConfig(currentName, cur.isCommercial, secretExit);
+    if (finaleConfig) {
+      F_StartFinale(finaleConfig);
+    } else {
+      G_DoWorldDone();
+    }
+  });
+
+  setGameState(GameState.GS_INTERMISSION);
+  forceWipe();
+}
+
+/** F_StartFinale — start the finale text screen */
+function F_StartFinale(config: FinaleConfig): void {
+  if (!finale) {
+    finale = new Finale(wad, palData, texDataRef);
+  }
+  finale.start(config, () => {
+    // Finale finished — for Doom II, load next map. For Doom I, go to title.
+    if (config.isCommercial) {
+      G_DoWorldDone();
+    } else {
+      // Doom I: after episode finale, return to title screen
+      setGameState(GameState.GS_DEMOSCREEN);
+      setUserGame(false);
+      forceWipe();
+    }
+  });
+
+  setGameState(GameState.GS_FINALE);
+  forceWipe();
+}
+
+/** G_DoWorldDone — actually load the next map after intermission */
+function G_DoWorldDone(): void {
+  resetLevelStats();
+  initMapFresh(pendingNextMap);
+  player.respawnAtStart();
   resetCheatBuffer();
   ensureInput();
   ensureStatusBar();
 
   setGameState(GameState.GS_LEVEL);
   setUserGame(true);
-  forceWipe(); // wipe transition to next level
+  forceWipe();
 }
 
 /** G_DoLoadGame — load from slot */
@@ -455,10 +569,10 @@ async function main() {
     justify-content: center; background: #000; color: #b00;
     font-family: monospace; font-size: 24px; z-index: 10;
   `;
-  loadingEl.textContent = "Loading DOOM1.WAD...";
+  loadingEl.textContent = "Loading WAD...";
 
   try {
-    wad = await loadWAD("/DOOM.WAD");
+    wad = await loadWAD("/doomu.wad");
 
     loadingEl.textContent = "Initializing math tables...";
     initTables();
@@ -558,6 +672,20 @@ async function main() {
             quickLoad();
           }
         }
+
+        // WI_Responder — any key press during intermission accelerates
+        if (gamestate === GameState.GS_INTERMISSION && intermission && !menuactive) {
+          if (e.code === "Space" || e.code === "Enter" || e.code === "ControlLeft" || e.code === "ControlRight") {
+            e.preventDefault();
+            intermission.pressAccelerate();
+          }
+        }
+
+        // F_Responder — any key press during finale
+        if (gamestate === GameState.GS_FINALE && finale && !menuactive) {
+          e.preventDefault();
+          finale.pressKey();
+        }
       },
       true
     );
@@ -592,6 +720,8 @@ async function main() {
             updateAnimations();
             updateThingAnimations();
             updateMonsterDeaths();
+            updateMobjFloorZ();
+            tickMonsterRespawn();
             updateVfx();
             updateProjectiles();
             updateDynLights();
@@ -600,6 +730,24 @@ async function main() {
             // Sound: update spatial audio for all playing sounds
             S_SetListener({ x: player.x, y: player.y, angle: player.angle });
             S_UpdateSounds();
+          } else {
+            wipeTick();
+          }
+        }
+
+        // WI_Ticker — intermission screen logic
+        if (gamestate === GameState.GS_INTERMISSION && intermission) {
+          if (!isWipeActive()) {
+            intermission.tick();
+          } else {
+            wipeTick();
+          }
+        }
+
+        // F_Ticker — finale screen logic
+        if (gamestate === GameState.GS_FINALE && finale) {
+          if (!isWipeActive()) {
+            finale.tick();
           } else {
             wipeTick();
           }
@@ -617,11 +765,16 @@ async function main() {
             setViewPosition(player.x, player.y, player.viewz, player.angle);
             renderFrame();
             resolveGBuffer();
+            resolveFuzzPixels();
             drawPSprites();
             statusBar.draw(player);
             applyScreenTint();
             setDynLightView(player.x, player.y, player.viewz);
             runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
+          } else if (gamestate === GameState.GS_INTERMISSION && intermission) {
+            intermission.draw();
+          } else if (gamestate === GameState.GS_FINALE && finale) {
+            finale.draw();
           } else {
             menu.drawTitleScreen();
           }
@@ -642,6 +795,7 @@ async function main() {
                 updatePaletteFlash(player, palData);
                 renderFrame();
                 resolveGBuffer();
+                resolveFuzzPixels();
                 if (getRenderMode() === 'depth') {
                   renderDepthOverlay();
                 }
@@ -650,6 +804,18 @@ async function main() {
                 applyScreenTint();
                 setDynLightView(player.x, player.y, player.viewz);
                 runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
+              }
+              break;
+
+            case GameState.GS_INTERMISSION:
+              if (intermission) {
+                intermission.draw();
+              }
+              break;
+
+            case GameState.GS_FINALE:
+              if (finale) {
+                finale.draw();
               }
               break;
 
@@ -674,7 +840,7 @@ async function main() {
     );
 
     loop.start();
-    console.log("JDoom started!");
+    console.log("TSDoom started!");
   } catch (err) {
     loadingEl.textContent = `Error: ${err}`;
     loadingEl.style.color = "#f00";

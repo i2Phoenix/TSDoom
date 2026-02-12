@@ -3,7 +3,7 @@
 // Single source of truth for all configurable options.
 // ============================================================
 
-const STORAGE_KEY = 'jdoom_settings';
+const STORAGE_KEY = 'tsdoom_settings';
 
 /** All settings with their default values */
 interface Settings {

@@ -20,6 +20,9 @@ const RADIATIONPAL = 13;
 /** Track previously set palette to avoid redundant setActivePalette calls */
 let currentPalette = -1;
 
+/** Invulnerability colormap active (inverse grayscale post-process) */
+let invulnEffect = false;
+
 /** Player interface — only the fields we need */
 interface FlashPlayer {
   damagecount: number;
@@ -39,6 +42,10 @@ export function updatePaletteFlash(
   player: FlashPlayer,
   palData: PaletteData
 ): void {
+  // Invulnerability colormap 33: inverse grayscale (takes priority)
+  // Original DOOM: active when powers[invulnerability] > 128 or odd ticks
+  invulnEffect = player.powers[PowerType.invulnerability] > 0;
+
   let palette = 0;
   let cnt = player.damagecount;
 
@@ -116,6 +123,26 @@ const TINT_COLORS: Record<number, [number, number, number, number]> = {
  * dark areas get more tint, bright areas stay bright.
  */
 export function applyScreenTint(): void {
+  // Invulnerability: inverse grayscale (colormap 33)
+  // This takes priority over palette tints — original DOOM behavior
+  if (invulnEffect) {
+    const len = SCREENWIDTH * SCREENHEIGHT;
+    for (let i = 0; i < len; i++) {
+      const px = rgbaBuffer[i];
+      const sr = px & 0xFF;
+      const sg = (px >> 8) & 0xFF;
+      const sb = (px >> 16) & 0xFF;
+
+      // Luminance (fast integer approximation of rec601)
+      const gray = (sr * 77 + sg * 150 + sb * 29) >> 8;
+      // Invert
+      const inv = 255 - gray;
+
+      rgbaBuffer[i] = (255 << 24) | (inv << 16) | (inv << 8) | inv;
+    }
+    return;
+  }
+
   if (pendingTintPalette === 0) return;
 
   const tint = TINT_COLORS[pendingTintPalette];

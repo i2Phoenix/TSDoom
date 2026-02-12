@@ -89,6 +89,10 @@ export class MenuSystem {
   private titleBlink = 0;
   private musicPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // "Read This!" help screen state
+  private showingHelp = false;
+  private helpPage = 0;  // 0 = HELP1, 1 = HELP2/CREDIT
+
   // Message overlay (M_StartMessage)
   private messageString: string | null = null;
   private messageCallback: ((ch: string) => void) | null = null;
@@ -166,6 +170,8 @@ export class MenuSystem {
       'M_THERML', 'M_THERMM', 'M_THERMR', 'M_THERMO',
       // Save/Load slot border pieces
       'M_LSLEFT', 'M_LSCNTR', 'M_LSRGHT',
+      // Help screens
+      'HELP', 'HELP1', 'HELP2', 'CREDIT',
     ];
 
     for (const name of patchNames) {
@@ -200,7 +206,7 @@ export class MenuSystem {
         { status: 1, name: 'M_OPTION', action: () => this.setupNextMenu(this.optionsDef) },
         { status: 1, name: 'M_LOADG',  action: () => this.setupNextMenu(this.loadDef) },
         { status: 1, name: 'M_SAVEG',  action: () => this.doSaveGameMenu() },
-        { status: 1, name: 'M_RDTHIS', action: () => {} },  // not implemented
+        { status: 1, name: 'M_RDTHIS', action: () => this.showReadThis() },
         { status: 1, name: 'M_QUITG',  action: () => {} },  // browser -- no-op
       ],
       routine: () => this.drawMainMenuCustom(),
@@ -338,6 +344,45 @@ export class MenuSystem {
     setPendingSaveSlot(slot);
     this.clearMenus();
     setGameAction(GameAction.ga_loadgame);
+  }
+
+  // ── Read This! help screens (M_ReadThis / M_ReadThis2) ─────
+
+  /** M_ReadThis — show first help page */
+  private showReadThis(): void {
+    this.showingHelp = true;
+    this.helpPage = 0;
+  }
+
+  /** Advance help page or close */
+  private advanceHelpPage(): void {
+    this.helpPage++;
+    if (this.helpPage >= 2) {
+      // Done showing help — return to main menu
+      this.showingHelp = false;
+      this.helpPage = 0;
+    }
+  }
+
+  /** Draw the current help page fullscreen */
+  private drawHelpPage(): void {
+    let patchName: string;
+    if (this.helpPage === 0) {
+      // First page: HELP1 (shareware/registered) or HELP (Ultimate/commercial)
+      patchName = this.getPatch('HELP1') ? 'HELP1' : 'HELP';
+    } else {
+      // Second page: HELP2 (shareware/registered) or CREDIT (Ultimate/commercial)
+      patchName = this.getPatch('HELP2') ? 'HELP2' : 'CREDIT';
+    }
+
+    const patch = this.getPatch(patchName);
+    if (patch) {
+      this.drawPatchFullScreen(patch);
+    } else if (this.titlePic) {
+      this.drawPatchFullScreen(this.titlePic);
+    } else {
+      rgbaBuffer.fill(0xFF000000);
+    }
   }
 
   // ── Message overlay (M_StartMessage) ──────────────────────
@@ -496,6 +541,12 @@ export class MenuSystem {
       return true;
     }
 
+    // Help screen: any key advances page or exits
+    if (this.showingHelp) {
+      this.advanceHelpPage();
+      return true;
+    }
+
     // If menu is not active, check for menu-opening keys
     if (!menuactive) {
       // On title screen, any key opens the menu
@@ -604,6 +655,12 @@ export class MenuSystem {
 
   // ── Draw menu overlay (M_Drawer -- called only when menuactive) ──
   draw(): void {
+    // If showing help pages, draw them fullscreen
+    if (this.showingHelp) {
+      this.drawHelpPage();
+      return;
+    }
+
     // If showing a message, draw only the message
     if (this.messageString) {
       this.drawMessageBox();
@@ -835,7 +892,7 @@ export class MenuSystem {
 
   private getSlotDescription(slot: number): string | null {
     try {
-      const key = `jdoom_save_${slot}`;
+      const key = `tsdoom_save_${slot}`;
       const json = localStorage.getItem(key);
       if (!json) return null;
       const data = JSON.parse(json);
