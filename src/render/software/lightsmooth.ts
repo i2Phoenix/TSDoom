@@ -5,9 +5,9 @@
 // and applies a small blur to smooth them.
 // ============================================================
 
-import type { GBuffer } from './gbuffer';
-import { SurfaceType } from './gbuffer';
-import type { PostProcessPass } from './postprocess';
+import type { GBuffer } from '../gbuffer';
+import { SurfaceType } from '../gbuffer';
+import type { PostProcessPass } from '../postprocess';
 
 /** Whether light smoothing is enabled */
 export let lightSmoothEnabled = true;

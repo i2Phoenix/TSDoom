@@ -52,19 +52,4 @@ export function runPostProcess(
   }
 }
 
-// ============================================================
-// Built-in passes (future slots — not implemented yet)
-// ============================================================
-
-// Dynamic Lights pass:
-// Reads gBuffer.worldX/Y/Z for each pixel, computes distance to
-// active light sources (muzzle flash, explosions, torches),
-// adds RGB contribution on top of base lighting.
-// export const dynamicLightsPass: PostProcessPass = (rgba, gb, w, h) => { ... };
-
-// Distance Fog pass:
-// Reads gBuffer.worldX/Y/Z (or zBuffer depth), blends toward
-// fog color based on distance from camera.
-// export const fogPass: PostProcessPass = (rgba, gb, w, h) => { ... };
-
 

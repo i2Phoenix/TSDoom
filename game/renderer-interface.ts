@@ -49,4 +49,36 @@ export interface Renderer {
 
   /** Get the RGBA frame buffer, or null for headless/GPU renderers */
   getFrameBuffer(): Uint32Array | null;
+
+  // ---- Dynamic Lighting ----
+
+  /** Add a dynamic point light (muzzle flash, explosion, torch glow) */
+  addDynLight(
+    x: number, y: number, z: number,
+    radius: number,
+    r: number, g: number, b: number,
+    intensity: number,
+    ttl: number,
+  ): void;
+
+  /** Remove a permanent light near a world position */
+  removeDynLight(x: number, y: number, tolerance?: number): void;
+
+  /** Tick lights: decay TTL, remove expired, flicker permanent lights */
+  updateLights(): void;
+
+  /** Clear all lights (level change) */
+  clearLights(): void;
+
+  /** Spawn static lights from map things (torches, lamps, candles) */
+  spawnStaticLights(
+    things: readonly { x: number; y: number; type: number }[],
+    pointInSubsector: (x: number, y: number) => { sector?: { floorHeight: number } | null },
+  ): void;
+
+  /** Set camera position for light distance culling (call before render) */
+  setLightView(x: number, y: number, z: number): void;
+
+  /** Enable or disable dynamic lights */
+  setDynLightsEnabled(enabled: boolean): void;
 }

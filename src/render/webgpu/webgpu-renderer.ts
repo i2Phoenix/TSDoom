@@ -3,7 +3,7 @@
 // Currently no-ops like HeadlessRenderer.
 // ============================================================
 
-import { HeadlessRenderer } from '../../game/headless-renderer';
+import { HeadlessRenderer } from '../../../game/headless-renderer';
 
 export class WebGPURenderer extends HeadlessRenderer {
   getRenderMode(): string {

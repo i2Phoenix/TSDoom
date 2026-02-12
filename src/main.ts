@@ -8,23 +8,11 @@ import { initTables } from "../game/math";
 import { PaletteData } from "./palette";
 import { TextureData } from "./textures";
 import { GameMap } from "./map";
-import {
-  initRenderer,
-  setViewPosition,
-  renderFrame,
-  setPspritePlayer,
-  resolveGBuffer,
-  resolveFuzzPixels,
-  drawPSprites,
-  renderDepthOverlay,
-} from "./render/renderer";
-import { SoftwareRenderer } from "./render/software-renderer";
+import { SoftwareRenderer } from "./render/software/software-renderer";
 import { setRenderer, getRenderer } from "../game/renderer-global";
 // draw.ts used for SCREENWIDTH/SCREENHEIGHT/rgbaBuffer imports
 import { gBuffer } from "./render/gbuffer";
-import { runPostProcess, addPostProcessPass } from "./render/postprocess";
-import { updateDynLights, clearDynLights, spawnStaticLights, dynamicLightsPass, setDynLightView } from "./render/dynlights";
-import { lightSmoothPass } from "./render/lightsmooth";
+import { runPostProcess } from "./render/postprocess";
 import {
   SCREENWIDTH,
   SCREENHEIGHT,
@@ -174,7 +162,7 @@ function changeResolution(w: number, h: number): void {
   imageBuffer = new Uint32Array(imageData.data.buffer);
   fitCanvasToViewport();
   if (usergame) {
-    initRenderer(mapRef, texDataRef, palData, wad);
+    (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
   }
 }
 
@@ -184,7 +172,7 @@ function changeResolution(w: number, h: number): void {
 
 function initMapFresh(mapName: string): void {
   mapRef = new GameMap(wad, texDataRef, mapName);
-  initRenderer(mapRef, texDataRef, palData, wad);
+  (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
 
   if (!player) {
     player = new Player(mapRef);
@@ -193,7 +181,7 @@ function initMapFresh(mapName: string): void {
   }
 
   initWorld(mapRef, player);
-  setPspritePlayer(player);
+  (getRenderer() as SoftwareRenderer).setWeaponPlayer(player);
 
   clearThinkers();
   clearRemovedThings();
@@ -221,8 +209,8 @@ function initMapFresh(mapName: string): void {
   initEnemyAI();
   initAICallbacks();
   resetPaletteFlash(palData);
-  clearDynLights();
-  spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
+  getRenderer().clearLights();
+  getRenderer().spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
 
   // Count items and secrets for intermission stats
   countMapItems(mapRef);
@@ -605,8 +593,7 @@ async function main() {
     document.addEventListener('keydown', resumeAudio, { once: false });
 
     // Register post-process passes (order matters)
-    addPostProcessPass(lightSmoothPass);   // smooth light boundaries
-    addPostProcessPass(dynamicLightsPass); // then add dynamic lights on top
+
 
     // Create menu system
     menu = new MenuSystem(wad, palData, texDataRef);
@@ -749,7 +736,7 @@ async function main() {
             tickMonsterRespawn();
             updateVfx();
             updateProjectiles();
-            updateDynLights();
+            getRenderer().updateLights();
             statusBar.tickMessage(player);
 
             // Sound: update spatial audio for all playing sounds
@@ -790,14 +777,12 @@ async function main() {
 
           // Render the new state for the wipe end frame (full pipeline)
           if (gamestate === GameState.GS_LEVEL && usergame) {
-            setViewPosition(player.x, player.y, player.viewz, player.angle);
-            renderFrame();
-            resolveGBuffer();
-            resolveFuzzPixels();
-            drawPSprites();
+            getRenderer().setView(player.x, player.y, player.viewz, player.angle);
+            getRenderer().renderFrame();
+            getRenderer().drawWeaponOverlay();
             statusBar.draw(player);
             applyScreenTint();
-            setDynLightView(player.x, player.y, player.viewz);
+            getRenderer().setLightView(player.x, player.y, player.viewz);
             runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
           } else if (gamestate === GameState.GS_INTERMISSION && intermission) {
             intermission.draw();
@@ -820,28 +805,16 @@ async function main() {
             case GameState.GS_LEVEL:
               if (usergame) {
                 profilerBegin('view');
-                setViewPosition(player.x, player.y, player.viewz, player.angle);
+                getRenderer().setView(player.x, player.y, player.viewz, player.angle);
                 updatePaletteFlash(player, palData);
                 profilerEnd('view');
 
                 profilerBegin('render');
-                renderFrame();
+                getRenderer().renderFrame();
                 profilerEnd('render');
 
-                profilerBegin('gbuffer');
-                resolveGBuffer();
-                profilerEnd('gbuffer');
-
-                profilerBegin('fuzz');
-                resolveFuzzPixels();
-                profilerEnd('fuzz');
-
-                if (getRenderer().getRenderMode() === 'depth') {
-                  renderDepthOverlay();
-                }
-
                 profilerBegin('psprites');
-                drawPSprites();
+                getRenderer().drawWeaponOverlay();
                 profilerEnd('psprites');
 
                 profilerBegin('hud');
@@ -853,7 +826,7 @@ async function main() {
                 profilerEnd('tint');
 
                 profilerBegin('postprocess');
-                setDynLightView(player.x, player.y, player.viewz);
+                getRenderer().setLightView(player.x, player.y, player.viewz);
                 runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
                 profilerEnd('postprocess');
               }

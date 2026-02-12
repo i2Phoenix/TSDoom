@@ -24,7 +24,7 @@ import {
   setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights,
   setSfxVolume as setSfxVolumeSetting, setMusicVolume as setMusicVolumeSetting,
 } from '../../game/settings';
-import { setDynLightsEnabled } from '../render/dynlights';
+
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
 import { Sfx, Music } from '../../game/sounds';
 
@@ -133,7 +133,7 @@ export class MenuSystem {
       this.palData.setTrueColorMode(true);
       getRenderer().rebuildLightTables();
     }
-    setDynLightsEnabled(getDynLights());
+    getRenderer().setDynLightsEnabled(getDynLights());
   }
 
   /** Apply saved resolution via callback (call after setCallbacks) */
@@ -448,7 +448,7 @@ export class MenuSystem {
   private toggleDynLights(): void {
     const newMode = !getDynLights();
     setDynLights(newMode);
-    setDynLightsEnabled(newMode);
+    getRenderer().setDynLightsEnabled(newMode);
   }
 
 

@@ -7,7 +7,6 @@
 import type { EffectHandler, SoundOrigin } from '../game/effects';
 import { setEffectHandler } from '../game/effects';
 import { S_StartSound, S_ChangeMusic } from './sound/s_sound';
-import { addDynLight, removeDynLightAt } from './render/dynlights';
 import { getRenderer } from '../game/renderer-global';
 import type { Sfx, Music } from '../game/sounds';
 
@@ -21,11 +20,11 @@ const clientEffects: EffectHandler = {
   },
 
   dynLight(x, y, z, radius, r, g, b, intensity, ttl): void {
-    addDynLight(x, y, z, radius, r, g, b, intensity, ttl);
+    getRenderer().addDynLight(x, y, z, radius, r, g, b, intensity, ttl);
   },
 
   removeDynLight(x: number, y: number, tolerance?: number): void {
-    removeDynLightAt(x, y, tolerance);
+    getRenderer().removeDynLight(x, y, tolerance);
   },
 
   setExtraLight(level: number): void {

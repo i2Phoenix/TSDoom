@@ -26,4 +26,13 @@ export class HeadlessRenderer implements Renderer {
   get screenHeight(): number { return this._height; }
 
   getFrameBuffer(): Uint32Array | null { return null; }
+
+  // ---- Dynamic Lighting (no-ops for headless) ----
+  addDynLight(): void {}
+  removeDynLight(): void {}
+  updateLights(): void {}
+  clearLights(): void {}
+  spawnStaticLights(): void {}
+  setLightView(): void {}
+  setDynLightsEnabled(): void {}
 }
