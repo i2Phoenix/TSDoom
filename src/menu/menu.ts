@@ -17,7 +17,7 @@ import {
 import { setMouseSensitivity } from '../../game/player';
 import { clearInputState } from '../../game/input-system';
 import { SkillLevel, SKILL_NAMES } from '../../game/skill';
-import { rebuildLightTables } from '../render/renderer';
+import { getRenderer } from '../../game/renderer-global';
 import {
   getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights,
   getSfxVolume, getMusicVolume,
@@ -131,7 +131,7 @@ export class MenuSystem {
     setMouseSensitivity(this.mouseSensitivity);
     if (getTrueColor()) {
       this.palData.setTrueColorMode(true);
-      rebuildLightTables();
+      getRenderer().rebuildLightTables();
     }
     setDynLightsEnabled(getDynLights());
   }
@@ -441,7 +441,7 @@ export class MenuSystem {
   private toggleColorMode(): void {
     const newMode = !this.palData.trueColorMode;
     this.palData.setTrueColorMode(newMode);
-    rebuildLightTables();
+    getRenderer().rebuildLightTables();
     setTrueColor(newMode);
   }
 

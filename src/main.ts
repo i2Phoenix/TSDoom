@@ -13,13 +13,13 @@ import {
   setViewPosition,
   renderFrame,
   setPspritePlayer,
-  cycleRenderMode,
-  getRenderMode,
   resolveGBuffer,
   resolveFuzzPixels,
   drawPSprites,
   renderDepthOverlay,
 } from "./render/renderer";
+import { SoftwareRenderer } from "./render/software-renderer";
+import { setRenderer, getRenderer } from "../game/renderer-global";
 // draw.ts used for SCREENWIDTH/SCREENHEIGHT/rgbaBuffer imports
 import { gBuffer } from "./render/gbuffer";
 import { runPostProcess, addPostProcessPass } from "./render/postprocess";
@@ -592,6 +592,10 @@ async function main() {
     S_Init(wad, Math.round(getSfxVolume() * 1.5), Math.round(getMusicVolume() * 1.5));
     initClientEffects();
 
+    // Create and register the software renderer
+    const renderer = new SoftwareRenderer();
+    setRenderer(renderer);
+
     loadingEl.textContent = "Initializing...";
     createCanvas();
 
@@ -671,10 +675,10 @@ async function main() {
           // F5 — cycle render mode
           if (e.code === "F5") {
             e.preventDefault();
-            cycleRenderMode();
+            getRenderer().cycleRenderMode();
             if (player) {
               player.message = `Render: ${
-                { normal: "Normal", depth: "Depth Buffer" }[getRenderMode()]
+                { normal: "Normal", depth: "Depth Buffer" }[getRenderer().getRenderMode() as 'normal' | 'depth']
               }`;
             }
           }
@@ -832,7 +836,7 @@ async function main() {
                 resolveFuzzPixels();
                 profilerEnd('fuzz');
 
-                if (getRenderMode() === 'depth') {
+                if (getRenderer().getRenderMode() === 'depth') {
                   renderDepthOverlay();
                 }
 

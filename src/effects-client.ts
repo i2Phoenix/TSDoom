@@ -8,7 +8,7 @@ import type { EffectHandler, SoundOrigin } from '../game/effects';
 import { setEffectHandler } from '../game/effects';
 import { S_StartSound, S_ChangeMusic } from './sound/s_sound';
 import { addDynLight, removeDynLightAt } from './render/dynlights';
-import { setExtraLight } from './render/renderer';
+import { getRenderer } from '../game/renderer-global';
 import type { Sfx, Music } from '../game/sounds';
 
 const clientEffects: EffectHandler = {
@@ -29,7 +29,7 @@ const clientEffects: EffectHandler = {
   },
 
   setExtraLight(level: number): void {
-    setExtraLight(level);
+    getRenderer().setExtraLight(level);
   },
 
   vibrate(weakMagnitude: number, strongMagnitude: number, durationMs: number): void {
