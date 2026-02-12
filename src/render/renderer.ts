@@ -28,6 +28,7 @@ import { getDroppedItems, DroppedItem, getMapObjectByThingIndex } from '../game/
 import { getActiveProjectiles, getProjectileSprite, Projectile } from '../game/projectiles';
 import { MF_SHADOW } from '../game/mobjinfo';
 import { shouldSpawnThing } from '../game/skill';
+import { profilerBegin, profilerEnd } from '../game/profiler';
 
 // ---- Constants ----
 const FIELDOFVIEW = 2048;  // half FOV in fine angles
@@ -541,6 +542,7 @@ function angleToX(ang: number): number {
 // ===========================================================
 
 export function renderFrame(): void {
+  profilerBegin('  clear');
   clearScreen();
   gBuffer.clear();
 
@@ -566,6 +568,7 @@ export function renderFrame(): void {
   debugCounters.columnsDrawn = 0;
   debugCounters.x1GreaterX2 = 0;
   debugCounters.angleToXResults = [];
+  profilerEnd('  clear');
 
   // Rebuild subsector→thing mapping to reflect runtime positions
   updateSubsectorThings();
@@ -576,21 +579,24 @@ export function renderFrame(): void {
   buildProjectileSubsectorMap();
 
   // Traverse BSP (collects wall segs, projects sprites + VFX per-subsector)
+  profilerBegin('  bsp');
   renderBSPNode(map.nodes.length - 1);
+  profilerEnd('  bsp');
 
   // Render visplanes (floors/ceilings)
+  profilerBegin('  planes');
   drawPlanes();
+  profilerEnd('  planes');
 
   // Render masked midtextures (fences, grates on two-sided linedefs)
-  // Drawn BEFORE sprites so that sprites closer to the camera render on top.
-  // Reference: R_DrawMasked in r_things.c — masked segs behind sprites are drawn first
+  profilerBegin('  masked');
   drawMaskedMidTextures();
+  profilerEnd('  masked');
 
   // Render sprites (things + VFX) on top of floors/ceilings, clipped by walls
+  profilerBegin('  sprites');
   drawSprites();
-
-  // Psprites and depth overlay are drawn AFTER resolveGBuffer in main.ts
-  // so they don't get overwritten by the resolve pass.
+  profilerEnd('  sprites');
 
   debugFrame++;
 }

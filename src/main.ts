@@ -33,6 +33,7 @@ import {
   setResolution,
 } from "./render/draw";
 import { initInput } from "./game/input";
+import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "./game/profiler";
 import { Player, PlayerState } from "./game/player";
 import { GameLoop } from "./game/loop";
 import { StatusBar } from "./hud/statusbar";
@@ -117,6 +118,7 @@ let loop: GameLoop;
 let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 let imageData: ImageData;
+let profilerDiv: HTMLDivElement;
 let imageBuffer: Uint32Array;
 let fpsDiv: HTMLDivElement;
 let menu: MenuSystem;
@@ -629,6 +631,14 @@ async function main() {
       "position:fixed;top:8px;left:8px;color:#0f0;font:bold 14px monospace;z-index:100;text-shadow:1px 1px #000;pointer-events:none;";
     document.body.appendChild(fpsDiv);
 
+    // Profiler overlay (F3)
+    profilerDiv = document.createElement("div");
+    profilerDiv.style.cssText =
+      "position:fixed;top:30px;left:8px;color:#0f0;font:12px monospace;z-index:100;" +
+      "background:rgba(0,0,0,0.75);padding:8px 12px;border-radius:4px;" +
+      "white-space:pre;pointer-events:none;display:none;";
+    document.body.appendChild(profilerDiv);
+
     // ── Input routing (D_ProcessEvents → M_Responder / G_Responder) ──
     document.addEventListener(
       "keydown",
@@ -649,6 +659,12 @@ async function main() {
         if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
           // Feed cheat key buffer (DOOM: ST_Responder)
           feedCheatKey(e.key, player);
+          // F3 — toggle profiler
+          if (e.code === "F3") {
+            e.preventDefault();
+            toggleProfiler();
+          }
+
           // F5 — cycle render mode
           if (e.code === "F5") {
             e.preventDefault();
@@ -694,6 +710,8 @@ async function main() {
     loop = new GameLoop(
       // ── Tick (35 Hz) — G_Ticker + P_Ticker ──
       () => {
+        profilerTickStart();
+
         // M_Ticker — skull animation
         menu.tick();
 
@@ -735,6 +753,8 @@ async function main() {
           }
         }
 
+        profilerTickEnd();
+
         // WI_Ticker — intermission screen logic
         if (gamestate === GameState.GS_INTERMISSION && intermission) {
           if (!isWipeActive()) {
@@ -756,6 +776,7 @@ async function main() {
 
       // ── Draw (every frame) — D_Display ──
       () => {
+        profilerFrameStart();
         // Wipe trigger: if gamestate changed since last draw, start wipe
         if (gamestate !== wipegamestate && !isWipeActive()) {
           wipeStartCapture();
@@ -791,19 +812,43 @@ async function main() {
           switch (gamestate) {
             case GameState.GS_LEVEL:
               if (usergame) {
+                profilerBegin('view');
                 setViewPosition(player.x, player.y, player.viewz, player.angle);
                 updatePaletteFlash(player, palData);
+                profilerEnd('view');
+
+                profilerBegin('render');
                 renderFrame();
+                profilerEnd('render');
+
+                profilerBegin('gbuffer');
                 resolveGBuffer();
+                profilerEnd('gbuffer');
+
+                profilerBegin('fuzz');
                 resolveFuzzPixels();
+                profilerEnd('fuzz');
+
                 if (getRenderMode() === 'depth') {
                   renderDepthOverlay();
                 }
+
+                profilerBegin('psprites');
                 drawPSprites();
+                profilerEnd('psprites');
+
+                profilerBegin('hud');
                 statusBar.draw(player);
+                profilerEnd('hud');
+
+                profilerBegin('tint');
                 applyScreenTint();
+                profilerEnd('tint');
+
+                profilerBegin('postprocess');
                 setDynLightView(player.x, player.y, player.viewz);
                 runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
+                profilerEnd('postprocess');
               }
               break;
 
@@ -831,11 +876,22 @@ async function main() {
         }
 
         // Copy to canvas
+        profilerBegin('blit');
         imageBuffer.set(rgbaBuffer);
         ctx.putImageData(imageData, 0, 0);
+        profilerEnd('blit');
 
-        // FPS
-        fpsDiv.textContent = `${loop.fps} FPS`;
+        profilerFrameEnd();
+
+        // FPS / Profiler
+        if (isProfilerVisible()) {
+          fpsDiv.style.display = 'none';
+          drawProfilerOverlay(profilerDiv, loop.fps);
+        } else {
+          fpsDiv.style.display = 'block';
+          profilerDiv.style.display = 'none';
+          fpsDiv.textContent = `${loop.fps} FPS`;
+        }
       }
     );
 

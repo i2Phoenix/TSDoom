@@ -5,6 +5,7 @@
 // ============================================================
 
 import { GBuffer } from './gbuffer';
+import { profilerBegin, profilerEnd } from '../game/profiler';
 
 /**
  * A single post-process pass.
@@ -20,16 +21,21 @@ export type PostProcessPass = (
 
 /** Registered post-process passes (executed in order) */
 const passes: PostProcessPass[] = [];
+const passNames: string[] = [];
 
 /** Add a post-process pass to the end of the chain */
-export function addPostProcessPass(pass: PostProcessPass): void {
+export function addPostProcessPass(pass: PostProcessPass, name?: string): void {
   passes.push(pass);
+  passNames.push(name || pass.name || `pass${passes.length}`);
 }
 
 /** Remove a post-process pass */
 export function removePostProcessPass(pass: PostProcessPass): void {
   const idx = passes.indexOf(pass);
-  if (idx !== -1) passes.splice(idx, 1);
+  if (idx !== -1) {
+    passes.splice(idx, 1);
+    passNames.splice(idx, 1);
+  }
 }
 
 /** Run all registered post-process passes */
@@ -39,8 +45,10 @@ export function runPostProcess(
   width: number,
   height: number
 ): void {
-  for (const pass of passes) {
-    pass(rgba, gb, width, height);
+  for (let i = 0; i < passes.length; i++) {
+    profilerBegin(`  ${passNames[i]}`);
+    passes[i](rgba, gb, width, height);
+    profilerEnd(`  ${passNames[i]}`);
   }
 }
 
