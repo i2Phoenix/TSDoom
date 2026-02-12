@@ -11,6 +11,7 @@ import {
 } from './math';
 import { GameMap, ML_TWOSIDED, LineDef } from '../src/map';
 import { FX_DynLight, FX_Sound } from './effects';
+import { getWorld } from './world';
 import { P_Random } from './random';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
@@ -27,23 +28,9 @@ const MELEERANGE    = 64 * FRACUNIT;
 const MISSILERANGE  = 32 * 64 * FRACUNIT;  // 2048 map units
 const PLAYERRADIUS = 16;  // player collision radius in map units
 
-// Module-level player reference for splash damage
-let combatPlayer: Player | null = null;
-
-/** Set the player reference for combat splash damage */
-export function setCombatPlayer(p: Player): void {
-  combatPlayer = p;
-}
-
 // ---- Module state (mirrors DOOM's globals in p_map.c) ----
 let linetarget: MapObjState | null = null;
 let aimslope = 0;
-let currentMap: GameMap | null = null;
-
-/** Set the map reference for combat operations */
-export function setCombatMap(map: GameMap): void {
-  currentMap = map;
-}
 
 // ============================================================
 // Line–wall intersection test
@@ -96,6 +83,7 @@ export function traceWalls(
   shootz: number,
   range: number = MISSILERANGE,
 ): { frac: number; hitLine: LineDef | null } {
+  const currentMap = getWorld().map;
   if (!currentMap) return { frac: FRACUNIT, hitLine: null };
 
   let bestFrac = FRACUNIT;
@@ -172,6 +160,7 @@ function collectAimIntercepts(
   x1: number, y1: number,
   dx: number, dy: number,
 ): { intercepts: AimIntercept[]; solidFrac: number } {
+  const currentMap = getWorld().map;
   if (!currentMap) return { intercepts: [], solidFrac: FRACUNIT };
 
   const intercepts: AimIntercept[] = [];
@@ -558,6 +547,7 @@ export function P_RadiusAttack(
   }
 
   // Also damage the player (original DOOM iterates ALL things including player)
+  const combatPlayer = getWorld().player;
   if (combatPlayer && combatPlayer.health > 0) {
     const pdx = Math.abs(combatPlayer.x - spotX) >> FRACBITS;
     const pdy = Math.abs(combatPlayer.y - spotY) >> FRACBITS;

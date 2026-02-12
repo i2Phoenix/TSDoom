@@ -13,15 +13,11 @@ import { spawnTeleportFog } from './vfx';
 import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
 import type { Player } from './player';
 import type { MapObjState } from './mobj';
+import { getWorld } from './world';
 
 const PLAYERHEIGHT = 56 << FRACBITS;  // must match player.ts
 
-// Player position reference for crush detection
-let playerRef: { x: number; y: number; z: number } | null = null;
 
-export function setPlayerRef(p: { x: number; y: number; z: number }): void {
-  playerRef = p;
-}
 
 /** Get a sound origin for the center of a sector.
  *  Uses the sector's first line's midpoint as a rough approximation. */
@@ -86,6 +82,7 @@ export enum PlatStatus {
 
 /** Check if the player is standing inside a given sector */
 function playerInSector(sector: Sector): boolean {
+  const playerRef = getWorld().player;
   if (!playerRef || !currentMap) return false;
   const ss = currentMap.pointInSubsector(playerRef.x, playerRef.y);
   return ss.sector === sector;
@@ -238,13 +235,13 @@ const sectorSpecialData: Map<Sector, Thinker> = new Map();
 
 let currentMap: GameMap;
 
-export function initSpecials(map: GameMap): void {
-  currentMap = map;
+export function initSpecials(): void {
+  currentMap = getWorld().map;
   sectorLines.clear();
   sectorSpecialData.clear();
 
   // Build sector → lines lookup  
-  for (const line of map.linedefs) {
+  for (const line of currentMap.linedefs) {
     if (line.frontsector) {
       let arr = sectorLines.get(line.frontsector);
       if (!arr) { arr = []; sectorLines.set(line.frontsector, arr); }
@@ -1092,7 +1089,7 @@ function ceilingTick(t: Thinker): void {
         }
 
         // Apply crush damage to player (10 hp per contact)
-        if (playerRef && playerInSector(ceiling.sector)) {
+        if (getWorld().player && playerInSector(ceiling.sector)) {
           // Damage will be applied via the player's sector damage check
           // Here we signal it by narrowing the gap
         }

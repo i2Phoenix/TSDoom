@@ -15,7 +15,8 @@ import {
   linetarget,
 } from './combat';
 import { spawnPlayerProjectile, ProjectileType } from './projectiles';
-import { getCurrentMap, MapObjState, DI_NODIR } from './mobj';
+import { MapObjState, DI_NODIR } from './mobj';
+import { getWorld } from './world';
 import { MF_SHOOTABLE } from './mobjinfo';
 import { P_NoiseAlert } from './enemy';
 
@@ -662,7 +663,7 @@ export function fireWeapon(wp: WeaponPlayer): void {
   setPsprite(wp, PS_WEAPON, newstate);
 
   // Alert nearby monsters — sound propagates through connected sectors
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (map) {
     const playerMobj = createPlayerMobjFromWP(wp, map);
     P_NoiseAlert(playerMobj, playerMobj, map);

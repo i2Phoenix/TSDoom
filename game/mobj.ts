@@ -7,6 +7,7 @@
 
 import { FRACBITS, FRACUNIT } from './math';
 import { MapThing, GameMap } from '../src/map';
+import { getWorld } from './world';
 import { removedThings } from './pickups';
 import { getGameSkill, SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
 import { P_Random } from './random';
@@ -144,13 +145,12 @@ export function clearDroppedItems(): void {
 
 // ---- Module state ----
 let mapObjects: MapObjState[] = [];
-let currentMap: GameMap | null = null;
 /** Track mobj indices that are in dying state (for updateMonsterDeaths) */
 const dyingMonsters: Set<number> = new Set();
 
 /** Initialize runtime state for all shootable things on the map */
-export function initMapObjects(gameMap: GameMap): void {
-  currentMap = gameMap;
+export function initMapObjects(): void {
+  const gameMap = getWorld().map;
   mapObjects = [];
 
   const things = gameMap.things;
@@ -277,9 +277,9 @@ export function getDyingMonsters(): Set<number> {
   return dyingMonsters;
 }
 
-/** Get the current map reference */
+/** Get the current map reference (delegates to WorldContext) */
 export function getCurrentMap(): GameMap | null {
-  return currentMap;
+  return getWorld().map;
 }
 
 /** Check if a thing type is a barrel */
@@ -412,6 +412,7 @@ export function updateMonsterDeaths(): void {
  * Objects sitting on the floor follow it when it moves.
  */
 export function updateMobjFloorZ(): void {
+  const currentMap = getWorld().map;
   if (!currentMap) return;
 
   for (const obj of mapObjects) {
@@ -455,6 +456,7 @@ const RESPAWN_TICS = 420;  // 12 * 35 = 420 tics
  */
 export function tickMonsterRespawn(): void {
   if (!isRespawnMonsters()) return;
+  const currentMap = getWorld().map;
   if (!currentMap) return;
 
   for (const obj of mapObjects) {

@@ -6,7 +6,8 @@
 
 import { FRACBITS, FRACUNIT, fixedMul } from './math';
 import { GameMap, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../src/map';
-import { MapObjState, getMapObjects, getCurrentMap, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
+import { MapObjState, getMapObjects, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
+import { getWorld } from './world';
 import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT } from './mobjinfo';
 import { P_Random } from './random';
 import { P_CheckSight } from './sight';
@@ -201,7 +202,7 @@ export function P_TryMove(
 export function P_Move(actor: MapObjState): boolean {
   if (actor.movedir === DI_NODIR) return false;
 
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return false;
 
   // Save old position for line-crossing detection
@@ -425,7 +426,7 @@ export function P_CheckMeleeRange(actor: MapObjState): boolean {
   }
 
   // Must have line of sight
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return false;
 
   return P_CheckSight(actor, target, map);
@@ -437,7 +438,7 @@ export function P_CheckMeleeRange(actor: MapObjState): boolean {
  */
 export function P_CheckMissileRange(actor: MapObjState): boolean {
   if (!actor.target) return false;
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return false;
 
   if (!P_CheckSight(actor, actor.target, map)) return false;

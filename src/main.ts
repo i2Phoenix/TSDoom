@@ -39,7 +39,8 @@ import { createBrowserClock } from "../game/clock";
 import { StatusBar } from "./hud/statusbar";
 import { MenuSystem, RESOLUTIONS } from "./menu/menu";
 import { runThinkers, tickLevelTime, clearThinkers } from "../game/thinkers";
-import { initSpecials, initSwitchList, setPlayerRef } from "../game/specials";
+import { initSpecials, initSwitchList } from "../game/specials";
+import { initWorld } from "../game/world";
 import {
   initAnimations,
   initScrollLines,
@@ -56,11 +57,11 @@ import {
   tickMonsterRespawn,
   clearDroppedItems,
 } from "../game/mobj";
-import { setCombatMap, setCombatPlayer } from "../game/combat";
+
 import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "../game/enemy";
 import { updateVfx, clearVfx } from "../game/vfx";
 import { feedCheatKey, resetCheatBuffer } from "../game/cheats";
-import { updateProjectiles, clearProjectiles, setProjectileMap, setProjectilePlayer } from "../game/projectiles";
+import { updateProjectiles, clearProjectiles } from "../game/projectiles";
 import { setGameSkill } from "../game/skill";
 import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
 import { Music } from "../game/sounds";
@@ -191,17 +192,15 @@ function initMapFresh(mapName: string): void {
     (player as any).map = mapRef;
   }
 
-  setPlayerRef(player);
+  initWorld(mapRef, player);
   setPspritePlayer(player);
-  setCombatPlayer(player);
-  setProjectilePlayer(player);
 
   clearThinkers();
   clearRemovedThings();
   clearDroppedItems();
   clearVfx();
   clearProjectiles();
-  initSpecials(mapRef);
+  initSpecials();
   initSwitchList(
     (name) => texDataRef.textureNumForName(name),
     (idx) => texDataRef.textures[idx]?.height ?? 0,
@@ -218,9 +217,7 @@ function initMapFresh(mapName: string): void {
   initThingAnimations(mapRef.things);
   initScrollLines(mapRef.linedefs, mapRef.sidedefs);
 
-  initMapObjects(mapRef);
-  setCombatMap(mapRef);
-  setProjectileMap(mapRef);
+  initMapObjects();
   initEnemyAI();
   initAICallbacks();
   resetPaletteFlash(palData);
@@ -738,7 +735,7 @@ async function main() {
 
           if (!isWipeActive()) {
             player.tick();
-            updatePlayerMobj(player, mapRef);
+            updatePlayerMobj(mapRef);
             runThinkers();
             tickLevelTime();
             updateAnimations();

@@ -8,7 +8,7 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, 
 // ANG90/2 for gradual turning in A_Chase (original DOOM uses ANG90/2 = 0x20000000)
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../src/map';
-import { MapObjState, getMapObjects, getMapObjectByThingIndex, getCurrentMap, DI_NODIR, damageMobj } from './mobj';
+import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj } from './mobj';
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
@@ -20,6 +20,7 @@ import { Sfx } from './sounds';
 import { spawnMonsterProjectile, ProjectileType } from './projectiles';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
+import { getWorld } from './world';
 
 // ---- Constants ----
 const MELEERANGE = 64 * FRACUNIT;
@@ -151,11 +152,10 @@ export function createPlayerMobj(player: Player, map: GameMap): MapObjState {
 
 // Module-level player mobj reference (updated each tick)
 let playerMobj: MapObjState | null = null;
-let playerRef: Player | null = null;  // actual Player for takeDamage
 
 /** Update the player shim mobj each tick (call from game loop) */
-export function updatePlayerMobj(player: Player, map: GameMap): void {
-  playerRef = player;  // store for attack callbacks
+export function updatePlayerMobj(map: GameMap): void {
+  const player = getWorld().player;
   if (!playerMobj) {
     playerMobj = createPlayerMobj(player, map);
   } else {
@@ -236,7 +236,7 @@ function P_LookForPlayers(
  * and visible players. If a target is found, transitions to see/chase state.
  */
 function A_Look_impl(thingIndex: number): void {
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return;
 
   const actor = getMapObjectByThingIndex(thingIndex);
@@ -285,7 +285,7 @@ function A_Look_impl(thingIndex: number): void {
 // ---- A_Chase (full implementation — Phase 4) ----
 
 function A_Chase_impl(thingIndex: number): void {
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return;
 
   const actor = getMapObjectByThingIndex(thingIndex);
@@ -431,7 +431,8 @@ export function initAICallbacks(): void {
 // and only damages the player if the bullet reaches them without hitting a wall.
 
 function monsterHitscan(actor: MapObjState, damage: number): void {
-  if (!actor.target || !playerRef) return;
+  if (!actor.target || !getWorld().player) return;
+  const playerRef = getWorld().player;
   // Check both playerRef (live data) and target for being dead
   if (playerRef.health <= 0) return;
   if (actor.target.health <= 0) return;
@@ -496,6 +497,7 @@ function monsterHitscan(actor: MapObjState, damage: number): void {
 function A_PosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.pistol);
@@ -508,6 +510,7 @@ function A_PosAttack_impl(thingIndex: number): void {
 function A_SPosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
@@ -523,6 +526,7 @@ function A_SPosAttack_impl(thingIndex: number): void {
 function A_CPosAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
@@ -541,7 +545,7 @@ function A_CPosRefire_impl(thingIndex: number): void {
   if (P_Random() < 40) return;
 
   // Stop if target is dead or lost sight
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return;
   if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map)) {
     // Return to see/chase state
@@ -556,6 +560,7 @@ function A_CPosRefire_impl(thingIndex: number): void {
 function A_TroopAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -575,6 +580,7 @@ function A_TroopAttack_impl(thingIndex: number): void {
 function A_SargAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -589,6 +595,7 @@ function A_SargAttack_impl(thingIndex: number): void {
 function A_HeadAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -605,6 +612,7 @@ function A_HeadAttack_impl(thingIndex: number): void {
 function A_BruisAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -622,6 +630,7 @@ function A_BruisAttack_impl(thingIndex: number): void {
 function A_CyberAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -633,6 +642,7 @@ function A_CyberAttack_impl(thingIndex: number): void {
 function A_SkullAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
@@ -686,13 +696,14 @@ function A_VileTarget_impl(thingIndex: number): void {
 function A_VileAttack_impl(thingIndex: number): void {
   const actor = getMapObjectByThingIndex(thingIndex);
   if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
   if (playerRef && playerRef.health <= 0) return;
   A_FaceTarget_impl(thingIndex);
 
   const target = actor.target;
 
   // Check line of sight
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return;
   if (!P_CheckSight(actor, target, map)) return;
 
@@ -741,7 +752,7 @@ function A_SpidRefire_impl(thingIndex: number): void {
   if (P_Random() < 10) return;
 
   // Stop if target is dead or lost sight
-  const map = getCurrentMap();
+  const map = getWorld().map;
   if (!map) return;
   if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map)) {
     const animDef = getThingAnimDef(actor.type);

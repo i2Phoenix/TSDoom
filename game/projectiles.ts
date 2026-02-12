@@ -24,6 +24,7 @@ import { spawnBarrelExplosion } from './vfx';
 import { P_Random } from './random';
 import { FX_DynLight } from './effects';
 import { Player } from './player';
+import { getWorld } from './world';
 
 // ---- Projectile types ----
 export enum ProjectileType {
@@ -153,20 +154,8 @@ export interface Projectile {
 
 // ---- Module state ----
 const activeProjectiles: Projectile[] = [];
-let projectileMap: GameMap | null = null;
-let projectilePlayer: Player | null = null;
 
 const PLAYERRADIUS = 16; // map units
-
-/** Set the map reference for projectile collision */
-export function setProjectileMap(map: GameMap): void {
-  projectileMap = map;
-}
-
-/** Set the player reference for self-damage */
-export function setProjectilePlayer(p: Player): void {
-  projectilePlayer = p;
-}
 
 // ============================================================
 // Spawn a player projectile
@@ -281,6 +270,7 @@ export function spawnMonsterProjectile(
 // ============================================================
 
 export function updateProjectiles(): void {
+  const projectileMap = getWorld().map;
   if (!projectileMap) return;
 
   for (let i = activeProjectiles.length - 1; i >= 0; i--) {
@@ -309,6 +299,7 @@ export function updateProjectiles(): void {
     }
 
     // --- Check player collision (not own rocket at point-blank range) ---
+    const projectilePlayer = getWorld().player;
     if (projectilePlayer && projectilePlayer.health > 0) {
       if (checkPlayerCollision(proj, newX, newY, newZ)) {
         continue; // explode already called inside
@@ -361,6 +352,7 @@ export function updateProjectiles(): void {
 // ============================================================
 
 function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: number): boolean {
+  const projectileMap = getWorld().map;
   if (!projectileMap) return false;
 
   const dx = newX - proj.x;
@@ -471,6 +463,7 @@ function checkPlayerCollision(
 ): boolean {
   // Only monster projectiles can hit the player
   if (!proj.isMonsterProjectile) return false;
+  const projectilePlayer = getWorld().player;
   if (!projectilePlayer || projectilePlayer.health <= 0) return false;
 
   const pdist = proj.info.radius + (PLAYERRADIUS * FRACUNIT);
