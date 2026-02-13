@@ -16,6 +16,8 @@ import {
   setMonsterState,
 } from './animations';
 import { FX_RemoveDynLight, FX_Sound } from './effects';
+import { spawnTeleportFog } from './vfx';
+import { A_BossDeath } from './bossdeath';
 import { Sfx } from './sounds';
 import { shouldSpawnThing } from './skill';
 import {
@@ -43,40 +45,40 @@ const THING_COMBAT_INFO: Record<number, ThingCombatInfo> = {
   2035: { health: 20, radius: 10 * FRACUNIT, height: 42 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_NOBLOOD, mass: 100 },
 
   // Monsters
-  3004: { health: 20,  radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Zombieman
-  9:    { health: 30,  radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Shotgun Guy
-  3001: { health: 60,  radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Imp
+  3004: { health: 20, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Zombieman
+  9: { health: 30, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Shotgun Guy
+  3001: { health: 60, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 100 },  // Imp
   3002: { health: 150, radius: 30 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 400 },  // Demon
-  58:   { health: 150, radius: 30 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 400 },  // Spectre
+  58: { health: 150, radius: 30 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 400 },  // Spectre
   3006: { health: 400, radius: 16 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Cacodemon
   3005: { health: 1000, radius: 31 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Baron of Hell
-  69:   { health: 500, radius: 24 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 },  // Hell Knight
+  69: { health: 500, radius: 24 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 },  // Hell Knight
   3003: { health: 3000, radius: 128 * FRACUNIT, height: 100 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Spider Mastermind
-  16:   { health: 4000, radius: 40 * FRACUNIT, height: 110 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Cyberdemon
-  72:   { health: 500, radius: 16 * FRACUNIT, height: 72 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 600 },  // Keen (Commander)
-  7:    { health: 3000, radius: 128 * FRACUNIT, height: 100 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Spiderdemon
-  68:   { health: 600, radius: 64 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 600 },  // Arachnotron
-  71:   { health: 500, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Pain Elemental
-  65:   { health: 300, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Heavy Weapon Dude
-  66:   { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Revenant
-  67:   { health: 400, radius: 48 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Mancubus
-  64:   { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Arch-vile
+  16: { health: 4000, radius: 40 * FRACUNIT, height: 110 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Cyberdemon
+  72: { health: 500, radius: 16 * FRACUNIT, height: 72 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 600 },  // Keen (Commander)
+  7: { health: 3000, radius: 128 * FRACUNIT, height: 100 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Spiderdemon
+  68: { health: 600, radius: 64 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 600 },  // Arachnotron
+  71: { health: 500, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Pain Elemental
+  65: { health: 300, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Heavy Weapon Dude
+  66: { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Revenant
+  67: { health: 400, radius: 48 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Mancubus
+  64: { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Arch-vile
 };
 
 // MTF_AMBUSH flag from MapThing options
 const MTF_AMBUSH = 8;
 
 // Direction constants for movedir
-export const DI_EAST      = 0;
+export const DI_EAST = 0;
 export const DI_NORTHEAST = 1;
-export const DI_NORTH     = 2;
+export const DI_NORTH = 2;
 export const DI_NORTHWEST = 3;
-export const DI_WEST      = 4;
+export const DI_WEST = 4;
 export const DI_SOUTHWEST = 5;
-export const DI_SOUTH     = 6;
+export const DI_SOUTH = 6;
 export const DI_SOUTHEAST = 7;
-export const DI_NODIR     = 8;
-export const NUMDIRS      = 8;
+export const DI_NODIR = 8;
+export const NUMDIRS = 8;
 
 // ---- Runtime state for a map thing ----
 export interface MapObjState {
@@ -246,12 +248,96 @@ export function getMapObjects(): MapObjState[] {
 /** Fast lookup: map thing index → MapObjState */
 const thingIndexMap = new Map<number, MapObjState>();
 
+/** Counter for dynamically spawned things (negative to avoid collision with map things) */
+let dynamicThingCounter = -1;
+
 /** Build the thing index lookup map (called after init or load) */
 function buildThingIndexMap(): void {
   thingIndexMap.clear();
   for (const obj of mapObjects) {
     thingIndexMap.set(obj.thingIndex, obj);
   }
+}
+
+/**
+ * Spawn a Lost Soul at a given position, charging toward a target.
+ * Used by Pain Elemental's A_PainAttack and A_PainDie.
+ *
+ * Reference: A_PainShootSkull (p_enemy.c)
+ */
+export function spawnLostSoul(
+  x: number, y: number, z: number,
+  target: MapObjState,
+  angle: number,
+): void {
+  const mt = getMTForDoomedNum(3006); // Lost Soul
+  if (mt === undefined) return;
+  const mInfo = mobjinfo[mt];
+  if (!mInfo) return;
+
+  // Cap lost souls at 21 (original DOOM limit)
+  let skullCount = 0;
+  for (const obj of mapObjects) {
+    if (!obj.removed && obj.type === 3006) skullCount++;
+  }
+  if (skullCount >= 21) return;
+
+  // Get floor/ceiling from world
+  const map = getWorld().map;
+  if (!map) return;
+  const ss = map.pointInSubsector(x, y);
+  const floorZ = ss.sector ? ss.sector.floorHeight : 0;
+  const ceilZ = ss.sector ? ss.sector.ceilingHeight : 0;
+
+  const skull: MapObjState = {
+    thingIndex: dynamicThingCounter--,
+    x, y, z,
+    health: mInfo.spawnhealth,
+    spawnHealth: mInfo.spawnhealth,
+    radius: mInfo.radius,
+    height: mInfo.height,
+    flags: mInfo.flags,
+    mass: mInfo.mass,
+    type: 3006,
+    removed: false,
+    deathHandled: false,
+    mobjType: mt,
+    angle,
+    movedir: DI_NODIR,
+    movecount: 0,
+    target,
+    threshold: 0,
+    reactiontime: 0,
+    lastlook: 0,
+    momx: 0,
+    momy: 0,
+    momz: 0,
+    floorz: floorZ,
+    ceilingz: ceilZ,
+    tracer: null,
+    info: mInfo,
+    spawnX: x,
+    spawnY: y,
+    spawnAngle: angle,
+    respawnTimer: 0,
+  };
+
+  // Set charge momentum toward target (like A_SkullAttack)
+  const SKULLSPEED = 20 * FRACUNIT;
+  const dx = target.x - x;
+  const dy = target.y - y;
+  const dz = target.z + (target.height >> 1) - z;
+  const dist = Math.max(1, Math.sqrt(
+    (dx / FRACUNIT) * (dx / FRACUNIT) +
+    (dy / FRACUNIT) * (dy / FRACUNIT) +
+    (dz / FRACUNIT) * (dz / FRACUNIT)
+  ));
+  skull.momx = Math.round((dx / FRACUNIT) / dist * (SKULLSPEED / FRACUNIT)) * FRACUNIT;
+  skull.momy = Math.round((dy / FRACUNIT) / dist * (SKULLSPEED / FRACUNIT)) * FRACUNIT;
+  skull.momz = Math.round((dz / FRACUNIT) / dist * (SKULLSPEED / FRACUNIT)) * FRACUNIT;
+
+  mapObjects.push(skull);
+  thingIndexMap.set(skull.thingIndex, skull);
 }
 
 /** Get a MapObjState by its map thing index (O(1) via Map) */
@@ -322,8 +408,8 @@ export function damageMobj(
 
     // Infighting: if source is a different monster species, retarget
     if (source && source !== target
-        && source.mobjType !== -1 && target.mobjType !== -1
-        && source.mobjType !== target.mobjType) {
+      && source.mobjType !== -1 && target.mobjType !== -1
+      && source.mobjType !== target.mobjType) {
       const srcIsMon = isMonsterType(source.mobjType as MT);
       const tgtIsMon = isMonsterType(target.mobjType as MT);
       if (srcIsMon && tgtIsMon) {
@@ -376,6 +462,9 @@ function killMobj(target: MapObjState): void {
       FX_Sound({ x: target.x, y: target.y }, sfx);
     }
   }
+
+  // Check boss death triggers (tag 666/667)
+  A_BossDeath(target);
 }
 
 /**
@@ -515,6 +604,8 @@ export function tickMonsterRespawn(): void {
       setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive');
     }
 
-    // TODO: Spawn telefog VFX at respawn position when VFX system supports it
+    // Spawn telefog VFX at respawn position (matching P_SpawnMobj(MT_TFOG) in original)
+    spawnTeleportFog(obj.x, obj.y, obj.z);
+    FX_Sound({ x: obj.x, y: obj.y }, Sfx.telept);
   }
 }

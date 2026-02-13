@@ -357,7 +357,7 @@ function doorTick(t: Thinker): void {
  * EV_DoDoor — open doors by tag
  * Reference: p_doors.c
  */
-function evDoDoor(line: LineDef, type: DoorType): boolean {
+export function evDoDoor(line: LineDef, type: DoorType): boolean {
   let rtn = false;
   const sectors = findSectorsFromTag(line.tag, currentMap);
 
@@ -450,7 +450,7 @@ function evVerticalDoor(line: LineDef, player: Player | null): void {
   // Get the back sector (door sector)
   const sideIdx = line.sidenum[1];
   if (sideIdx === -1 || sideIdx === 0xFFFF) return;
-  
+
   const sec = currentMap.sidedefs[sideIdx]?.sector;
   if (!sec) return;
 
@@ -795,7 +795,7 @@ function findShortestTextureAround(sec: Sector): number {
   return minSize !== 0x7FFFFFFF ? minSize * FRACUNIT : FRACUNIT;
 }
 
-function evDoFloor(line: LineDef, floortype: FloorType): boolean {
+export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
   let rtn = false;
   const sectors = findSectorsFromTag(line.tag, currentMap);
 
@@ -1044,7 +1044,7 @@ function ceilingTick(t: Thinker): void {
           FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
           ceiling.direction = -1;
         } else if (ceiling.type === CeilingType.fastCrushAndRaise ||
-                   ceiling.type === CeilingType.crushAndRaise) {
+          ceiling.type === CeilingType.crushAndRaise) {
           ceiling.direction = -1;
         }
       }
@@ -1073,7 +1073,7 @@ function ceilingTick(t: Thinker): void {
         } else if (ceiling.type === CeilingType.fastCrushAndRaise) {
           ceiling.direction = 1;
         } else if (ceiling.type === CeilingType.lowerAndCrush ||
-                   ceiling.type === CeilingType.lowerToFloor) {
+          ceiling.type === CeilingType.lowerToFloor) {
           removeActiveCeiling(ceiling);
         }
       } else if (res === MoveResult.crushed) {
@@ -1301,6 +1301,83 @@ function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
   }
 }
 
+// ===============================================
+// EV_DoDonut — Donut sector effect (linedef special 9)
+// Reference: p_spec.c EV_DoDonut
+//
+// The donut geometry is three concentric regions:
+//   outer → ring → hole
+// The hole is the tagged sector. Effect:
+//   1) Raise hole floor to ring's floor height + copy ring's floor texture
+//   2) Lower ring floor to outer sector's floor height
+// ===============================================
+const DONUT_SPEED = FLOORSPEED / 2; // DOOM uses FLOORSPEED/2 for donuts
+function evDoDonut(line: LineDef): boolean {
+  let rtn = false;
+  const sectors = findSectorsFromTag(line.tag, currentMap);
+
+  for (const hole of sectors) {
+    if (sectorSpecialData.has(hole)) continue;
+
+    // Find the ring sector: first two-sided line's other sector
+    const holeLines = sectorLines.get(hole);
+    if (!holeLines) continue;
+
+    let ring: Sector | null = null;
+    for (const hl of holeLines) {
+      ring = getNextSector(hl, hole, currentMap);
+      if (ring) break;
+    }
+    if (!ring) continue;
+    if (sectorSpecialData.has(ring)) continue;
+
+    // Find the outer sector: first two-sided line of the ring that leads
+    // to a sector OTHER than the hole
+    const ringLines = sectorLines.get(ring);
+    if (!ringLines) continue;
+
+    let outer: Sector | null = null;
+    for (const rl of ringLines) {
+      const s = getNextSector(rl, ring, currentMap);
+      if (s && s !== hole) { outer = s; break; }
+    }
+    if (!outer) continue;
+
+    rtn = true;
+
+    // 1) Raise hole floor to ring's floor height, change texture
+    const raiseFloor: FloorThinker = {
+      action: floorTick,
+      removed: false,
+      type: FloorType.raiseFloor,
+      sector: hole,
+      speed: DONUT_SPEED,
+      floordestheight: ring.floorHeight,
+      crush: false,
+      direction: 1,
+    };
+    addThinker(raiseFloor);
+    sectorSpecialData.set(hole, raiseFloor);
+    // Copy ring floor texture to hole
+    hole.floorPic = ring.floorPic;
+
+    // 2) Lower ring floor to outer sector's floor height
+    const lowerFloor: FloorThinker = {
+      action: floorTick,
+      removed: false,
+      type: FloorType.lowerFloor,
+      sector: ring,
+      speed: DONUT_SPEED,
+      floordestheight: outer.floorHeight,
+      crush: false,
+      direction: -1,
+    };
+    addThinker(lowerFloor);
+    sectorSpecialData.set(ring, lowerFloor);
+  }
+
+  return rtn;
+}
 
 // ===============================================
 // P_UseSpecialLine — main dispatch
@@ -1345,8 +1422,10 @@ export function useSpecialLine(line: LineDef, player: Player | null): boolean {
       if (evDoCeiling(line, CeilingType.crushAndRaise))
         changeSwitchTexture(line, false);
       return true;
-    case 9:  // Change donut (not implemented)
-      return false;
+    case 9:  // S1 Change Donut (EV_DoDonut)
+      if (evDoDonut(line))
+        changeSwitchTexture(line, false);
+      return true;
     case 21: // PlatDownWaitUpStay (switch)
       if (evDoPlat(line, PlatType.downWaitUpStay, 0))
         changeSwitchTexture(line, false);

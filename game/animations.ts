@@ -26,18 +26,18 @@ interface AnimDef {
 // From p_spec.c animdefs[] — DOOM1 animation definitions
 const ANIMDEFS: AnimDef[] = [
   // Flats
-  { isTexture: false, lastName: 'NUKAGE3',  firstName: 'NUKAGE1',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'FWATER4',  firstName: 'FWATER1',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'SWATER4',  firstName: 'SWATER1',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'LAVA4',    firstName: 'LAVA1',    speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'BLOOD3',   firstName: 'BLOOD1',   speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'RROCK08',  firstName: 'RROCK05',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'SLIME04',  firstName: 'SLIME01',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'SLIME08',  firstName: 'SLIME05',  speed: ANIM_SPEED },
-  { isTexture: false, lastName: 'SLIME12',  firstName: 'SLIME09',  speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'NUKAGE3', firstName: 'NUKAGE1', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'FWATER4', firstName: 'FWATER1', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SWATER4', firstName: 'SWATER1', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'LAVA4', firstName: 'LAVA1', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'BLOOD3', firstName: 'BLOOD1', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'RROCK08', firstName: 'RROCK05', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME04', firstName: 'SLIME01', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME08', firstName: 'SLIME05', speed: ANIM_SPEED },
+  { isTexture: false, lastName: 'SLIME12', firstName: 'SLIME09', speed: ANIM_SPEED },
 
   // Wall textures
-  { isTexture: true, lastName: 'BLODGR4',  firstName: 'BLODGR1',  speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'BLODGR4', firstName: 'BLODGR1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'SLADRIP3', firstName: 'SLADRIP1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'BLODRIP4', firstName: 'BLODRIP1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'FIREWALL', firstName: 'FIREWALA', speed: ANIM_SPEED },
@@ -46,10 +46,10 @@ const ANIMDEFS: AnimDef[] = [
   { isTexture: true, lastName: 'FIREMAG3', firstName: 'FIREMAG1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'FIREBLU2', firstName: 'FIREBLU1', speed: ANIM_SPEED },
   { isTexture: true, lastName: 'ROCKRED3', firstName: 'ROCKRED1', speed: ANIM_SPEED },
-  { isTexture: true, lastName: 'BFALL4',   firstName: 'BFALL1',   speed: ANIM_SPEED },
-  { isTexture: true, lastName: 'SFALL4',   firstName: 'SFALL1',   speed: ANIM_SPEED },
-  { isTexture: true, lastName: 'WFALL4',   firstName: 'WFALL1',   speed: ANIM_SPEED },
-  { isTexture: true, lastName: 'DBRAIN4',  firstName: 'DBRAIN1',  speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'BFALL4', firstName: 'BFALL1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'SFALL4', firstName: 'SFALL1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'WFALL4', firstName: 'WFALL1', speed: ANIM_SPEED },
+  { isTexture: true, lastName: 'DBRAIN4', firstName: 'DBRAIN1', speed: ANIM_SPEED },
 ];
 
 /** Resolved animation: indices into flatList or texture array */
@@ -193,6 +193,7 @@ export interface ThingAnimDef {
   painSound?: number;    // pain sound
   deathSound?: number[]; // array for random selection on death
   activeSound?: number;  // random idle noise during A_Chase
+  attackSound?: number;  // melee attack sound (played when entering meleeState)
 }
 
 // Animation definitions for thing types that have cycling animations.
@@ -326,7 +327,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0, painState: 2, deathState: 4, xdeathState: 9,
     seeState: 18, meleeState: 22, missileState: 25,
-    painChance: 200,
+    painChance: 200, attackSound: 26,
     seeSound: [48, 49], painSound: 36, deathSound: [71, 72], activeSound: 85,
   },
   // Demon (MT_SERGEANT) — melee only
@@ -391,7 +392,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0, painState: 2, deathState: 4,
     seeState: 10, meleeState: 18,
-    painChance: 180,
+    painChance: 180, attackSound: 67,
     seeSound: [50], painSound: 35, deathSound: [73], activeSound: 86,
   },
   // Lost Soul (MT_SKULL) — charge attack only
@@ -453,7 +454,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0, painState: 2, deathState: 5,
     seeState: 11, meleeState: 17, missileState: 17,
-    painChance: 128,
+    painChance: 128, attackSound: 26,
     seeSound: [51], painSound: 35, deathSound: [74], activeSound: 86,
   },
   // Baron of Hell (MT_BRUISER) — melee + fireball
@@ -488,7 +489,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0, painState: 2, deathState: 4,
     seeState: 11, meleeState: 15, missileState: 18,
-    painChance: 50,
+    painChance: 50, attackSound: 26,
     seeSound: [52], painSound: 35, deathSound: [76], activeSound: 86,
   },
   // Hell Knight (MT_KNIGHT) — same attack as Baron
@@ -520,7 +521,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0, painState: 2, deathState: 4,
     seeState: 11, meleeState: 15, missileState: 18,
-    painChance: 50,
+    painChance: 50, attackSound: 26,
     seeSound: [52], painSound: 35, deathSound: [76], activeSound: 86,
   },
   // Cyberdemon (MT_CYBORG) — missile only (rockets)
@@ -691,6 +692,213 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     seeState: 12, missileState: 24,
     painChance: 10,
     seeSound: [57], painSound: 37, deathSound: [80], activeSound: 89,
+  },
+
+  // Revenant (MT_UNDEAD) — melee punch + homing missile
+  // DoomEd 66, sprite SKEL
+  66: {
+    states: [
+      // 0-1: spawn (idle)
+      { sprite: 'SKEL', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
+      { sprite: 'SKEL', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
+      // 2-3: pain
+      { sprite: 'SKEL', frame: 11, tics: 5, nextState: 3 },
+      { sprite: 'SKEL', frame: 11, tics: 5, nextState: 12 },  // pain → seeState
+      // 4-10: death
+      { sprite: 'SKEL', frame: 11, tics: 7, nextState: 5 },
+      { sprite: 'SKEL', frame: 12, tics: 7, nextState: 6 },
+      { sprite: 'SKEL', frame: 13, tics: 7, nextState: 7 },
+      { sprite: 'SKEL', frame: 14, tics: 7, nextState: 8 },
+      { sprite: 'SKEL', frame: 15, tics: 7, nextState: 9 },
+      { sprite: 'SKEL', frame: 16, tics: 7, nextState: 10 },
+      // Extra death frames (revenant has long fall)
+      { sprite: 'SKEL', frame: 16, tics: 7, nextState: 11 },
+      { sprite: 'SKEL', frame: 16, tics: -1, nextState: 11 },
+      // 12-23: see (walk cycle, 12 frames)
+      { sprite: 'SKEL', frame: 0, tics: 2, nextState: 13, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 0, tics: 2, nextState: 14, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 1, tics: 2, nextState: 15, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 1, tics: 2, nextState: 16, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 2, tics: 2, nextState: 17, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 2, tics: 2, nextState: 18, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 3, tics: 2, nextState: 19, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 3, tics: 2, nextState: 20, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 4, tics: 2, nextState: 21, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 4, tics: 2, nextState: 22, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 5, tics: 2, nextState: 23, action: 'A_Chase' },
+      { sprite: 'SKEL', frame: 5, tics: 2, nextState: 12, action: 'A_Chase' },
+      // 24-26: melee (fist punch)
+      { sprite: 'SKEL', frame: 6, tics: 6, nextState: 25, action: 'A_FaceTarget' },
+      { sprite: 'SKEL', frame: 7, tics: 6, nextState: 26, action: 'A_SkelWhoosh' },
+      { sprite: 'SKEL', frame: 8, tics: 6, nextState: 12, action: 'A_SkelFist' },
+      // 27-28: missile (tracer launch)
+      { sprite: 'SKEL', frame: 9, tics: 0, nextState: 28, action: 'A_FaceTarget' },
+      { sprite: 'SKEL', frame: 9, tics: 10, nextState: 29, action: 'A_SkelMissile' },
+      { sprite: 'SKEL', frame: 10, tics: 10, nextState: 30 },
+      { sprite: 'SKEL', frame: 10, tics: 10, nextState: 12, action: 'A_FaceTarget' },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    seeState: 12, meleeState: 24, missileState: 27,
+    painChance: 100, attackSound: 62,  // Sfx.skepch
+    seeSound: [115], painSound: 62, deathSound: [83], activeSound: 114,
+  },
+
+  // Mancubus (MT_FATSO) — triple-spread fireball attack
+  // DoomEd 67, sprite FATT
+  67: {
+    states: [
+      // 0-1: spawn (idle)
+      { sprite: 'FATT', frame: 0, tics: 15, nextState: 1, action: 'A_Look' },
+      { sprite: 'FATT', frame: 1, tics: 15, nextState: 0, action: 'A_Look' },
+      // 2-3: pain
+      { sprite: 'FATT', frame: 9, tics: 3, nextState: 3 },
+      { sprite: 'FATT', frame: 9, tics: 3, nextState: 12 },  // pain → seeState
+      // 4-11: death
+      { sprite: 'FATT', frame: 10, tics: 6, nextState: 5 },
+      { sprite: 'FATT', frame: 11, tics: 6, nextState: 6 },
+      { sprite: 'FATT', frame: 12, tics: 6, nextState: 7 },
+      { sprite: 'FATT', frame: 13, tics: 6, nextState: 8 },
+      { sprite: 'FATT', frame: 14, tics: 6, nextState: 9 },
+      { sprite: 'FATT', frame: 15, tics: 6, nextState: 10 },
+      { sprite: 'FATT', frame: 16, tics: 6, nextState: 11 },
+      { sprite: 'FATT', frame: 17, tics: -1, nextState: 11 },
+      // 12-23: see (walk cycle, 12 frames)
+      { sprite: 'FATT', frame: 0, tics: 4, nextState: 13, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 0, tics: 4, nextState: 14, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 1, tics: 4, nextState: 15, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 1, tics: 4, nextState: 16, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 2, tics: 4, nextState: 17, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 2, tics: 4, nextState: 18, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 3, tics: 4, nextState: 19, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 3, tics: 4, nextState: 20, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 4, tics: 4, nextState: 21, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 4, tics: 4, nextState: 22, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 5, tics: 4, nextState: 23, action: 'A_Chase' },
+      { sprite: 'FATT', frame: 5, tics: 4, nextState: 12, action: 'A_Chase' },
+      // 24-29: missile (3 volleys: FatAttack1, FatAttack2, FatAttack3)
+      { sprite: 'FATT', frame: 6, tics: 20, nextState: 25, action: 'A_FatRaise' },
+      { sprite: 'FATT', frame: 7, tics: 10, nextState: 26, action: 'A_FatAttack1' },
+      { sprite: 'FATT', frame: 8, tics: 5, nextState: 27, action: 'A_FaceTarget' },
+      { sprite: 'FATT', frame: 6, tics: 5, nextState: 28, action: 'A_FatAttack2' },
+      { sprite: 'FATT', frame: 7, tics: 5, nextState: 29, action: 'A_FaceTarget' },
+      { sprite: 'FATT', frame: 8, tics: 5, nextState: 12, action: 'A_FatAttack3' },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    seeState: 12, missileState: 24,
+    painChance: 80,
+    seeSound: [58], painSound: 38, deathSound: [109], activeSound: 86,
+  },
+
+  // Arachnotron (MT_BABY) — rapid-fire plasma
+  // DoomEd 68, sprite BSPI
+  68: {
+    states: [
+      // 0-1: spawn (idle)
+      { sprite: 'BSPI', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
+      { sprite: 'BSPI', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
+      // 2-3: pain
+      { sprite: 'BSPI', frame: 8, tics: 3, nextState: 3 },
+      { sprite: 'BSPI', frame: 8, tics: 3, nextState: 12 },  // pain → seeState
+      // 4-10: death
+      { sprite: 'BSPI', frame: 9, tics: 20, nextState: 5 },
+      { sprite: 'BSPI', frame: 10, tics: 7, nextState: 6 },
+      { sprite: 'BSPI', frame: 11, tics: 7, nextState: 7 },
+      { sprite: 'BSPI', frame: 12, tics: 7, nextState: 8 },
+      { sprite: 'BSPI', frame: 13, tics: 7, nextState: 9 },
+      { sprite: 'BSPI', frame: 14, tics: 7, nextState: 10 },
+      { sprite: 'BSPI', frame: 15, tics: 7, nextState: 11 },
+      { sprite: 'BSPI', frame: 15, tics: -1, nextState: 11 },
+      // 12-23: see (walk cycle, 12 frames with BabyMetal footstep)
+      { sprite: 'BSPI', frame: 0, tics: 3, nextState: 13, action: 'A_BabyMetal' },
+      { sprite: 'BSPI', frame: 0, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 1, tics: 3, nextState: 15, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 1, tics: 3, nextState: 16, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 2, tics: 3, nextState: 17, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 2, tics: 3, nextState: 18, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 3, tics: 3, nextState: 19, action: 'A_BabyMetal' },
+      { sprite: 'BSPI', frame: 3, tics: 3, nextState: 20, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 4, tics: 3, nextState: 21, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 4, tics: 3, nextState: 22, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 5, tics: 3, nextState: 23, action: 'A_Chase' },
+      { sprite: 'BSPI', frame: 5, tics: 3, nextState: 12, action: 'A_Chase' },
+      // 24-26: missile (plasma rapid fire with refire)
+      { sprite: 'BSPI', frame: 0, tics: 20, nextState: 25, action: 'A_FaceTarget' },
+      { sprite: 'BSPI', frame: 6, tics: 4, nextState: 26, action: 'A_BspiAttack' },
+      { sprite: 'BSPI', frame: 7, tics: 4, nextState: 25, action: 'A_SpidRefire' },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    seeState: 12, missileState: 24,
+    painChance: 128,
+    seeSound: [55], painSound: 35, deathSound: [79], activeSound: 87,
+  },
+
+  // Pain Elemental (MT_PAIN) — spawns Lost Souls
+  // DoomEd 71, sprite PAIN
+  71: {
+    states: [
+      // 0-2: spawn (idle, 3 frames)
+      { sprite: 'PAIN', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
+      { sprite: 'PAIN', frame: 1, tics: 10, nextState: 2, action: 'A_Look' },
+      { sprite: 'PAIN', frame: 2, tics: 10, nextState: 0, action: 'A_Look' },
+      // 3-4: pain
+      { sprite: 'PAIN', frame: 6, tics: 6, nextState: 4 },
+      { sprite: 'PAIN', frame: 6, tics: 6, nextState: 9 },  // pain → seeState
+      // 5-8: death (A_PainDie spawns 3 lost souls)
+      { sprite: 'PAIN', frame: 7, tics: 8, nextState: 6, action: 'A_PainDie' },
+      { sprite: 'PAIN', frame: 8, tics: 8, nextState: 7 },
+      { sprite: 'PAIN', frame: 9, tics: 8, nextState: 8 },
+      { sprite: 'PAIN', frame: 10, tics: -1, nextState: 8 },
+      // 9-14: see (float/chase, 6 frames)
+      { sprite: 'PAIN', frame: 0, tics: 3, nextState: 10, action: 'A_Chase' },
+      { sprite: 'PAIN', frame: 0, tics: 3, nextState: 11, action: 'A_Chase' },
+      { sprite: 'PAIN', frame: 1, tics: 3, nextState: 12, action: 'A_Chase' },
+      { sprite: 'PAIN', frame: 1, tics: 3, nextState: 13, action: 'A_Chase' },
+      { sprite: 'PAIN', frame: 2, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'PAIN', frame: 2, tics: 3, nextState: 9, action: 'A_Chase' },
+      // 15-17: missile (spawn Lost Soul)
+      { sprite: 'PAIN', frame: 3, tics: 5, nextState: 16, action: 'A_FaceTarget' },
+      { sprite: 'PAIN', frame: 4, tics: 5, nextState: 17, action: 'A_FaceTarget' },
+      { sprite: 'PAIN', frame: 5, tics: 5, nextState: 18, action: 'A_FaceTarget' },
+      { sprite: 'PAIN', frame: 5, tics: 0, nextState: 9, action: 'A_PainAttack' },
+    ],
+    spawnState: 0, painState: 3, deathState: 5,
+    seeState: 9, missileState: 15,
+    painChance: 128,
+    seeSound: [59], painSound: 39, deathSound: [82], activeSound: 86,
+  },
+
+  // Wolf SS (MT_WOLFSS) — hitscan attack (reuses A_SPosAttack)
+  // DoomEd 84, sprite SSWV
+  84: {
+    states: [
+      // 0-1: spawn (idle)
+      { sprite: 'SSWV', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
+      { sprite: 'SSWV', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
+      // 2-3: pain
+      { sprite: 'SSWV', frame: 7, tics: 3, nextState: 3 },
+      { sprite: 'SSWV', frame: 7, tics: 3, nextState: 10 },  // pain → seeState
+      // 4-8: death
+      { sprite: 'SSWV', frame: 8, tics: 5, nextState: 5 },
+      { sprite: 'SSWV', frame: 9, tics: 5, nextState: 6 },
+      { sprite: 'SSWV', frame: 10, tics: 5, nextState: 7 },
+      { sprite: 'SSWV', frame: 11, tics: 5, nextState: 8 },
+      { sprite: 'SSWV', frame: 12, tics: -1, nextState: 8 },
+      // 9: gap (unused)
+      { sprite: 'SSWV', frame: 0, tics: 1, nextState: 10 },
+      // 10-13: see (walk cycle)
+      { sprite: 'SSWV', frame: 0, tics: 3, nextState: 11, action: 'A_Chase' },
+      { sprite: 'SSWV', frame: 1, tics: 3, nextState: 12, action: 'A_Chase' },
+      { sprite: 'SSWV', frame: 2, tics: 3, nextState: 13, action: 'A_Chase' },
+      { sprite: 'SSWV', frame: 3, tics: 3, nextState: 10, action: 'A_Chase' },
+      // 14-16: missile (hitscan attack, same as Shotgun Guy)
+      { sprite: 'SSWV', frame: 4, tics: 10, nextState: 15, action: 'A_FaceTarget' },
+      { sprite: 'SSWV', frame: 5, tics: 10, nextState: 16, action: 'A_FaceTarget' },
+      { sprite: 'SSWV', frame: 6, tics: 10, nextState: 10, action: 'A_SPosAttack' },
+    ],
+    spawnState: 0, painState: 2, deathState: 4,
+    seeState: 10, missileState: 14,
+    painChance: 170, dropItem: 2012,  // drops clip
+    seeSound: [45, 46, 47], painSound: 36, deathSound: [68, 69, 70], activeSound: 84,
   },
 
   // ============================================================

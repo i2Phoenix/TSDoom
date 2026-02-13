@@ -14,9 +14,9 @@ import { P_CheckSight } from './sight';
 import { monsterUseSpecialLine, crossSpecialLine } from './specials';
 
 // ---- Constants ----
-const MAXMOVE       = 30 * FRACUNIT;  // max movement per tic
+const MAXMOVE = 30 * FRACUNIT;  // max movement per tic
 const MAXSTEPHEIGHT = 24 * FRACUNIT;  // max step-up
-const FLOATSPEED    = 4 * FRACUNIT;   // flying monster vertical speed
+const FLOATSPEED = 4 * FRACUNIT;   // flying monster vertical speed
 
 // Speed tables for 8 cardinal/diagonal directions
 // Each direction is a unit vector scaled to FRACUNIT
@@ -84,41 +84,36 @@ export function P_TryMove(
   tmCeilingZ = sec.ceilingHeight;
   tmDropoffZ = sec.floorHeight;
 
-  // Check all linedefs for collision (simplified — not using blockmap iterator)
-  for (let i = 0; i < map.linedefs.length; i++) {
-    const ld = map.linedefs[i];
+  // Check linedefs via blockmap (only lines in relevant 128×128 blocks)
+  let lineBlocked = false;
+
+  map.forEachBlockLine(bbox.top, bbox.bottom, bbox.left, bbox.right, (ld) => {
     const v1 = map.vertices[ld.v1];
     const v2 = map.vertices[ld.v2];
 
-    // Quick bbox rejection
-    const ldLeft = Math.min(v1.x, v2.x);
-    const ldRight = Math.max(v1.x, v2.x);
-    const ldBottom = Math.min(v1.y, v2.y);
-    const ldTop = Math.max(v1.y, v2.y);
-
-    if (ldRight < bbox.left || ldLeft > bbox.right ||
-        ldTop < bbox.bottom || ldBottom > bbox.top) {
-      continue;
-    }
-
     // Check if bbox actually crosses the line
     if (!boxCrossesLine(bbox, v1.x, v1.y, ld.dx, ld.dy)) {
-      continue;
+      return true; // continue
     }
 
     // One-sided line — always blocks
     if (!(ld.flags & ML_TWOSIDED)) {
-      return false;
+      lineBlocked = true;
+      return false; // stop
     }
 
     // ML_BLOCKING — blocks everything
     if (ld.flags & ML_BLOCKING) {
+      lineBlocked = true;
       return false;
     }
 
     const front = ld.frontsector;
     const back = ld.backsector;
-    if (!front || !back) return false;
+    if (!front || !back) {
+      lineBlocked = true;
+      return false;
+    }
 
     // Compute opening
     const openTop = Math.min(front.ceilingHeight, back.ceilingHeight);
@@ -132,16 +127,19 @@ export function P_TryMove(
 
     // Check if opening is large enough
     if (openTop - openBottom < actor.height) {
-      return false; // doesn't fit
+      lineBlocked = true;
+      return false;
     }
 
     // Step-up too high
     if (openBottom - actor.z > MAXSTEPHEIGHT) {
+      lineBlocked = true;
       return false;
     }
 
     // Ceiling too low
     if (openTop - actor.z < actor.height) {
+      lineBlocked = true;
       return false;
     }
 
@@ -149,7 +147,10 @@ export function P_TryMove(
     if (ld.special) {
       spechit.push(ld);
     }
-  }
+    return true; // continue
+  });
+
+  if (lineBlocked) return false;
 
   // Check thing-thing collisions
   const objects = getMapObjects();
@@ -163,7 +164,7 @@ export function P_TryMove(
     // Cylinder overlap check
     const blockDist = actor.radius + other.radius;
     if (Math.abs(newx - other.x) >= blockDist ||
-        Math.abs(newy - other.y) >= blockDist) {
+      Math.abs(newy - other.y) >= blockDist) {
       continue;
     }
 
@@ -289,16 +290,16 @@ function checkMonsterLineCrossings(
     const midx = (v1.x + v2.x) >> 1;
     const midy = (v1.y + v2.y) >> 1;
     if (Math.abs(midx - actor.x) > radius * 4 ||
-        Math.abs(midy - actor.y) > radius * 4) continue;
+      Math.abs(midy - actor.y) > radius * 4) continue;
 
     // Check if the monster crossed from one side to the other
     const ldx = v2.x - v1.x;
     const ldy = v2.y - v1.y;
 
     const oldCross = ((oldX - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
-                     ((oldY - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+      ((oldY - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
     const newCross = ((actor.x - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
-                     ((actor.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+      ((actor.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
 
     const oldSide = oldCross <= 0 ? 1 : 0;
     const newSide = newCross <= 0 ? 1 : 0;

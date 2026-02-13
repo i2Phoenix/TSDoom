@@ -198,6 +198,8 @@ export interface WeaponPlayer {
   powers: number[];
   // Health (needed for death weapon handling)
   health: number;
+  // View bob amplitude (computed by Player.calcHeight, used for weapon psprite bob)
+  bob: number;
 }
 
 // ---- Weapon info table (from d_items.c) ----
@@ -542,11 +544,13 @@ function weaponReady(wp: WeaponPlayer): void {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawidl);
   }
 
-  // Weapon bobbing
+  // Weapon bobbing — use player.bob (computed in P_CalcHeight)
+  // Original DOOM: A_WeaponReady uses player->bob/2 for psprite amplitude
+  const bobAmplitude = (wp.bob ?? 0) >> 1;
   const angle = (128 * levelTime) & FINEMASK;
-  psp.sx = FRACUNIT + fixedMul(calcBob(wp), finecosine(angle));
+  psp.sx = FRACUNIT + fixedMul(bobAmplitude, finecosine(angle));
   const angle2 = angle & (FINEANGLES / 2 - 1);
-  psp.sy = WEAPONTOP + fixedMul(calcBob(wp), finesine[angle2]);
+  psp.sy = WEAPONTOP + fixedMul(bobAmplitude, finesine[angle2]);
 }
 
 /** A_Lower — lower the weapon off screen */
@@ -585,7 +589,7 @@ function weaponRaise(wp: WeaponPlayer): void {
 /** A_ReFire — re-fire check during attack sequence */
 function weaponReFire(wp: WeaponPlayer): void {
   if (wp.attackdown
-      && wp.pendingweapon === WeaponType.nochange) {
+    && wp.pendingweapon === WeaponType.nochange) {
     wp.refire++;
     fireWeapon(wp);
   } else {
@@ -688,16 +692,6 @@ export function movePsprites(wp: WeaponPlayer): void {
   }
 }
 
-// =============================================
-// Calculate weapon bob amount from momentum
-// =============================================
-function calcBob(wp: WeaponPlayer): number {
-  // Simplified bob — DOOM uses more complex calculation
-  const mx = Math.abs(wp.momx) >> FRACBITS;
-  const my = Math.abs(wp.momy) >> FRACBITS;
-  const bob = Math.min((mx * mx + my * my) >> 2, 16) << FRACBITS;
-  return bob;
-}
 
 // =============================================
 // Create default weapon state for a new player

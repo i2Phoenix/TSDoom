@@ -14,7 +14,7 @@ import {
 } from './mobj';
 import {
   P_AimLineAttack, P_RadiusAttack, getBulletSlope,
-  lineIntersectFrac,
+  lineIntersectFrac, linetarget,
 } from './combat';
 import {
   spawnRocketExplosion, spawnPlasmaHit, spawnBfgHit,
@@ -36,9 +36,23 @@ export enum ProjectileType {
   cacoFireball,   // BAL2 — Cacodemon / Head
   baronFireball,  // BAL7 — Baron of Hell / Hell Knight
   cyberdemonRocket, // same as rocket but from cyberdemon
+  // Doom II monster projectiles
+  revenantTracer,   // FATB — Revenant homing missile
+  mancubusFireball, // MANF — Mancubus fat shot
+  arachnotronPlasma, // APLS — Arachnotron plasma bolt
 }
 
 // ---- Per-type configuration (from mobjinfo[] in info.c) ----
+// Dynamic light descriptor (radius in map units, RGB 0-255, intensity 0-1, duration in tics)
+interface DynLightDef {
+  radius: number;   // map units (will be multiplied by FRACUNIT)
+  r: number;
+  g: number;
+  b: number;
+  intensity: number;
+  duration: number;
+}
+
 export interface ProjectileInfo {
   speed: number;        // fixed_t per tick
   damage: number;       // base damage (rolled: damage * (1 + rand%8))
@@ -49,6 +63,10 @@ export interface ProjectileInfo {
   deathSprite: string;  // sprite for explosion/hit
   numFrames: number;    // number of in-flight animation frames
   fullbright: boolean;  // render fullbright
+  // Dynamic lights (null = no light for that phase)
+  spawnLight: DynLightDef | null;     // muzzle flash when spawned
+  flyLight: DynLightDef | null;       // per-tic glow while in flight
+  explodeLight: DynLightDef | null;   // flash on impact/explosion
 }
 
 const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
@@ -60,8 +78,11 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     explosionRadius: 128,
     sprite: 'MISL',
     deathSprite: 'MISL',
-    numFrames: 1,       // frame A only in flight
+    numFrames: 1,
     fullbright: true,
+    spawnLight: { radius: 96, r: 255, g: 200, b: 80, intensity: 0.5, duration: 3 },
+    flyLight: { radius: 160, r: 255, g: 180, b: 60, intensity: 0.7, duration: 2 },
+    explodeLight: { radius: 192, r: 255, g: 160, b: 48, intensity: 0.6, duration: 10 },
   },
   [ProjectileType.plasma]: {
     speed: 25 * FRACUNIT,
@@ -71,8 +92,11 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     explosionRadius: 0,
     sprite: 'PLSS',
     deathSprite: 'PLSE',
-    numFrames: 2,       // frames A/B alternate
+    numFrames: 2,
     fullbright: true,
+    spawnLight: { radius: 64, r: 80, g: 80, b: 255, intensity: 0.4, duration: 2 },
+    flyLight: { radius: 96, r: 100, g: 100, b: 255, intensity: 0.55, duration: 2 },
+    explodeLight: { radius: 96, r: 80, g: 80, b: 255, intensity: 0.4, duration: 5 },
   },
   [ProjectileType.bfg]: {
     speed: 25 * FRACUNIT,
@@ -82,8 +106,11 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     explosionRadius: 0,  // BFG uses tracers, not radius
     sprite: 'BFS1',
     deathSprite: 'BFE1',
-    numFrames: 2,       // frames A/B alternate
+    numFrames: 2,
     fullbright: true,
+    spawnLight: { radius: 128, r: 80, g: 255, b: 80, intensity: 0.6, duration: 4 },
+    flyLight: { radius: 192, r: 100, g: 255, b: 100, intensity: 0.7, duration: 2 },
+    explodeLight: { radius: 256, r: 80, g: 255, b: 80, intensity: 0.8, duration: 15 },
   },
   // --- Monster projectiles ---
   [ProjectileType.impFireball]: {
@@ -96,6 +123,9 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     deathSprite: 'BAL1',
     numFrames: 2,
     fullbright: true,
+    spawnLight: { radius: 64, r: 255, g: 128, b: 32, intensity: 0.5, duration: 2 },
+    flyLight: { radius: 80, r: 255, g: 128, b: 32, intensity: 0.5, duration: 2 },
+    explodeLight: null,
   },
   [ProjectileType.cacoFireball]: {
     speed: 10 * FRACUNIT,
@@ -107,6 +137,9 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     deathSprite: 'BAL2',
     numFrames: 2,
     fullbright: true,
+    spawnLight: { radius: 64, r: 255, g: 64, b: 64, intensity: 0.5, duration: 2 },
+    flyLight: { radius: 80, r: 255, g: 64, b: 64, intensity: 0.5, duration: 2 },
+    explodeLight: null,
   },
   [ProjectileType.baronFireball]: {
     speed: 15 * FRACUNIT,
@@ -118,6 +151,9 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     deathSprite: 'BAL7',
     numFrames: 2,
     fullbright: true,
+    spawnLight: { radius: 80, r: 64, g: 255, b: 64, intensity: 0.5, duration: 2 },
+    flyLight: { radius: 96, r: 64, g: 255, b: 64, intensity: 0.5, duration: 2 },
+    explodeLight: null,
   },
   [ProjectileType.cyberdemonRocket]: {
     speed: 20 * FRACUNIT,
@@ -129,6 +165,52 @@ const PROJECTILE_INFO: Record<ProjectileType, ProjectileInfo> = {
     deathSprite: 'MISL',
     numFrames: 1,
     fullbright: true,
+    spawnLight: { radius: 96, r: 255, g: 200, b: 80, intensity: 0.5, duration: 3 },
+    flyLight: { radius: 160, r: 255, g: 180, b: 60, intensity: 0.7, duration: 2 },
+    explodeLight: { radius: 192, r: 255, g: 160, b: 48, intensity: 0.6, duration: 10 },
+  },
+  // --- Doom II monster projectiles ---
+  [ProjectileType.revenantTracer]: {
+    speed: 10 * FRACUNIT,
+    damage: 10,
+    radius: 11 * FRACUNIT,
+    height: 8 * FRACUNIT,
+    explosionRadius: 0,
+    sprite: 'FATB',
+    deathSprite: 'FBXP',
+    numFrames: 2,
+    fullbright: true,
+    spawnLight: { radius: 64, r: 255, g: 160, b: 64, intensity: 0.4, duration: 2 },
+    flyLight: { radius: 80, r: 255, g: 160, b: 64, intensity: 0.5, duration: 2 },
+    explodeLight: null,
+  },
+  [ProjectileType.mancubusFireball]: {
+    speed: 20 * FRACUNIT,
+    damage: 8,
+    radius: 6 * FRACUNIT,
+    height: 8 * FRACUNIT,
+    explosionRadius: 0,
+    sprite: 'MANF',
+    deathSprite: 'MISL',
+    numFrames: 2,
+    fullbright: true,
+    spawnLight: { radius: 64, r: 255, g: 128, b: 32, intensity: 0.5, duration: 2 },
+    flyLight: { radius: 96, r: 255, g: 128, b: 32, intensity: 0.6, duration: 2 },
+    explodeLight: { radius: 128, r: 255, g: 128, b: 32, intensity: 0.5, duration: 6 },
+  },
+  [ProjectileType.arachnotronPlasma]: {
+    speed: 25 * FRACUNIT,
+    damage: 5,
+    radius: 13 * FRACUNIT,
+    height: 8 * FRACUNIT,
+    explosionRadius: 0,
+    sprite: 'APLS',
+    deathSprite: 'APBX',
+    numFrames: 2,
+    fullbright: true,
+    spawnLight: { radius: 64, r: 80, g: 255, b: 80, intensity: 0.4, duration: 2 },
+    flyLight: { radius: 80, r: 80, g: 255, b: 80, intensity: 0.5, duration: 2 },
+    explodeLight: { radius: 80, r: 80, g: 255, b: 80, intensity: 0.4, duration: 4 },
   },
 };
 
@@ -150,6 +232,7 @@ export interface Projectile {
   removed: boolean;
   source?: MapObjState; // who fired this (to prevent self-hit)
   isMonsterProjectile?: boolean; // true if fired by a monster (can hit player)
+  sourceAngle?: number; // shooter angle at time of firing (BAM, for BFG tracers)
 }
 
 // ---- Module state ----
@@ -188,17 +271,15 @@ export function spawnPlayerProjectile(
     info,
     tic: 0,
     removed: false,
+    sourceAngle: angle,
   };
 
   activeProjectiles.push(proj);
 
-  // Muzzle flash dynamic light
-  if (type === ProjectileType.rocket) {
-    FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
-  } else if (type === ProjectileType.plasma) {
-    FX_DynLight(x, y, z, 64 * FRACUNIT, 80, 80, 255, 0.4, 2);
-  } else if (type === ProjectileType.bfg) {
-    FX_DynLight(x, y, z, 128 * FRACUNIT, 80, 255, 80, 0.6, 4);
+  // Muzzle flash dynamic light (table-driven)
+  const sl = info.spawnLight;
+  if (sl) {
+    FX_DynLight(x, y, z, sl.radius * FRACUNIT, sl.r, sl.g, sl.b, sl.intensity, sl.duration);
   }
 }
 
@@ -252,15 +333,61 @@ export function spawnMonsterProjectile(
 
   activeProjectiles.push(proj);
 
-  // Dynamic light for monster fireballs
-  if (type === ProjectileType.impFireball) {
-    FX_DynLight(x, y, z, 64 * FRACUNIT, 255, 128, 32, 0.5, 2);
-  } else if (type === ProjectileType.cacoFireball) {
-    FX_DynLight(x, y, z, 64 * FRACUNIT, 255, 64, 64, 0.5, 2);
-  } else if (type === ProjectileType.baronFireball) {
-    FX_DynLight(x, y, z, 80 * FRACUNIT, 64, 255, 64, 0.5, 2);
-  } else if (type === ProjectileType.cyberdemonRocket) {
-    FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 200, 80, 0.5, 3);
+  // Spawn dynamic light (table-driven)
+  const msl = info.spawnLight;
+  if (msl) {
+    FX_DynLight(x, y, z, msl.radius * FRACUNIT, msl.r, msl.g, msl.b, msl.intensity, msl.duration);
+  }
+}
+
+/**
+ * Spawn a monster projectile with an angular offset (BAM).
+ * Used by Mancubus for spread-fire patterns.
+ */
+export function spawnMonsterProjectileAngled(
+  source: MapObjState,
+  target: MapObjState,
+  type: ProjectileType,
+  angleOffset: number,
+): void {
+  const info = PROJECTILE_INFO[type];
+  if (!info) return;
+
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const baseAngle = pointToAngle(0, 0, dx, dy);
+  const angle = (baseAngle + angleOffset) >>> 0;
+  const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
+
+  const momx = fixedMul(info.speed, finecosine(an));
+  const momy = fixedMul(info.speed, finesine[an]);
+
+  const hdist = Math.max(1, Math.sqrt(
+    (dx / FRACUNIT) * (dx / FRACUNIT) + (dy / FRACUNIT) * (dy / FRACUNIT)
+  ));
+  const dz = (target.z + (target.height >> 1)) - (source.z + 32 * FRACUNIT);
+  const momz = Math.round((dz / FRACUNIT) / hdist * (info.speed / FRACUNIT)) * FRACUNIT;
+
+  const x = source.x + fixedMul(4 * FRACUNIT, finecosine(an));
+  const y = source.y + fixedMul(4 * FRACUNIT, finesine[an]);
+  const z = source.z + 32 * FRACUNIT;
+
+  const proj: Projectile = {
+    x, y, z,
+    momx, momy, momz,
+    type,
+    info,
+    tic: 0,
+    removed: false,
+    source,
+    isMonsterProjectile: true,
+  };
+
+  activeProjectiles.push(proj);
+
+  const msl = info.spawnLight;
+  if (msl) {
+    FX_DynLight(x, y, z, msl.radius * FRACUNIT, msl.r, msl.g, msl.b, msl.intensity, msl.duration);
   }
 }
 
@@ -322,21 +449,10 @@ export function updateProjectiles(): void {
     proj.y = newY;
     proj.z = newZ;
 
-    // Flying dynamic light for rockets
-    if (proj.type === ProjectileType.rocket) {
-      FX_DynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
-    } else if (proj.type === ProjectileType.plasma) {
-      FX_DynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 100, 100, 255, 0.55, 2);
-    } else if (proj.type === ProjectileType.bfg) {
-      FX_DynLight(proj.x, proj.y, proj.z, 192 * FRACUNIT, 100, 255, 100, 0.7, 2);
-    } else if (proj.type === ProjectileType.impFireball) {
-      FX_DynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 128, 32, 0.5, 2);
-    } else if (proj.type === ProjectileType.cacoFireball) {
-      FX_DynLight(proj.x, proj.y, proj.z, 80 * FRACUNIT, 255, 64, 64, 0.5, 2);
-    } else if (proj.type === ProjectileType.baronFireball) {
-      FX_DynLight(proj.x, proj.y, proj.z, 96 * FRACUNIT, 64, 255, 64, 0.5, 2);
-    } else if (proj.type === ProjectileType.cyberdemonRocket) {
-      FX_DynLight(proj.x, proj.y, proj.z, 160 * FRACUNIT, 255, 180, 60, 0.7, 2);
+    // Flying dynamic light (table-driven)
+    const fl = proj.info.flyLight;
+    if (fl) {
+      FX_DynLight(proj.x, proj.y, proj.z, fl.radius * FRACUNIT, fl.r, fl.g, fl.b, fl.intensity, fl.duration);
     }
 
     // Safety: remove after ~10 seconds (350 tics) to prevent leaks
@@ -347,8 +463,8 @@ export function updateProjectiles(): void {
 }
 
 // ============================================================
-// Wall collision check
-// Simplified version of traceWalls adapted for projectile movement
+// Wall collision check (blockmap-accelerated)
+// Reference: P_BlockLinesIterator + PIT_CheckLine (p_map.c)
 // ============================================================
 
 function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: number): boolean {
@@ -358,7 +474,16 @@ function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: 
   const dx = newX - proj.x;
   const dy = newY - proj.y;
 
-  for (const line of projectileMap.linedefs) {
+  // Build bounding box from old → new position, expanded by projectile radius
+  const r = proj.info.radius;
+  const top = Math.max(proj.y, newY) + r;
+  const bottom = Math.min(proj.y, newY) - r;
+  const left = Math.min(proj.x, newX) - r;
+  const right = Math.max(proj.x, newX) + r;
+
+  let blocked = false;
+
+  projectileMap.forEachBlockLine(top, bottom, left, right, (line) => {
     const v1 = projectileMap.vertices[line.v1];
     const v2 = projectileMap.vertices[line.v2];
     const lx1 = v1.x;
@@ -367,36 +492,41 @@ function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: 
     const ldy = v2.y - v1.y;
 
     const frac = lineIntersectFrac(proj.x, proj.y, dx, dy, lx1, ly1, ldx, ldy);
-    if (frac < 0 || frac > FRACUNIT) continue;
+    if (frac < 0 || frac > FRACUNIT) return true; // no intersection, continue
 
     // One-sided line → always blocks
     if (!(line.flags & ML_TWOSIDED)) {
-      return true;
+      blocked = true;
+      return false; // stop iteration
     }
 
     // Two-sided — check if the projectile passes through the opening
     const front = line.frontsector;
     const back = line.backsector;
     if (!front || !back) {
-      return true;
+      blocked = true;
+      return false;
     }
 
     const opentop = Math.min(front.ceilingHeight, back.ceilingHeight);
     const openbottom = Math.max(front.floorHeight, back.floorHeight);
 
     if (openbottom >= opentop) {
-      return true; // closed
+      blocked = true;
+      return false; // closed
     }
 
     // Check if projectile z passes through the opening
     const hitZ = proj.z + fixedMul(proj.momz, frac);
     if (hitZ < openbottom || hitZ + proj.info.height > opentop) {
-      return true;
+      blocked = true;
+      return false;
     }
     // Otherwise passes through
-  }
+    return true;
+  });
 
-  return false;
+  return blocked;
 }
 
 // ============================================================
@@ -496,56 +626,59 @@ function checkPlayerCollision(
 function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: number): void {
   proj.removed = true;
 
+  // Spawn visual explosion effect
   switch (proj.type) {
     case ProjectileType.rocket:
+    case ProjectileType.cyberdemonRocket:
       spawnRocketExplosion(hitX, hitY, hitZ);
-      // Splash damage — damages everything in radius including player
       P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius);
-      // Explosion light
-      FX_DynLight(hitX, hitY, hitZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
       break;
-
     case ProjectileType.plasma:
       spawnPlasmaHit(hitX, hitY, hitZ);
-      FX_DynLight(hitX, hitY, hitZ, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
       break;
-
     case ProjectileType.bfg:
       spawnBfgHit(hitX, hitY, hitZ);
-      // BFG tracers: after explosion, fire 40 invisible autoaim rays
-      // (simplified: just deal massive damage to things in LOS)
-      fireBfgTracers(hitX, hitY, hitZ);
-      FX_DynLight(hitX, hitY, hitZ, 256 * FRACUNIT, 80, 255, 80, 0.8, 15);
+      fireBfgTracers(hitX, hitY, hitZ, proj);
       break;
+  }
+
+  // Explosion dynamic light (table-driven)
+  const el = proj.info.explodeLight;
+  if (el) {
+    FX_DynLight(hitX, hitY, hitZ, el.radius * FRACUNIT, el.r, el.g, el.b, el.intensity, el.duration);
   }
 }
 
 // ============================================================
-// BFG Tracers — simplified version
-// Original fires 40 rays in a ±45° cone from the player
+// BFG Tracers — faithful port of A_BFGSpray from p_enemy.c
+// Fires 40 rays in a ±45° cone from the shooter's angle.
+// Each ray uses P_AimLineAttack for autoaim + line-of-sight.
+// Damage per hit: 15 * (1..8) = 15-120.
 // ============================================================
 
-function fireBfgTracers(hitX: number, hitY: number, hitZ: number): void {
-  // Simplified: damage all shootable things within 512 units that are visible
-  const mapObjs = getMapObjects();
-  const range = 512 * FRACUNIT;
+function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projectile): void {
+  const ANG90 = 0x40000000;
+  const ANG45 = ANG90 >>> 1;
+  const AIMRANGE = 16 * 64 * FRACUNIT; // 1024 map units
+  const sourceAngle = proj.sourceAngle ?? 0;
 
-  for (const obj of mapObjs) {
-    if (obj.removed) continue;
-    if (!(obj.flags & MF_SHOOTABLE)) continue;
+  for (let i = 0; i < 40; i++) {
+    // Distribute 40 rays evenly across ±45° cone
+    const an = (sourceAngle - ANG45 + Math.round((ANG90 / 40) * i)) >>> 0;
 
-    const dx = Math.abs(obj.x - hitX);
-    const dy = Math.abs(obj.y - hitY);
-    const dist = Math.max(dx, dy);
+    // P_AimLineAttack sets linetarget if a shootable thing is in LOS
+    P_AimLineAttack(hitX, hitY, hitZ, an, AIMRANGE);
+    if (!linetarget) continue;
 
-    if (dist > range) continue;
+    // Avoid hitting same target source (shouldn't happen, but safety)
+    const target = linetarget;
 
-    // BFG tracer damage: 15 * (1 + rand%8) per tracer, simplified
+    // BFG tracer damage: 15 * (1..8)
     const damage = 15 * ((P_Random() % 8) + 1);
-    damageMobj(obj, damage);
+    damageMobj(target, damage, proj.source);
 
-    // Green flash on target
-    FX_DynLight(obj.x, obj.y, obj.z + (obj.height >> 1), 64 * FRACUNIT, 80, 255, 80, 0.3, 3);
+    // Spawn green flash on target (BFE2 sprite in original DOOM)
+    spawnBfgHit(target.x, target.y, target.z + (target.height >> 1));
   }
 }
 

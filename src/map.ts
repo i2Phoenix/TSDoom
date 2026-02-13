@@ -32,6 +32,18 @@ export const ML_MAPPED = 256;
 
 export const NF_SUBSECTOR = 0x8000;
 
+// Block size for blockmap (128 map units)
+const MAPBLOCKUNITS = 128;
+const MAPBLOCKSHIFT = FRACBITS + 7; // FRACBITS + log2(128)
+
+// Global validcount for linedef deduplication across block iterations
+let validcount = 0;
+
+/** Increment and return the global validcount (call before each forEachBlockLine batch) */
+export function incValidcount(): number {
+  return ++validcount;
+}
+
 export interface Vertex {
   x: number; // fixed_t
   y: number;
@@ -422,5 +434,72 @@ export class GameMap {
     const right = ((dy >> FRACBITS) * (node.dx >> FRACBITS)) | 0;
 
     return right < left ? 0 : 1;
+  }
+
+  // ============================================================
+  // Blockmap line iterator — P_BlockLinesIterator
+  // Reference: p_maputl.c P_BlockLinesIterator
+  // ============================================================
+
+  /**
+   * Iterate linedefs in a single blockmap cell (bx, by).
+   * Calls `callback` for each linedef. If callback returns false, iteration stops.
+   * Uses LineDef.validcount for deduplication — call incValidcount() before a batch.
+   */
+  blockLinesIterator(
+    bx: number, by: number, vc: number,
+    callback: (line: LineDef) => boolean,
+  ): boolean {
+    if (bx < 0 || by < 0 || bx >= this.bmapWidth || by >= this.bmapHeight) {
+      return true; // out of bounds — no lines
+    }
+
+    let offset = this.blockmap[by * this.bmapWidth + bx];
+    // blockmapLump[offset] is 0 (header sentinel) — skip it
+    // then read linedef indices until -1
+    const bml = this.blockmapLump;
+    for (let i = offset; ; i++) {
+      if (i >= bml.length) break;
+      const lineIdx = bml[i];
+      if (lineIdx === -1) break;  // terminator
+      if (lineIdx === 0 && i === offset) continue; // skip header sentinel
+
+      if (lineIdx < 0 || lineIdx >= this.linedefs.length) continue; // safety
+
+      const ld = this.linedefs[lineIdx];
+      // Dedup: skip if already visited in this batch
+      if (ld.validcount === vc) continue;
+      ld.validcount = vc;
+
+      if (!callback(ld)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Iterate all linedefs touching a bounding box (in fixed_t coordinates).
+   * Converts box to block range and iterates each block.
+   * Uses validcount dedup so each linedef is visited at most once.
+   *
+   * @param top/bottom/left/right — bounding box in fixed_t
+   * @param callback — return false to stop early
+   */
+  forEachBlockLine(
+    top: number, bottom: number, left: number, right: number,
+    callback: (line: LineDef) => boolean,
+  ): void {
+    const vc = incValidcount();
+
+    // Convert fixed_t world coords to blockmap cell coords
+    const bx0 = Math.max(0, (left - this.bmapOrgX) >> MAPBLOCKSHIFT);
+    const bx1 = Math.min(this.bmapWidth - 1, (right - this.bmapOrgX) >> MAPBLOCKSHIFT);
+    const by0 = Math.max(0, (bottom - this.bmapOrgY) >> MAPBLOCKSHIFT);
+    const by1 = Math.min(this.bmapHeight - 1, (top - this.bmapOrgY) >> MAPBLOCKSHIFT);
+
+    for (let by = by0; by <= by1; by++) {
+      for (let bx = bx0; bx <= bx1; bx++) {
+        if (!this.blockLinesIterator(bx, by, vc, callback)) return;
+      }
+    }
   }
 }

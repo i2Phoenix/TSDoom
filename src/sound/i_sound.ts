@@ -133,7 +133,7 @@ function decodeDoomSound(data: Uint8Array): AudioBuffer | null {
  * @param sfxId  SFX enum value
  * @param volume 0..127
  * @param sep    stereo separation: 0=full left, 128=center, 255=full right
- * @param pitch  pitch: 128=normal, <128=lower, >128=higher (unused for now)
+ * @param pitch  pitch: 128=normal, <128=lower, >128=higher
  * @returns handle ID, or -1 if failed
  */
 export function I_StartSound(
@@ -236,13 +236,19 @@ export function I_UpdateSoundParams(
   handle: number,
   volume: number,
   sep: number,
-  _pitch: number
+  pitch: number
 ): void {
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const ch = channels[i];
     if (ch && ch.id === handle) {
       ch.gain.gain.value = Math.max(0, Math.min(1, volume / 127));
       ch.panner.pan.value = Math.max(-1, Math.min(1, (sep - 128) / 128));
+      // Update pitch (playbackRate): DOOM pitch 128 = normal
+      if (pitch !== 128) {
+        ch.source.playbackRate.value = Math.pow(2, (pitch - 128) / 64);
+      } else {
+        ch.source.playbackRate.value = 1.0;
+      }
       return;
     }
   }

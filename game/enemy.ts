@@ -8,7 +8,7 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, 
 // ANG90/2 for gradual turning in A_Chase (original DOOM uses ANG90/2 = 0x20000000)
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../src/map';
-import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj } from './mobj';
+import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj, spawnLostSoul } from './mobj';
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
@@ -17,7 +17,7 @@ import { registerActionCallback, setMonsterState, getThingAnimDef } from './anim
 import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from './p_move';
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
-import { spawnMonsterProjectile, ProjectileType } from './projectiles';
+import { spawnMonsterProjectile, spawnMonsterProjectileAngled, ProjectileType } from './projectiles';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
 import { getWorld } from './world';
@@ -343,7 +343,10 @@ function A_Chase_impl(thingIndex: number): void {
   const animDef = getThingAnimDef(actor.type);
   if (animDef && animDef.meleeState !== undefined) {
     if (P_CheckMeleeRange(actor)) {
-      // TODO: Play attack sound
+      // Play melee attack sound (attacksound from mobjinfo)
+      if (animDef.attackSound !== undefined) {
+        FX_Sound({ x: actor.x, y: actor.y }, animDef.attackSound);
+      }
       setMonsterState(thingIndex, actor.type, animDef.meleeState, 'attacking');
       return;
     }
@@ -414,7 +417,7 @@ export function initAICallbacks(): void {
   registerActionCallback('A_CyberAttack', A_CyberAttack_impl);
   registerActionCallback('A_SkullAttack', A_SkullAttack_impl);
   registerActionCallback('A_SpidRefire', A_SpidRefire_impl);
-  registerActionCallback('A_Metal', () => {});       // metal footstep sound (cosmetic)
+  registerActionCallback('A_Metal', () => { });       // metal footstep sound (cosmetic)
   registerActionCallback('A_CPosAttack', A_CPosAttack_impl);
   registerActionCallback('A_CPosRefire', A_CPosRefire_impl);
 
@@ -423,6 +426,25 @@ export function initAICallbacks(): void {
   registerActionCallback('A_VileStart', A_VileStart_impl);
   registerActionCallback('A_VileTarget', A_VileTarget_impl);
   registerActionCallback('A_VileAttack', A_VileAttack_impl);
+
+  // Revenant
+  registerActionCallback('A_SkelWhoosh', A_SkelWhoosh_impl);
+  registerActionCallback('A_SkelFist', A_SkelFist_impl);
+  registerActionCallback('A_SkelMissile', A_SkelMissile_impl);
+
+  // Mancubus
+  registerActionCallback('A_FatRaise', A_FatRaise_impl);
+  registerActionCallback('A_FatAttack1', A_FatAttack1_impl);
+  registerActionCallback('A_FatAttack2', A_FatAttack2_impl);
+  registerActionCallback('A_FatAttack3', A_FatAttack3_impl);
+
+  // Arachnotron
+  registerActionCallback('A_BspiAttack', A_BspiAttack_impl);
+  registerActionCallback('A_BabyMetal', A_BabyMetal_impl);
+
+  // Pain Elemental
+  registerActionCallback('A_PainAttack', A_PainAttack_impl);
+  registerActionCallback('A_PainDie', A_PainDie_impl);
 }
 
 // ---- Attack helper: hitscan toward target ----
@@ -737,6 +759,159 @@ function A_VileAttack_impl(thingIndex: number): void {
       const blastDamage = 70 - dist;
       playerRef.takeDamage(blastDamage, actor.x, actor.y);
     }
+  }
+}
+
+// ============================================================
+// Doom II Monster Attacks
+// ============================================================
+
+// ---- Mancubus spread constants ----
+// Original DOOM: FATSPREAD = ANG90/8 = 0x04000000
+const FATSPREAD = (ANG90 >>> 3) >>> 0;
+
+// ---- A_SkelWhoosh — Revenant: melee whoosh sound ----
+function A_SkelWhoosh_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  A_FaceTarget_impl(thingIndex);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.skeswg);
+}
+
+// ---- A_SkelFist — Revenant: melee punch ----
+function A_SkelFist_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  if (P_CheckMeleeRange(actor)) {
+    const damage = ((P_Random() % 10) + 1) * 6;  // 6-60 damage
+    FX_Sound({ x: actor.x, y: actor.y }, Sfx.skepch);
+    if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
+  }
+}
+
+// ---- A_SkelMissile — Revenant: fire homing tracer ----
+function A_SkelMissile_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  spawnMonsterProjectile(actor, actor.target, ProjectileType.revenantTracer);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.skeatk);
+}
+
+// ---- A_FatRaise — Mancubus: raise arms + sound ----
+function A_FatRaise_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  A_FaceTarget_impl(thingIndex);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.manatk);
+}
+
+// ---- A_FatAttack1 — Mancubus: volley 1 (two fireballs) ----
+function A_FatAttack1_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  // Fire two fireballs at spread angles (original: an += FATSPREAD)
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, FATSPREAD);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, -FATSPREAD);
+}
+
+// ---- A_FatAttack2 — Mancubus: volley 2 ----
+function A_FatAttack2_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 1) >>> 0);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 1) >>> 0);
+}
+
+// ---- A_FatAttack3 — Mancubus: volley 3 ----
+function A_FatAttack3_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 2) >>> 0);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 2) >>> 0);
+}
+
+// ---- A_BspiAttack — Arachnotron: fire plasma ----
+function A_BspiAttack_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  spawnMonsterProjectile(actor, actor.target, ProjectileType.arachnotronPlasma);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.plasma);
+}
+
+// ---- A_BabyMetal — Arachnotron: walk sound ----
+function A_BabyMetal_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor) return;
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.bspwlk);
+  A_Chase_impl(thingIndex);
+}
+
+// ---- A_PainAttack — Pain Elemental: spawn Lost Soul toward target ----
+function A_PainAttack_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor || !actor.target) return;
+  const playerRef = getWorld().player;
+  if (playerRef && playerRef.health <= 0) return;
+  A_FaceTarget_impl(thingIndex);
+
+  // Spawn a Lost Soul 4 units ahead at actor's Z
+  const an = (actor.angle >>> ANGLETOFINESHIFT) & FINEMASK;
+  const prestep = 4 * FRACUNIT + 3 * actor.radius / 2;
+  const x = actor.x + fixedMul(prestep, finecosine(an));
+  const y = actor.y + fixedMul(prestep, finesine[an]);
+  const z = actor.z + 8 * FRACUNIT;
+
+  spawnLostSoul(x, y, z, actor.target, actor.angle);
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.sklatk);
+}
+
+// ---- A_PainDie — Pain Elemental: spawn 3 Lost Souls on death ----
+function A_PainDie_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor) return;
+  const playerRef = getWorld().player;
+
+  // Determine a target for spawned skulls
+  const target = actor.target || (playerRef ? {
+    x: playerRef.x, y: playerRef.y, z: playerRef.z,
+    height: 56 * FRACUNIT,
+  } as MapObjState : null);
+
+  if (!target) return;
+
+  // Spawn 3 Lost Souls in different directions
+  const angles = [actor.angle, (actor.angle + ANG90) >>> 0, (actor.angle - ANG90) >>> 0];
+  for (const angle of angles) {
+    const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
+    const prestep = 4 * FRACUNIT + 3 * actor.radius / 2;
+    const x = actor.x + fixedMul(prestep, finecosine(an));
+    const y = actor.y + fixedMul(prestep, finesine[an]);
+    const z = actor.z + 8 * FRACUNIT;
+    spawnLostSoul(x, y, z, target, angle);
   }
 }
 

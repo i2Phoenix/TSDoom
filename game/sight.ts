@@ -4,11 +4,11 @@
 // ============================================================
 
 import { FRACBITS } from './math';
-import { GameMap, NF_SUBSECTOR, ML_TWOSIDED } from '../src/map';
+import { GameMap, NF_SUBSECTOR, ML_TWOSIDED, incValidcount } from '../src/map';
 import { MapObjState } from './mobj';
 
-// Global traversal counter (incremented each P_CheckSight call)
-let validcount = 0;
+// Per-call validcount (obtained from shared incValidcount to avoid LineDef.validcount collisions)
+let sightValidcount = 0;
 
 // Module-level state (replaces C static globals)
 let sightzstart = 0;   // eye z of looker
@@ -50,7 +50,7 @@ function P_DivlineSide(
   const dy = y - nodeY;
 
   // Use shifted multiply to avoid overflow (matches original fixed-point math)
-  const left  = ((nodeDy >> FRACBITS) * (dx >> FRACBITS)) | 0;
+  const left = ((nodeDy >> FRACBITS) * (dx >> FRACBITS)) | 0;
   const right = ((dy >> FRACBITS) * (nodeDx >> FRACBITS)) | 0;
 
   if (right < left) return 0;  // front side
@@ -66,12 +66,12 @@ function P_InterceptVector2(
   v1x: number, v1y: number, v1dx: number, v1dy: number,
 ): number {
   const den = (((v1dy >> 8) * v2dx) >> FRACBITS) -
-              (((v1dx >> 8) * v2dy) >> FRACBITS);
+    (((v1dx >> 8) * v2dy) >> FRACBITS);
 
   if (den === 0) return 0;
 
   const num = ((((v1x - v2x) >> 8) * v1dy) >> FRACBITS) +
-              ((((v2y - v1y) >> 8) * v1dx) >> FRACBITS);
+    ((((v2y - v1y) >> 8) * v1dx) >> FRACBITS);
 
   // FixedDiv
   if (Math.abs(num) >> 14 >= Math.abs(den)) {
@@ -93,8 +93,8 @@ function P_CrossSubsector(num: number): boolean {
     const line = seg.linedef;
 
     // Already checked this line?
-    if (line.validcount === validcount) continue;
-    line.validcount = validcount;
+    if (line.validcount === sightValidcount) continue;
+    line.validcount = sightValidcount;
 
     const vertices = sightMap.vertices;
     const v1 = vertices[line.v1];
@@ -129,7 +129,7 @@ function P_CrossSubsector(num: number): boolean {
 
     // No wall to block sight with?
     if (front.floorHeight === back.floorHeight &&
-        front.ceilingHeight === back.ceilingHeight) continue;
+      front.ceilingHeight === back.ceilingHeight) continue;
 
     // Calculate opening
     const opentop = front.ceilingHeight < back.ceilingHeight
@@ -238,7 +238,7 @@ export function P_CheckSight(
 
   // Set up for BSP traversal
   sightMap = map;
-  validcount++;
+  sightValidcount = incValidcount();
 
   // Eye position: z + 3/4 of height (eyes near top)
   sightzstart = t1.z + t1.height - (t1.height >> 2);
