@@ -50,8 +50,12 @@ export class SpriteRenderer {
       if (!shouldSpawnThing(thing.options)) continue;
       const info = THING_INFO[thing.type];
       if (!info) continue;
-      const x = thing.x << FRACBITS;
-      const y = thing.y << FRACBITS;
+
+      // Use runtime position from MapObjState if available (monsters move!)
+      const mobj = getMapObjectByThingIndex(i);
+      if (mobj && mobj.removed) continue;
+      const x = mobj ? mobj.x : (thing.x << FRACBITS);
+      const y = mobj ? mobj.y : (thing.y << FRACBITS);
       const ss = ctx.map.pointInSubsector(x, y);
       const ssIdx = ctx.map.subsectors.indexOf(ss);
       if (ssIdx < 0) continue;

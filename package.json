@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "extract": "tsx tools/wad-extract.ts"
   },
   "devDependencies": {
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "vite": "^6.1.0"
   },

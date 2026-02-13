@@ -23,25 +23,25 @@ const FLOATSPEED    = 4 * FRACUNIT;   // flying monster vertical speed
 const xspeed = [FRACUNIT, 47000, 0, -47000, -FRACUNIT, -47000, 0, 47000];
 const yspeed = [0, 47000, FRACUNIT, 47000, 0, -47000, -FRACUNIT, -47000];
 
-// Direction opposites
+// Direction opposites (literal values to avoid circular-import TDZ)
 const opposite: number[] = [
-  DI_WEST,      // DI_EAST
-  DI_SOUTHWEST, // DI_NORTHEAST
-  DI_SOUTH,     // DI_NORTH
-  DI_SOUTHEAST, // DI_NORTHWEST
-  DI_EAST,      // DI_WEST
-  DI_NORTHEAST, // DI_SOUTHWEST
-  DI_NORTH,     // DI_SOUTH
-  DI_NORTHWEST, // DI_SOUTHEAST
-  DI_NODIR,     // DI_NODIR
+  4, // DI_EAST   → DI_WEST
+  5, // DI_NORTHEAST → DI_SOUTHWEST
+  6, // DI_NORTH  → DI_SOUTH
+  7, // DI_NORTHWEST → DI_SOUTHEAST
+  0, // DI_WEST   → DI_EAST
+  1, // DI_SOUTHWEST → DI_NORTHEAST
+  2, // DI_SOUTH  → DI_NORTH
+  3, // DI_SOUTHEAST → DI_NORTHWEST
+  8, // DI_NODIR  → DI_NODIR
 ];
 
 // Diagonal directions indexed by (deltaX > 0, deltaY > 0)
 const diags: number[] = [
-  DI_NORTHWEST, // -x, +y
-  DI_NORTHEAST, // +x, +y
-  DI_SOUTHWEST, // -x, -y
-  DI_SOUTHEAST, // +x, -y
+  3, // DI_NORTHWEST: -x, +y
+  1, // DI_NORTHEAST: +x, +y
+  5, // DI_SOUTHWEST: -x, -y
+  7, // DI_SOUTHEAST: +x, -y
 ];
 
 // ---- P_TryMove state ----

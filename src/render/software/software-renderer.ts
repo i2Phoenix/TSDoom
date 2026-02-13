@@ -1,7 +1,6 @@
 // ============================================================
-// SoftwareRenderer — wraps existing free-function BSP renderer
-// Delegates all calls to renderer.ts, draw.ts, gbuffer.ts, etc.
-// No internal refactoring — existing code stays as-is.
+// SoftwareRenderer — Implements the Renderer interface using
+// a CPU-based BSP renderer pipeline.
 // ============================================================
 
 import type { Renderer } from '../../../game/renderer-interface';
@@ -10,20 +9,7 @@ import type { TextureData } from '../../textures';
 import type { PaletteData } from '../../palette';
 import type { WAD } from '../../wad';
 import type { WeaponPlayer } from '../../../game/weapons';
-import {
-  initRenderer,
-  setViewPosition,
-  renderFrame as renderFrame_internal,
-  resolveGBuffer,
-  resolveFuzzPixels,
-  drawPSprites,
-  setPspritePlayer,
-  setExtraLight as setExtraLight_internal,
-  cycleRenderMode as cycleRenderMode_internal,
-  getRenderMode as getRenderMode_internal,
-  rebuildLightTables as rebuildLightTables_internal,
-  renderDepthOverlay,
-} from './renderer';
+import { RenderPipeline } from './render-pipeline';
 import {
   SCREENWIDTH,
   SCREENHEIGHT,
@@ -44,11 +30,12 @@ import { lightSmoothPass } from './lightsmooth';
 import { addPostProcessPass } from './postprocess';
 
 export class SoftwareRenderer implements Renderer {
+  private pipeline = new RenderPipeline();
   private _passesRegistered = false;
 
   /** Call once per level load with renderer-specific dependencies. */
   init(map: GameMap, texData: TextureData, palData: PaletteData, wad?: WAD): void {
-    initRenderer(map, texData, palData, wad);
+    this.pipeline.init(map, texData, palData, wad);
     // Register software-specific postprocess passes (once)
     if (!this._passesRegistered) {
       addPostProcessPass(lightSmoothPass);
@@ -58,44 +45,41 @@ export class SoftwareRenderer implements Renderer {
   }
 
   setView(x: number, y: number, z: number, angle: number): void {
-    setViewPosition(x, y, z, angle);
+    this.pipeline.view.setPosition(this.pipeline.ctx, x, y, z, angle);
   }
 
   renderFrame(): void {
-    renderFrame_internal();
-    resolveGBuffer();
-    resolveFuzzPixels();
-    if (getRenderMode_internal() === 'depth') {
-      renderDepthOverlay();
-    }
+    this.pipeline.renderFrame();
+    this.pipeline.resolve();
   }
 
   setWeaponPlayer(player: WeaponPlayer): void {
-    setPspritePlayer(player);
+    this.pipeline.weapon.setPlayer(player);
   }
 
   drawWeaponOverlay(): void {
-    drawPSprites();
+    this.pipeline.weapon.draw(this.pipeline.ctx);
   }
 
   setExtraLight(level: number): void {
-    setExtraLight_internal(level);
+    this.pipeline.ctx.extralight = level;
   }
 
   cycleRenderMode(): void {
-    cycleRenderMode_internal();
+    this.pipeline.cycleRenderMode();
   }
 
   getRenderMode(): string {
-    return getRenderMode_internal();
+    return this.pipeline.getRenderMode();
   }
 
   rebuildLightTables(): void {
-    rebuildLightTables_internal();
+    this.pipeline.rebuildLightTables();
   }
 
   setResolution(width: number, height: number): void {
     setResolution_internal(width, height);
+    this.pipeline.setResolution();
   }
 
   get screenWidth(): number {
@@ -149,4 +133,3 @@ export class SoftwareRenderer implements Renderer {
     setDynLightsEnabled_internal(enabled);
   }
 }
-
