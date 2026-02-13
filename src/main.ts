@@ -51,6 +51,8 @@ import { updateVfx, clearVfx } from "../game/vfx";
 import { feedCheatKey, resetCheatBuffer } from "../game/cheats";
 import { updateProjectiles, clearProjectiles } from "../game/projectiles";
 import { setGameSkill } from "../game/skill";
+import { initBossBrain, tickBossBrain } from "../game/bossbrain";
+import { AM_Start, AM_Stop, AM_Responder, AM_Drawer, isAutomapActive } from "../game/automap";
 import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
 import { Music } from "../game/sounds";
 import { I_ResumeAudioContext } from "./sound/i_sound";
@@ -206,11 +208,13 @@ function initMapFresh(mapName: string): void {
   initScrollLines(mapRef.linedefs, mapRef.sidedefs);
 
   initMapObjects();
+  initBossBrain();
   initEnemyAI();
   initAICallbacks();
   resetPaletteFlash(palData);
   getRenderer().clearLights();
   getRenderer().spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
+  AM_Start(mapRef);
 
   // Count items and secrets for intermission stats
   countMapItems(mapRef);
@@ -373,8 +377,40 @@ function G_DoWarp(): void {
   const mapName = pendingWarpMap;
   if (!mapName) return;
 
+  // Validate that the map lump exists in the WAD
+  let resolvedMap = mapName;
+  if (wad.checkNumForName(resolvedMap) === -1) {
+    // Try alternate format: E#M# → MAP##, or MAP## → E#M#
+    const eMatch = resolvedMap.match(/^E(\d)M(\d)$/);
+    const mMatch = resolvedMap.match(/^MAP(\d{2})$/);
+    if (eMatch) {
+      const altMap = `MAP${(parseInt(eMatch[1]) * 10 + parseInt(eMatch[2])).toString().padStart(2, '0')}`;
+      if (wad.checkNumForName(altMap) !== -1) {
+        resolvedMap = altMap;
+      }
+    } else if (mMatch) {
+      const num = parseInt(mMatch[1]);
+      const ep = Math.floor(num / 10);
+      const mp = num % 10;
+      if (ep >= 1 && mp >= 1) {
+        const altMap = `E${ep}M${mp}`;
+        if (wad.checkNumForName(altMap) !== -1) {
+          resolvedMap = altMap;
+        }
+      }
+    }
+  }
+
+  if (wad.checkNumForName(resolvedMap) === -1) {
+    console.warn(`[G_DoWarp] Map lump not found: ${mapName}`);
+    if (player) {
+      (player as any).message = 'IMPOSSIBLE SELECTION';
+    }
+    return;
+  }
+
   resetLevelStats();
-  initMapFresh(mapName);
+  initMapFresh(resolvedMap);
   player.spawn();
   resetCheatBuffer();
   ensureInput();
@@ -612,6 +648,13 @@ async function main() {
         setPendingSaveSlot(slot);
         setGameAction(GameAction.ga_loadgame);
       },
+      onQuitGame: () => {
+        // Try to close the tab; works when page was opened via JS.
+        // Falls back to navigating away (effectively kills the game).
+        window.close();
+        // Fallback for tabs not opened by script
+        setTimeout(() => { location.href = 'about:blank'; }, 200);
+      },
     });
 
     // Hide loading screen
@@ -654,6 +697,21 @@ async function main() {
         if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
           // Feed cheat key buffer (DOOM: ST_Responder)
           feedCheatKey(e.key, player);
+
+          // Automap responder (TAB toggle + zoom/pan when active)
+          if (AM_Responder(e.code)) {
+            e.preventDefault();
+            return;
+          }
+
+          // F1 — open help screen (matches original DOOM)
+          if (e.code === "F1") {
+            e.preventDefault();
+            menu.openHelpScreen();
+            if (document.pointerLockElement) document.exitPointerLock();
+            return;
+          }
+
           // F3 — toggle profiler
           if (e.code === "F3") {
             e.preventDefault();
@@ -731,6 +789,7 @@ async function main() {
             tickLevelTime();
             updateAnimations();
             updateThingAnimations();
+            tickBossBrain();
             updateMonsterDeaths();
             updateMobjFloorZ();
             tickMonsterRespawn();
@@ -779,6 +838,7 @@ async function main() {
           if (gamestate === GameState.GS_LEVEL && usergame) {
             getRenderer().setView(player.x, player.y, player.viewz, player.angle);
             getRenderer().renderFrame();
+            getRenderer().setWeaponInvisible(player.powers[2] > 0);
             getRenderer().drawWeaponOverlay();
             statusBar.draw(player);
             applyScreenTint();
@@ -814,6 +874,7 @@ async function main() {
                 profilerEnd('render');
 
                 profilerBegin('psprites');
+                getRenderer().setWeaponInvisible(player.powers[2] > 0);
                 getRenderer().drawWeaponOverlay();
                 profilerEnd('psprites');
 
@@ -829,6 +890,11 @@ async function main() {
                 getRenderer().setLightView(player.x, player.y, player.viewz);
                 runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
                 profilerEnd('postprocess');
+
+                // Automap overlay (draws on top of everything)
+                if (isAutomapActive()) {
+                  AM_Drawer(player.x, player.y, player.angle);
+                }
               }
               break;
 

@@ -31,7 +31,7 @@ export class PaletteData {
   lightLookup: Uint32Array[] = [];
 
   /** Current color mode */
-  private _trueColorMode = false;
+  private _trueColorMode = true;
 
   /** Number of colormap levels in current mode */
   get numColormaps(): number {
@@ -123,11 +123,15 @@ export class PaletteData {
   private buildTrueColorLookup(pal: Uint32Array): void {
     this.lightLookup = [];
     const levels = TRUECOLOR_COLORMAPS;
+    // Minimum brightness factor (13/256 ≈ 5%) prevents fully black sectors,
+    // matching DOOM's WAD colormap 31 which retains some visibility.
+    const MIN_FACTOR = 13;
 
     for (let m = 0; m < levels; m++) {
       const lookup = new Uint32Array(256);
-      // Integer factor 0-256 (256 = full bright, 0 = full dark)
-      const factor = Math.round(((levels - 1 - m) / (levels - 1)) * 256);
+      // Integer factor 0-256 (256 = full bright, MIN_FACTOR = darkest)
+      const rawFactor = Math.round(((levels - 1 - m) / (levels - 1)) * 256);
+      const factor = Math.max(rawFactor, MIN_FACTOR);
 
       for (let i = 0; i < 256; i++) {
         const rgba = pal[i];

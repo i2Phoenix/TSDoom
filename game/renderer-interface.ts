@@ -26,6 +26,9 @@ export interface Renderer {
   /** Draw weapon overlay on top of the scene */
   drawWeaponOverlay(): void;
 
+  /** Set whether weapon is rendered with fuzz effect (partial invisibility) */
+  setWeaponInvisible(invisible: boolean): void;
+
   /** Set extra light level (0 = normal, 1–2 = gun flash) */
   setExtraLight(level: number): void;
 

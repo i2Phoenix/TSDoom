@@ -13,11 +13,25 @@ import { BASE_WIDTH, LIGHTLEVELS, MAXLIGHTSCALE } from './render-context';
 
 const BASEYCENTER = 100; // DOOM constant (r_things.c line 47)
 
+// Fuzz offset table (classic DOOM R_DrawFuzzColumn)
+const FUZZOFFSET = [
+   1, -1,  1, -1,  1,  1, -1,
+   1,  1, -1,  1,  1,  1, -1,
+   1,  1,  1, -1, -1, -1, -1,
+   1, -1, -1,  1,  1,  1,  1, -1,
+   1, -1,  1,  1, -1, -1,  1,
+   1, -1, -1, -1, -1,  1,  1,
+   1,  1, -1,  1,  1, -1,
+];
+let fuzzpos = 0;
+
 /**
  * Renders the player's weapon overlay (psprites).
  */
 export class WeaponOverlay {
   private player: WeaponPlayer | null = null;
+  /** True when player has partial invisibility — weapon drawn with fuzz */
+  invisible = false;
 
   setPlayer(p: WeaponPlayer): void {
     this.player = p;
@@ -54,7 +68,7 @@ export class WeaponOverlay {
       weaponLight = Math.max(0, weaponLight - ctx.extralight * 4);
       const colormap = ctx.palData.getColormapLookup(weaponLight);
 
-      this.drawPatch(ctx, patch, x1, sprtopscreen, pspritescale, result.flip, colormap);
+      this.drawPatch(ctx, patch, x1, sprtopscreen, pspritescale, result.flip, colormap, this.invisible);
     }
   }
 
@@ -62,6 +76,7 @@ export class WeaponOverlay {
     ctx: RenderContext,
     patch: Patch, x1: number, sprtopscreen: number,
     scale: number, flip: boolean, colormap: Uint32Array,
+    useFuzz: boolean,
   ): void {
     const patchWidth = patch.width;
     const x2 = x1 + Math.round(patchWidth * scale) - 1;
@@ -81,6 +96,8 @@ export class WeaponOverlay {
       if (clippedX1 > x1) startfrac += xiscale * (clippedX1 - x1);
     }
 
+    const totalPixels = SCREENWIDTH * SCREENHEIGHT;
+
     let frac = startfrac;
     for (let screenX = clippedX1; screenX <= clippedX2; screenX++) {
       const patchCol = Math.floor(frac);
@@ -99,8 +116,23 @@ export class WeaponOverlay {
               const pixel = post.data[texY];
               if (pixel !== undefined) {
                 const dest = y * SCREENWIDTH + screenX;
-                rgbaBuffer[dest] = colormap[pixel];
-                gBuffer.flags[dest] = SurfaceType.PSPRITE;
+                if (useFuzz) {
+                  // Apply fuzz effect inline (R_DrawFuzzColumn)
+                  // Sample from a neighbor and darken
+                  const offset = FUZZOFFSET[fuzzpos] * SCREENWIDTH;
+                  fuzzpos = (fuzzpos + 1) % FUZZOFFSET.length;
+                  let srcIdx = dest + offset;
+                  if (srcIdx < 0) srcIdx = 0;
+                  if (srcIdx >= totalPixels) srcIdx = totalPixels - 1;
+                  const existing = rgbaBuffer[srcIdx];
+                  const r = ((existing & 0xFF) >> 1);
+                  const g2 = (((existing >> 8) & 0xFF) >> 1);
+                  const b = (((existing >> 16) & 0xFF) >> 1);
+                  rgbaBuffer[dest] = (255 << 24) | (b << 16) | (g2 << 8) | r;
+                } else {
+                  rgbaBuffer[dest] = colormap[pixel];
+                  gBuffer.flags[dest] = SurfaceType.PSPRITE;
+                }
               }
             }
           }

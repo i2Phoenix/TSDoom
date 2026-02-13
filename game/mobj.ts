@@ -63,6 +63,7 @@ const THING_COMBAT_INFO: Record<number, ThingCombatInfo> = {
   66: { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Revenant
   67: { health: 400, radius: 48 * FRACUNIT, height: 64 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 1000 }, // Mancubus
   64: { health: 700, radius: 20 * FRACUNIT, height: 56 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID | MF_COUNTKILL, mass: 500 },  // Arch-vile
+  88: { health: 250, radius: 16 * FRACUNIT, height: 16 * FRACUNIT, flags: MF_SHOOTABLE | MF_SOLID, mass: 10000000 },  // Boss Brain (Icon of Sin)
 };
 
 // MTF_AMBUSH flag from MapThing options

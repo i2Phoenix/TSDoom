@@ -18,6 +18,7 @@ import {
 } from './draw';
 import { SurfaceType } from './gbuffer';
 import type { Seg, Sector } from '../../map';
+import { ML_MAPPED } from '../../map';
 import type { SegCollector } from './bsp-traverser';
 import type { PlaneRenderer } from './plane-renderer';
 import type { SpriteRenderer } from './sprite-renderer';
@@ -45,6 +46,9 @@ export class WallRenderer implements SegCollector {
   storeWallRange(start: number, stop: number, seg: Seg, ctx: RenderContext): void {
     if (start > stop) return;
     ctx.debugCounters.storeWallCalls++;
+
+    // Mark linedef as seen for automap
+    seg.linedef.flags |= ML_MAPPED;
 
     const frontsector = seg.frontsector;
     const backsector = seg.backsector;

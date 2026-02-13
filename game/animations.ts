@@ -867,6 +867,41 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     seeSound: [59], painSound: 39, deathSound: [82], activeSound: 86,
   },
 
+  // Boss Brain (MT_BOSSBRAIN) — stationary, takes damage, exits level on death
+  // DoomEd 88, sprite BBRN
+  88: {
+    states: [
+      // 0: spawn (static)
+      { sprite: 'BBRN', frame: 0, tics: -1, nextState: 0, action: 'A_Look' },
+      // 1-2: pain
+      { sprite: 'BBRN', frame: 1, tics: 36, nextState: 2, action: 'A_BrainPain' },
+      { sprite: 'BBRN', frame: 0, tics: -1, nextState: 2 },  // back to idle
+      // 3-6: death (A_BrainScream → explode frames → A_BrainDie)
+      { sprite: 'BBRN', frame: 0, tics: 100, nextState: 4, action: 'A_BrainScream' },
+      { sprite: 'BBRN', frame: 0, tics: 10, nextState: 5, action: 'A_BrainExplode' },
+      { sprite: 'BBRN', frame: 0, tics: 10, nextState: 6, action: 'A_BrainExplode' },
+      { sprite: 'BBRN', frame: 0, tics: -1, nextState: 6, action: 'A_BrainDie' },
+    ],
+    spawnState: 0, painState: 1, deathState: 3,
+    painChance: 255,
+    painSound: 106,  // Sfx.bospn
+  },
+
+  // Boss Eye (MT_BOSSSPIT) — fires spawn cubes at targets
+  // DoomEd 89, invisible (MF_NOSECTOR) but needs animation for A_BrainSpit
+  89: {
+    states: [
+      // 0: spawn — wait for player
+      { sprite: 'BBRN', frame: 0, tics: -1, nextState: 0, action: 'A_Look' },
+      // 1: see/awake — play sound then start spit cycle
+      { sprite: 'BBRN', frame: 0, tics: 181, nextState: 2, action: 'A_BrainAwake' },
+      // 2-3: spit cycle — fire a cube then wait and repeat
+      { sprite: 'BBRN', frame: 0, tics: 150, nextState: 3, action: 'A_BrainSpit' },
+      { sprite: 'BBRN', frame: 0, tics: 1, nextState: 2 },
+    ],
+    spawnState: 0, seeState: 1,
+  },
+
   // Wolf SS (MT_WOLFSS) — hitscan attack (reuses A_SPosAttack)
   // DoomEd 84, sprite SSWV
   84: {

@@ -34,6 +34,7 @@ export const THING_INFO: Record<number, { sprite: string; frame: number; radius:
   3003: { sprite: 'BOSS', frame: 0, radius: 24, height: 64 },   // Baron of Hell
   16:   { sprite: 'CYBR', frame: 0, radius: 40, height: 110 },  // Cyberdemon
   7:    { sprite: 'SPID', frame: 0, radius: 128, height: 100 }, // Spider Mastermind
+  88:   { sprite: 'BBRN', frame: 0, radius: 16, height: 16 },   // Boss Brain (Icon of Sin)
 
   // Decorations
   2035: { sprite: 'BAR1', frame: 0, radius: 10, height: 42 },   // Barrel

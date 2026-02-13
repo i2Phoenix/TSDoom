@@ -61,6 +61,10 @@ export class SoftwareRenderer implements Renderer {
     this.pipeline.weapon.draw(this.pipeline.ctx);
   }
 
+  setWeaponInvisible(invisible: boolean): void {
+    this.pipeline.weapon.invisible = invisible;
+  }
+
   setExtraLight(level: number): void {
     this.pipeline.ctx.extralight = level;
   }

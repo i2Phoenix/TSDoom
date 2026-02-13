@@ -13,6 +13,7 @@ import { spawnTeleportFog } from './vfx';
 import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
 import type { Player } from './player';
 import type { MapObjState } from './mobj';
+import { getMapObjects, damageMobj } from './mobj';
 import { getWorld } from './world';
 
 const PLAYERHEIGHT = 56 << FRACBITS;  // must match player.ts
@@ -86,6 +87,20 @@ function playerInSector(sector: Sector): boolean {
   if (!playerRef || !currentMap) return false;
   const ss = currentMap.pointInSubsector(playerRef.x, playerRef.y);
   return ss.sector === sector;
+}
+
+/** Apply 10 damage to all monsters standing inside the given sector.
+ *  Matches original Doom's PIT_ChangeSector crush logic. */
+function crushMonstersInSector(sector: Sector): void {
+  if (!currentMap) return;
+  for (const obj of getMapObjects()) {
+    if (obj.removed || obj.health <= 0) continue;
+    // Check if this mobj is inside the sector
+    const ss = currentMap.pointInSubsector(obj.x, obj.y);
+    if (ss.sector === sector) {
+      damageMobj(obj, 10);
+    }
+  }
 }
 
 function movePlane(
@@ -1088,11 +1103,13 @@ function ceilingTick(t: Thinker): void {
             break;
         }
 
-        // Apply crush damage to player (10 hp per contact)
-        if (getWorld().player && playerInSector(ceiling.sector)) {
-          // Damage will be applied via the player's sector damage check
-          // Here we signal it by narrowing the gap
+        // Apply crush damage (10 hp per tick, from p_map.c PIT_ChangeSector)
+        const playerRef = getWorld().player;
+        if (playerRef && playerInSector(ceiling.sector)) {
+          playerRef.takeDamage(10);
         }
+        // Also damage monsters in the sector
+        crushMonstersInSector(ceiling.sector);
       }
       break;
     }
@@ -1274,7 +1291,8 @@ export function initSwitchList(
   for (const [name1, name2] of SWITCH_PAIRS) {
     const idx1 = textureNumForName(name1);
     const idx2 = textureNumForName(name2);
-    if (idx1 >= 0 && idx2 >= 0) {
+    // Skip if either texture is missing (-1) or is the no-texture sentinel (0)
+    if (idx1 > 0 && idx2 > 0) {
       switchMap.set(idx1, idx2);
       switchMap.set(idx2, idx1);
     }
@@ -1291,6 +1309,7 @@ function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
   // Check top, mid, bottom textures
   for (const prop of ['topTexture', 'midTexture', 'bottomTexture'] as const) {
     const tex = side[prop];
+    if (tex === 0) continue; // 0 = no texture
     const partner = switchMap.get(tex);
     if (partner !== undefined) {
       // Switch sound: swtchn for turning on (SW1→SW2), swtchx for turning off (SW2→SW1)

@@ -12,7 +12,8 @@ import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageM
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE, MF_SOLID } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
-import { Player } from './player';
+import { Player, PowerType } from './player';
+import { registerBossBrainCallbacks } from './bossbrain';
 import { registerActionCallback, setMonsterState, getThingAnimDef } from './animations';
 import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from './p_move';
 import { FX_Sound } from './effects';
@@ -172,6 +173,12 @@ export function updatePlayerMobj(map: GameMap): void {
       playerMobj.flags &= ~MF_SHOOTABLE;
     } else {
       playerMobj.flags |= MF_SHOOTABLE;
+    }
+    // Sync MF_SHADOW: partial invisibility makes enemies less accurate
+    if (player.powers[PowerType.invisibility] > 0) {
+      playerMobj.flags |= MF_SHADOW;
+    } else {
+      playerMobj.flags &= ~MF_SHADOW;
     }
   }
 }
@@ -447,6 +454,9 @@ export function initAICallbacks(): void {
   // Pain Elemental
   registerActionCallback('A_PainAttack', A_PainAttack_impl);
   registerActionCallback('A_PainDie', A_PainDie_impl);
+
+  // Boss Brain / Icon of Sin
+  registerBossBrainCallbacks();
 }
 
 // ---- A_Metal — Spiderdemon metallic walk sound ----

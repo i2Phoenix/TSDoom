@@ -87,11 +87,25 @@ const PAR_TIMES: number[][] = [
   [0, 90, 45, 150, 150, 90, 90, 165, 30, 135].map(s => s * TICRATE),
 ];
 
+// Doom II par times (from wi_stuff.c cpars[], MAP01-MAP32, in seconds)
+const CPARS: number[] = [
+   30,  90, 120, 120,  90, 150, 120, 120, 270,  90, //  1-10
+  210, 150, 150, 150, 210, 150, 420, 150, 210, 150, // 11-20
+  240, 150, 180, 150, 150, 300, 330, 420, 300, 180, // 21-30
+  120,  30,                                          // 31-32
+].map(s => s * TICRATE);
+
 function getParTime(epsd: number, map: number): number {
   if (epsd >= 0 && epsd < PAR_TIMES.length) {
     const pars = PAR_TIMES[epsd];
     if (map >= 0 && map < pars.length) return pars[map];
   }
+  return 0;
+}
+
+function getDoom2ParTime(map: number): number {
+  // map is 1-based; CPARS is 0-based
+  if (map >= 1 && map <= CPARS.length) return CPARS[map - 1];
   return 0;
 }
 
@@ -241,6 +255,16 @@ export class Intermission {
     this.accelerate = false;
     this.bcnt = 0;
     this.finished_flag = false;
+
+    // Auto-populate par time from internal tables if not set
+    if (!wbs.partime || wbs.partime <= 0) {
+      if (wbs.isCommercial) {
+        wbs.partime = getDoom2ParTime(wbs.last + 1); // last is 0-based, getDoom2ParTime expects 1-based
+      } else {
+        wbs.partime = getParTime(wbs.epsd, wbs.last + 1); // PAR_TIMES[epsd][map], map is 1-based in table
+      }
+    }
+
     this.loadBackground();
     this.initStats();
   }
@@ -497,7 +521,8 @@ export class Intermission {
       Math.round(SP_TIMEY * scale),
       this.cnt_time, pal, scale);
 
-    if (this.wbs && !this.wbs.isCommercial && this.wbs.epsd < 3) {
+    // Show par time for Doom I (episodes 0-2) and Doom II (all maps)
+    if (this.wbs && (this.wbs.isCommercial || this.wbs.epsd < 3)) {
       if (this.wiPar) {
         this.drawPatch(this.wiPar,
           Math.round((160 + SP_TIMEX) * scale),

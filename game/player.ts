@@ -10,6 +10,8 @@ import { useSpecialLine, crossSpecialLine } from './specials';
 import { checkPickups } from './pickups';
 import { CF_GODMODE, CF_NOCLIP } from './cheats';
 import { getDamageMultiplier } from './skill';
+import { getMapObjects } from './mobj';
+import { MF_SOLID } from './mobjinfo';
 import {
   WeaponType, AmmoType, WeaponPlayer, PspDef,
   initPlayerWeapons, movePsprites, fireWeapon, getPspriteInfo,
@@ -954,6 +956,32 @@ export class Player {
       }
     }
 
+    // ---- Thing-thing collision (PIT_CheckThing) ----
+    // Block movement if the player's bounding box overlaps any MF_SOLID thing
+    if (!isBlocked) {
+      for (const obj of getMapObjects()) {
+        if (obj.removed) continue;
+        if (!(obj.flags & MF_SOLID)) continue;
+
+        // Standard DOOM bounding box overlap: |dx| < r1+r2 && |dy| < r1+r2
+        const blockDist = PLAYERRADIUS + obj.radius;
+        const adx = Math.abs(newx - obj.x);
+        const ady = Math.abs(newy - obj.y);
+
+        if (adx < blockDist && ady < blockDist) {
+          // Don't block if we're already overlapping this thing at our current position
+          // (prevents getting permanently stuck inside things)
+          const curAdx = Math.abs(this.x - obj.x);
+          const curAdy = Math.abs(this.y - obj.y);
+          if (curAdx < blockDist && curAdy < blockDist) {
+            continue; // already overlapping — let player move out
+          }
+          isBlocked = true;
+          break;
+        }
+      }
+    }
+
     return { blocked: isBlocked, blockDx: bestBlockDx, blockDy: bestBlockDy };
   }
 
@@ -1089,55 +1117,47 @@ export class Player {
    */
   private useLines(): void {
     const fineAngle = (this.angle >>> ANGLETOFINESHIFT) & FINEMASK;
-    const x2 = this.x + fixedMul(USERANGE, finecosine(fineAngle));
-    const y2 = this.y + fixedMul(USERANGE, finesine[fineAngle]);
+    const useDx = fixedMul(USERANGE, finecosine(fineAngle));
+    const useDy = fixedMul(USERANGE, finesine[fineAngle]);
+    const x2 = this.x + useDx;
+    const y2 = this.y + useDy;
 
-    let bestDist = USERANGE + 1;
+    let bestFrac = 2.0; // > 1.0 means nothing found yet
     let bestLine: LineDef | null = null;
 
     for (const ld of this.map.linedefs) {
-      // Skip lines with no special
       if (ld.special === 0) continue;
 
       const v1 = this.map.vertices[ld.v1];
       const v2 = this.map.vertices[ld.v2];
 
-      // Quick distance check — is the line midpoint within range?
+      // Quick distance check
       const midx = (v1.x + v2.x) >> 1;
       const midy = (v1.y + v2.y) >> 1;
       const dx = Math.abs(midx - this.x);
       const dy = Math.abs(midy - this.y);
       if (dx > USERANGE * 2 || dy > USERANGE * 2) continue;
 
-      // Check which side of the line the player is on (only use front side)
+      // DOOM-style intersection: check if linedef endpoints are on
+      // opposite sides of the trace (PIT_AddLineIntercepts)
+      const s1 = this.pointOnTraceSide(v1.x, v1.y, this.x, this.y, useDx, useDy);
+      const s2 = this.pointOnTraceSide(v2.x, v2.y, this.x, this.y, useDx, useDy);
+      if (s1 === s2) continue; // linedef doesn't cross trace
+
+      // Compute intersection fraction along the trace (P_InterceptVector)
       const ldx = v2.x - v1.x;
       const ldy = v2.y - v1.y;
-      const cross = ((this.x - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
-        ((this.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
-      if (cross < 0) continue; // back side
-
-      // Check if the use trace (player → x2,y2) intersects this linedef
-      const s1 = this.lineSide(this.x, this.y, v1, v2);
-      const s2 = this.lineSide(x2, y2, v1, v2);
-
-      // If both on same side, the trace doesn't cross this line
-      if (s1 === s2) continue;
-
-      // Calculate intersection fraction along the trace
-      const trDx = x2 - this.x;
-      const trDy = y2 - this.y;
-      const denom = (trDx / FRACUNIT) * (ldy / FRACUNIT) -
-        (trDy / FRACUNIT) * (ldx / FRACUNIT);
-      if (Math.abs(denom) < 0.001) continue; // parallel
+      const den = (useDx / FRACUNIT) * (ldy / FRACUNIT) -
+                  (useDy / FRACUNIT) * (ldx / FRACUNIT);
+      if (Math.abs(den) < 0.001) continue; // parallel
 
       const num = ((v1.x - this.x) / FRACUNIT) * (ldy / FRACUNIT) -
-        ((v1.y - this.y) / FRACUNIT) * (ldx / FRACUNIT);
-      const frac = num / denom;
-      if (frac < 0 || frac > 1) continue;
+                  ((v1.y - this.y) / FRACUNIT) * (ldx / FRACUNIT);
+      const frac = num / den;
+      if (frac < 0 || frac > 1) continue; // behind player or beyond range
 
-      const dist = (frac * USERANGE) | 0;
-      if (dist < bestDist) {
-        bestDist = dist;
+      if (frac < bestFrac) {
+        bestFrac = frac;
         bestLine = ld;
       }
     }
@@ -1145,6 +1165,19 @@ export class Player {
     if (bestLine) {
       useSpecialLine(bestLine, this);
     }
+  }
+
+  /** Which side of a trace ray (ox,oy)+(dx,dy) is point (px,py) on? */
+  private pointOnTraceSide(
+    px: number, py: number,
+    ox: number, oy: number,
+    tdx: number, tdy: number,
+  ): number {
+    const dx = (px - ox) / FRACUNIT;
+    const dy = (py - oy) / FRACUNIT;
+    const left = (tdy / FRACUNIT) * dx;
+    const right = dy * (tdx / FRACUNIT);
+    return right < left ? 0 : 1;
   }
 
   /**
@@ -1169,7 +1202,9 @@ export class Player {
       const newSide = this.lineSide(this.x, this.y, v1, v2);
 
       if (oldSide !== newSide) {
-        crossSpecialLine(ld, newSide, this);
+        // Pass oldSide — the side the player crossed FROM
+        // (matches DOOM's P_CrossSpecialLine convention)
+        crossSpecialLine(ld, oldSide, this);
       }
     }
   }

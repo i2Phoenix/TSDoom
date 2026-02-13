@@ -27,6 +27,7 @@ import {
 
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
 import { Sfx, Music } from '../../game/sounds';
+import { renderEndoom, blitEndoomToScreen } from './endoom';
 
 // ── Resolution presets ───────────────────────────────────────
 // Internal render resolutions — always 8:5 (original DOOM aspect ratio).
@@ -92,6 +93,10 @@ export class MenuSystem {
   private showingHelp = false;
   private helpPage = 0;  // 0 = HELP1, 1 = HELP2/CREDIT
 
+  // ENDOOM quit screen state
+  private showingEndoom = false;
+  private endoomPixels: Uint32Array | null = null;
+
   // Message overlay (M_StartMessage)
   private messageString: string | null = null;
   private messageCallback: ((ch: string) => void) | null = null;
@@ -111,6 +116,7 @@ export class MenuSystem {
   private onChangeResolution: ((w: number, h: number) => void) | null = null;
   private onSaveGame: ((slot: number) => void) | null = null;
   private onLoadGame: ((slot: number) => void) | null = null;
+  private onQuitGame: (() => void) | null = null;
 
 
   // Options state — initialized from settings (defaults or localStorage)
@@ -205,7 +211,7 @@ export class MenuSystem {
         { status: 1, name: 'M_LOADG',  action: () => this.setupNextMenu(this.loadDef) },
         { status: 1, name: 'M_SAVEG',  action: () => this.doSaveGameMenu() },
         { status: 1, name: 'M_RDTHIS', action: () => this.showReadThis() },
-        { status: 1, name: 'M_QUITG',  action: () => {} },  // browser -- no-op
+        { status: 1, name: 'M_QUITG',  action: () => this.showEndoom() },
       ],
       routine: () => this.drawMainMenuCustom(),
       x: 97,
@@ -349,6 +355,38 @@ export class MenuSystem {
   private showReadThis(): void {
     this.showingHelp = true;
     this.helpPage = 0;
+  }
+
+  /** Open the help screen from outside (F1 key) */
+  openHelpScreen(): void {
+    setMenuActive(true);
+    this.showingHelp = true;
+    this.helpPage = 0;
+  }
+
+  // ── ENDOOM quit screen ──────────────────────────────────────
+
+  /** Show the ENDOOM text screen and prepare to quit */
+  private showEndoom(): void {
+    const lumpIdx = this.wad.checkNumForName('ENDOOM');
+    if (lumpIdx === -1) {
+      // No ENDOOM lump — just quit immediately
+      if (this.onQuitGame) this.onQuitGame();
+      return;
+    }
+
+    const data = this.wad.getLumpData(lumpIdx);
+    const pixels = renderEndoom(data);
+    if (!pixels) {
+      if (this.onQuitGame) this.onQuitGame();
+      return;
+    }
+
+    // Play quit sound
+    S_StartSound(null, Sfx.swtchn);
+
+    this.endoomPixels = pixels;
+    this.showingEndoom = true;
   }
 
   /** Advance help page or close */
@@ -500,12 +538,12 @@ export class MenuSystem {
     onChangeResolution: (w: number, h: number) => void;
     onSaveGame?: (slot: number) => void;
     onLoadGame?: (slot: number) => void;
-
+    onQuitGame?: () => void;
   }): void {
     this.onChangeResolution = callbacks.onChangeResolution;
     this.onSaveGame = callbacks.onSaveGame ?? null;
     this.onLoadGame = callbacks.onLoadGame ?? null;
-
+    this.onQuitGame = callbacks.onQuitGame ?? null;
   }
 
   setCurrentResolution(w: number, h: number): void {
@@ -530,6 +568,12 @@ export class MenuSystem {
       const cb = this.messageCallback;
       this.clearMessage();
       if (cb) cb(_key);
+      return true;
+    }
+
+    // ENDOOM screen: any key triggers quit
+    if (this.showingEndoom) {
+      if (this.onQuitGame) this.onQuitGame();
       return true;
     }
 
@@ -683,6 +727,12 @@ export class MenuSystem {
 
   // ── Draw menu overlay (M_Drawer -- called only when menuactive) ──
   draw(): void {
+    // If showing ENDOOM, draw it fullscreen
+    if (this.showingEndoom && this.endoomPixels) {
+      blitEndoomToScreen(this.endoomPixels, rgbaBuffer, SCREENWIDTH, SCREENHEIGHT);
+      return;
+    }
+
     // If showing help pages, draw them fullscreen
     if (this.showingHelp) {
       this.drawHelpPage();

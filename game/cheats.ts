@@ -18,6 +18,7 @@ import { FRACBITS } from './math';
 import { areCheatsDisabled } from './skill';
 import { FX_Music } from './effects';
 import { Music } from './sounds';
+import { AM_CycleReveal } from './automap';
 
 // ---- Cheat flags (bitfield on Player.cheats) ----
 export const CF_GODMODE = 1;
@@ -165,6 +166,15 @@ const cheats: CheatDef[] = [
     },
   },
 
+  // ---- IDDT — Automap reveal toggle ----
+  {
+    sequence: 'iddt',
+    handler: (p) => {
+      AM_CycleReveal();
+      p.message = 'Map Reveal Toggled';
+    },
+  },
+
   // ---- IDCLEV## — Level warp (2 digit parameter) ----
   {
     sequence: 'idclev',
@@ -175,12 +185,21 @@ const cheats: CheatDef[] = [
       const d2 = parseInt(extra[1]);
       if (isNaN(d1) || isNaN(d2)) return;
 
-      // Build map name: E#M# for episode maps, MAP## for Doom 2
-      // Since this is Doom 1 (DOOM.WAD), use E#M# format
-      const mapName = `E${d1}M${d2}`;
+      // Try Doom 2 format first (MAP##), then Doom 1 (E#M#)
+      const mapNum = d1 * 10 + d2;
+      const doom2Name = `MAP${mapNum.toString().padStart(2, '0')}`;
+      const doom1Name = `E${d1}M${d2}`;
+
+      // We can't check lump existence from here (no WAD reference),
+      // but G_DoWarp in main.ts will validate before loading.
+      // Prefer MAP## if the digits form a valid Doom 2 map number.
+      const mapName = (d1 >= 1 && d1 <= 3 && d2 >= 1 && d2 <= 9)
+        ? doom1Name   // Looks like Doom 1 episode/map
+        : doom2Name;  // Treat as Doom 2 MAP##
+
       setPendingWarpMap(mapName);
       setGameAction(GameAction.ga_warp);
-      _p.message = null; // message will be hidden by wipe
+      _p.message = null;
       console.log(`[cheats] IDCLEV: warping to ${mapName}`);
     },
   },

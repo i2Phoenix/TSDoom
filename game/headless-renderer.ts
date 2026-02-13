@@ -12,6 +12,7 @@ export class HeadlessRenderer implements Renderer {
   setView(): void {}
   renderFrame(): void {}
   drawWeaponOverlay(): void {}
+  setWeaponInvisible(): void {}
   setExtraLight(): void {}
   cycleRenderMode(): void {}
   getRenderMode(): string { return 'headless'; }
