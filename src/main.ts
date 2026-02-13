@@ -20,6 +20,7 @@ import {
   setResolution,
 } from "./render/software/draw";
 import { initBrowserInput } from "./input-browser";
+import { initTouchControls } from "./input-touch";
 import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "../game/profiler";
 import { Player, PlayerState } from "../game/player";
 import { GameLoop } from "./game/loop";
@@ -628,6 +629,11 @@ async function main() {
     const resumeAudio = () => { I_ResumeAudioContext(); };
     document.addEventListener('click', resumeAudio, { once: false });
     document.addEventListener('keydown', resumeAudio, { once: false });
+    document.addEventListener('pointerdown', resumeAudio, { once: false });
+    document.addEventListener('touchstart', resumeAudio, { once: false });
+
+    // Initialize touch controls (if applicable)
+    initTouchControls();
 
     // Register post-process passes (order matters)
 

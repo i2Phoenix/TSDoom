@@ -622,7 +622,9 @@ export class MenuSystem {
         return true;
       }
       case 'Space':
-      case 'Enter': {
+      case 'Enter':
+      case 'Control':
+      case 'ControlLeft': {
         const item = this.currentMenu.menuitems[this.itemOn];
         if (item.status >= 1) {
           this.currentMenu.lastOn = this.itemOn;

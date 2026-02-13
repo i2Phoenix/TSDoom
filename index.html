@@ -48,6 +48,241 @@
   <body>
     <div id="loading">Loading WAD...</div>
     <canvas id="doom"></canvas>
+
+    <!-- Touch Controls Overlay -->
+    <div id="touch-controls" style="display: none">
+      <!-- Fixed Hybrid Joystick (Bottom Left) -->
+      <div id="fixed-joystick">
+        <!-- Outer Directional Buttons -->
+        <div class="dpad-segment dpad-up" data-key="ArrowUp">▲</div>
+        <div class="dpad-segment dpad-down" data-key="ArrowDown">▼</div>
+        <div class="dpad-segment dpad-left" data-key="ArrowLeft">◀</div>
+        <div class="dpad-segment dpad-right" data-key="ArrowRight">▶</div>
+        
+        <!-- Central Analog Joystick -->
+        <div id="joystick-base">
+          <div id="joystick-knob"></div>
+        </div>
+      </div>
+
+      <div id="touch-actions">
+        <div class="touch-btn action-btn" data-key="ControlLeft" id="btn-fire">
+          FIRE
+        </div>
+        <div class="touch-btn action-btn" data-key="Space" id="btn-use">
+          USE
+        </div>
+        <div class="touch-btn action-btn" data-key="ShiftLeft" id="btn-run">
+          RUN
+        </div>
+      </div>
+      <div id="touch-utils">
+        <div class="touch-btn util-btn" data-key="Escape" id="btn-menu">
+          MENU
+        </div>
+        <div class="touch-btn util-btn" data-key="Tab" id="btn-map">MAP</div>
+
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
+    <style>
+      /* Touch Controls Styles */
+      #touch-controls {
+        position: fixed;
+        inset: 0;
+        pointer-events: none; /* Let touches pass through through to canvas if needed, but buttons will capture pointer events */
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 20px;
+        touch-action: none; /* Prevent browser zooming/scrolling */
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .touch-btn {
+        pointer-events: auto;
+        background: rgba(40, 40, 40, 0.6);
+        border: 2px solid rgba(80, 80, 80, 0.5);
+        color: rgba(200, 200, 200, 0.8);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+        font-weight: bold;
+        font-size: 24px;
+        backdrop-filter: blur(4px);
+        transition: transform 0.1s;
+      }
+
+      .touch-btn:active,
+      .touch-btn.active {
+        background: rgba(60, 60, 60, 0.8);
+        border-color: rgba(120, 120, 120, 0.8);
+        color: #fff;
+        transform: scale(0.95);
+      }
+
+      /* Fixed Hybrid Joystick Container */
+      #fixed-joystick {
+        position: absolute;
+        bottom: 25px;
+        left: 25px;
+        width: 200px;
+        height: 200px;
+        background: rgba(20, 20, 20, 0.5);
+        border-radius: 50%;
+        pointer-events: auto;
+      }
+
+      /* D-Pad Segments (Outer Ring) */
+      .dpad-segment {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #888;
+        font-size: 14px;
+        background: rgba(50, 50, 50, 0.8);
+        border: 1px solid rgba(80, 80, 80, 0.5);
+        cursor: pointer;
+      }
+      
+      .dpad-segment:active, .dpad-segment.active {
+        background: #666;
+        color: #fff;
+      }
+
+      /* Positioning Segments */
+      .dpad-up {
+        top: 10px; left: 50%;
+        transform: translateX(-50%);
+        width: 80px; height: 40px;
+        border-radius: 10px; /* Arc-like shape approximation */
+        clip-path: polygon(20% 0%, 80% 0%, 100% 100%, 0% 100%);
+      }
+      .dpad-down {
+        bottom: 10px; left: 50%;
+        transform: translateX(-50%);
+        width: 80px; height: 40px;
+        border-radius: 10px;
+        clip-path: polygon(0% 0%, 100% 0%, 80% 100%, 20% 100%);
+      }
+      .dpad-left {
+        top: 50%; left: 10px;
+        transform: translateY(-50%);
+        width: 40px; height: 80px;
+        border-radius: 10px;
+        clip-path: polygon(0% 20%, 100% 0%, 100% 100%, 0% 80%);
+      }
+      .dpad-right {
+        top: 50%; right: 10px;
+        transform: translateY(-50%);
+        width: 40px; height: 80px;
+        border-radius: 10px;
+        clip-path: polygon(0% 0%, 100% 20%, 100% 80%, 0% 100%);
+      }
+
+      /* Central Analog Base */
+      #joystick-base {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 90px;
+        height: 90px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 50%;
+        border: 2px solid rgba(60, 60, 60, 0.8);
+      }
+
+      /* Draggable Knob */
+      #joystick-knob {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 50px;
+        height: 50px;
+        background: radial-gradient(circle at 30% 30%, #555, #222);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        transition: transform 0.05s linear; /* Smooth drag */
+      }
+
+      /* Action Buttons Container */
+      #touch-actions {
+        position: absolute;
+        bottom: 30px;
+        right: 30px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+        gap: 60px 30px;
+        justify-items: center;
+        align-items: center;
+        pointer-events: none;
+      }
+
+      /* Action Button Common */
+      .action-btn {
+        pointer-events: auto;
+        border-radius: 50%;
+        font-size: 14px;
+      }
+      
+      /* Use/Run Row (Grid Row 1) */
+      #btn-use, #btn-run {
+        width: 60px;
+        height: 60px;
+        grid-row: 1;
+        font-size: 14px;
+        background: rgba(40, 40, 40, 0.6);
+      }
+      #btn-use { grid-column: 1; margin-right: -10px; }
+      #btn-run { grid-column: 2; margin-left: -10px; }
+
+      /* Fire Button (Grid Row 2, Spans both cols) */
+      #btn-fire {
+        width: 90px;
+        height: 90px;
+        grid-row: 2;
+        grid-column: 1 / span 2;
+        background: rgba(180, 40, 40, 0.4);
+        border-color: rgba(200, 60, 60, 0.6);
+        font-size: 20px;
+        margin-top: 5px;
+      }
+
+      /* Utilities (Menu/Map) */
+      #touch-utils {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        display: flex;
+        gap: 15px;
+      }
+
+      .util-btn {
+        width: 50px;
+        height: 50px;
+        font-size: 12px;
+        border-radius: 8px; /* Square-ish for utility */
+      }
+
+      /* Landscape adjustments if needed */
+      @media (orientation: landscape) and (max-height: 500px) {
+
+        #touch-actions {
+          bottom: 20px;
+          right: 20px;
+          scale: 0.8;
+          transform-origin: bottom right;
+        }
+      }
+    </style>
   </body>
 </html>
