@@ -63,9 +63,9 @@ export enum PowerType {
 // Powerup durations in tics (TICRATE = 35)
 const TICRATE = 35;
 export const INVULNTICS = 30 * TICRATE;  // 1050
-export const INVISTICS  = 60 * TICRATE;  // 2100
-export const IRONTICS   = 60 * TICRATE;  // 2100
-export const INFRATICS  = 120 * TICRATE; // 4200
+export const INVISTICS = 60 * TICRATE;  // 2100
+export const IRONTICS = 60 * TICRATE;  // 2100
+export const INFRATICS = 120 * TICRATE; // 4200
 
 export class Player {
   x: number = 0;           // fixed_t
@@ -256,7 +256,8 @@ export class Player {
     if (input.lookX !== 0) {
       this.angle = (this.angle - (input.lookX * MOUSE_SENSITIVITY << 16)) >>> 0;
     }
-    resetInputAccumulated();
+    // Note: resetInputAccumulated() is called after weapon selection below
+    // so weaponSelect survives until it's processed
 
     // Thrust (momentum-based, like original DOOM P_Thrust)
     // Original: P_Thrust(mo, mo->angle, cmd->forwardmove * 2048);
@@ -325,17 +326,25 @@ export class Player {
         if (this.weaponowned[desired]) {
           const ammoType = weaponinfo[desired]?.ammo;
           if (ammoType === AmmoType.noammo || ammoType === undefined ||
-              (ammoType >= 0 && this.ammo[ammoType] > 0)) {
+            (ammoType >= 0 && this.ammo[ammoType] > 0)) {
             this.pendingweapon = desired;
           }
         }
       }
       // Special: key 1 toggles fist ↔ chainsaw
       if (input.weaponSelect === 0 && this.readyweapon === WeaponType.fist &&
-          this.weaponowned[WeaponType.chainsaw]) {
+        this.weaponowned[WeaponType.chainsaw]) {
         this.pendingweapon = WeaponType.chainsaw;
       } else if (input.weaponSelect === 0 && this.readyweapon === WeaponType.chainsaw) {
         this.pendingweapon = WeaponType.fist;
+      }
+      // Special: key 3 toggles shotgun ↔ super shotgun
+      if (input.weaponSelect === 2 && this.readyweapon === WeaponType.shotgun &&
+        this.weaponowned[WeaponType.supershotgun] && this.ammo[AmmoType.shell] >= 2) {
+        this.pendingweapon = WeaponType.supershotgun;
+      } else if (input.weaponSelect === 2 && this.readyweapon === WeaponType.supershotgun &&
+        this.weaponowned[WeaponType.shotgun] && this.ammo[AmmoType.shell] > 0) {
+        this.pendingweapon = WeaponType.shotgun;
       }
       input.weaponSelect = -1; // consume
     } else if (input.weaponSelect === -2 || input.weaponSelect === -3) {
@@ -343,8 +352,8 @@ export class Player {
       // Order: fist, chainsaw, pistol, shotgun, chaingun, missile, plasma, bfg
       const cycleOrder: WeaponType[] = [
         WeaponType.fist, WeaponType.chainsaw, WeaponType.pistol,
-        WeaponType.shotgun, WeaponType.chaingun, WeaponType.missile,
-        WeaponType.plasma, WeaponType.bfg,
+        WeaponType.shotgun, WeaponType.supershotgun, WeaponType.chaingun,
+        WeaponType.missile, WeaponType.plasma, WeaponType.bfg,
       ];
       const current = this.pendingweapon !== WeaponType.nochange
         ? this.pendingweapon : this.readyweapon;
@@ -357,12 +366,15 @@ export class Player {
         if (!this.weaponowned[wp]) continue;
         const ammoType = weaponinfo[wp]?.ammo;
         if (ammoType !== AmmoType.noammo && ammoType !== undefined &&
-            ammoType >= 0 && this.ammo[ammoType] <= 0) continue;
+          ammoType >= 0 && this.ammo[ammoType] <= 0) continue;
         this.pendingweapon = wp;
         break;
       }
       input.weaponSelect = -1; // consume
     }
+
+    // Reset accumulated input (mouse delta + weapon select) AFTER weapon processing
+    resetInputAccumulated();
 
     // Save previous position for walk-trigger detection
     this.prevx = this.x;
@@ -371,11 +383,11 @@ export class Player {
     // Apply momentum with collision
     if (this.momx !== 0 || this.momy !== 0) {
       this.tryMove(this.momx, this.momy);
-      
+
       // Apply friction (original DOOM: P_XYMovement)
       this.momx = fixedMul(this.momx, FRICTION);
       this.momy = fixedMul(this.momy, FRICTION);
-      
+
       // Stop if very slow
       if (Math.abs(this.momx) < 0x1000) this.momx = 0;
       if (Math.abs(this.momy) < 0x1000) this.momy = 0;
@@ -391,7 +403,7 @@ export class Player {
     if (ss.sector) {
       const floorH = ss.sector.floorHeight;
       const ceilH = ss.sector.ceilingHeight;
-      
+
       if (this.z > floorH) {
         if (this.momz === 0 && (this.z - floorH) <= MAXSTEPHEIGHT) {
           // Small step down — snap to floor (like DOOM stair stepping)
@@ -861,7 +873,7 @@ export class Player {
       const ldTop = Math.max(v1.y, v2.y);
 
       if (ldRight < bboxLeft || ldLeft > bboxRight ||
-          ldTop < bboxBottom || ldBottom > bboxTop) {
+        ldTop < bboxBottom || ldBottom > bboxTop) {
         continue;
       }
 
@@ -1101,7 +1113,7 @@ export class Player {
       const ldx = v2.x - v1.x;
       const ldy = v2.y - v1.y;
       const cross = ((this.x - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
-                    ((this.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+        ((this.y - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
       if (cross < 0) continue; // back side
 
       // Check if the use trace (player → x2,y2) intersects this linedef
@@ -1115,11 +1127,11 @@ export class Player {
       const trDx = x2 - this.x;
       const trDy = y2 - this.y;
       const denom = (trDx / FRACUNIT) * (ldy / FRACUNIT) -
-                    (trDy / FRACUNIT) * (ldx / FRACUNIT);
+        (trDy / FRACUNIT) * (ldx / FRACUNIT);
       if (Math.abs(denom) < 0.001) continue; // parallel
 
       const num = ((v1.x - this.x) / FRACUNIT) * (ldy / FRACUNIT) -
-                  ((v1.y - this.y) / FRACUNIT) * (ldx / FRACUNIT);
+        ((v1.y - this.y) / FRACUNIT) * (ldx / FRACUNIT);
       const frac = num / denom;
       if (frac < 0 || frac > 1) continue;
 
@@ -1163,11 +1175,11 @@ export class Player {
   }
 
   /** Returns which side of a line a point is on (0=front, 1=back) */
-  private lineSide(px: number, py: number, v1: {x: number, y: number}, v2: {x: number, y: number}): number {
+  private lineSide(px: number, py: number, v1: { x: number, y: number }, v2: { x: number, y: number }): number {
     const ldx = v2.x - v1.x;
     const ldy = v2.y - v1.y;
     const cross = ((px - v1.x) / FRACUNIT) * (ldy / FRACUNIT) -
-                  ((py - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
+      ((py - v1.y) / FRACUNIT) * (ldx / FRACUNIT);
     return cross <= 0 ? 1 : 0;
   }
 }

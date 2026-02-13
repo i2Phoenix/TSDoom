@@ -9,7 +9,7 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, 
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
 import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../src/map';
 import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj, spawnLostSoul } from './mobj';
-import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE } from './mobjinfo';
+import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE, MF_SOLID } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
 import { Player } from './player';
@@ -18,6 +18,7 @@ import { P_Move, P_NewChaseDir, P_CheckMeleeRange, P_CheckMissileRange } from '.
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
 import { spawnMonsterProjectile, spawnMonsterProjectileAngled, ProjectileType } from './projectiles';
+import { spawnVileFire } from './vfx';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
 import { getWorld } from './world';
@@ -417,7 +418,8 @@ export function initAICallbacks(): void {
   registerActionCallback('A_CyberAttack', A_CyberAttack_impl);
   registerActionCallback('A_SkullAttack', A_SkullAttack_impl);
   registerActionCallback('A_SpidRefire', A_SpidRefire_impl);
-  registerActionCallback('A_Metal', () => { });       // metal footstep sound (cosmetic)
+  registerActionCallback('A_Metal', A_Metal_impl);  // Spiderdemon walk sound
+  registerActionCallback('A_Hoof', A_Hoof_impl);    // Cyberdemon walk sound
   registerActionCallback('A_CPosAttack', A_CPosAttack_impl);
   registerActionCallback('A_CPosRefire', A_CPosRefire_impl);
 
@@ -445,6 +447,22 @@ export function initAICallbacks(): void {
   // Pain Elemental
   registerActionCallback('A_PainAttack', A_PainAttack_impl);
   registerActionCallback('A_PainDie', A_PainDie_impl);
+}
+
+// ---- A_Metal — Spiderdemon metallic walk sound ----
+function A_Metal_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor) return;
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.metal);
+  A_Chase_impl(thingIndex);
+}
+
+// ---- A_Hoof — Cyberdemon heavy footstep sound ----
+function A_Hoof_impl(thingIndex: number): void {
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor) return;
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.hoof);
+  A_Chase_impl(thingIndex);
 }
 
 // ---- Attack helper: hitscan toward target ----
@@ -685,11 +703,75 @@ function A_SkullAttack_impl(thingIndex: number): void {
 }
 
 // ---- A_VileChase — Arch-vile chase (with resurrection ability) ----
-// In original DOOM, A_VileChase scans for nearby corpses to resurrect.
-// For now, it behaves like A_Chase. Resurrection can be added later.
+// Reference: p_enemy.c A_VileChase
+// During chase, scans for nearby corpses (MF_CORPSE) to resurrect.
+// Resurrected monsters get health restored and return to seeState.
 function A_VileChase_impl(thingIndex: number): void {
-  // TODO: Add corpse resurrection scan here
-  // For now, just use standard chase behavior
+  const actor = getMapObjectByThingIndex(thingIndex);
+  if (!actor) return;
+
+  // Scan for corpses to resurrect
+  const map = getWorld().map;
+  if (!map) { A_Chase_impl(thingIndex); return; }
+
+  const allObjs = getMapObjects();
+  for (const corpse of allObjs) {
+    if (corpse === actor) continue;
+    if (corpse.removed) continue;
+    if (!(corpse.flags & MF_CORPSE)) continue;  // must be a corpse
+    if (corpse.health > 0) continue;  // sanity check
+
+    // Distance check: within reasonable range (DOOM: ~2 * MAXRADIUS = ~128 units)
+    const dx = Math.abs(corpse.x - actor.x);
+    const dy = Math.abs(corpse.y - actor.y);
+    const maxDist = 128 * FRACUNIT;
+    if (dx > maxDist || dy > maxDist) continue;
+
+    // Check line of sight from Arch-vile to corpse
+    if (!P_CheckSight(actor, corpse, map)) continue;
+
+    // Get the corpse's animation definition — need seeState to resurrect
+    const corpseAnimDef = getThingAnimDef(corpse.type);
+    if (!corpseAnimDef || corpseAnimDef.seeState === undefined) continue;
+
+    // ---- Resurrect the corpse ----
+
+    // Play resurrection sound
+    FX_Sound({ x: corpse.x, y: corpse.y }, Sfx.slop);
+
+    // Restore health from spawnHealth
+    corpse.health = corpse.spawnHealth;
+
+    // Restore flags: make shootable and solid again, clear corpse flag
+    corpse.flags &= ~MF_CORPSE;
+    corpse.flags |= MF_SHOOTABLE | MF_SOLID;
+
+    // Restore height from combat info (corpse may have had height = 0)
+    if (corpse.info) {
+      corpse.height = corpse.info.height;
+      corpse.radius = corpse.info.radius;
+    }
+
+    // Reset AI state
+    corpse.target = actor.target;  // Inherit Arch-vile's target (the player)
+    corpse.threshold = 0;
+    corpse.reactiontime = 0;
+    corpse.deathHandled = false;
+
+    // Set animation to see/chase state
+    setMonsterState(corpse.thingIndex, corpse.type, corpseAnimDef.seeState, 'chasing');
+
+    // Arch-vile faces the corpse it just resurrected (set state to seeState)
+    const vileDef = getThingAnimDef(actor.type);
+    if (vileDef && vileDef.seeState !== undefined) {
+      setMonsterState(thingIndex, actor.type, vileDef.seeState, 'chasing');
+    }
+
+    // Only resurrect one corpse per chase tic
+    return;
+  }
+
+  // No corpse found — perform standard chase behavior
   A_Chase_impl(thingIndex);
 }
 
@@ -711,6 +793,8 @@ function A_VileTarget_impl(thingIndex: number): void {
   // Store target reference for the attack (tracer field)
   actor.tracer = actor.target;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.flamst);
+  // Spawn fire VFX at target position (MT_FIRE in original DOOM)
+  spawnVileFire(actor.target.x, actor.target.y, actor.target.z);
 }
 
 // ---- A_VileAttack — Arch-vile: deal damage + vertical launch ----

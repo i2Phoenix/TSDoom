@@ -4,7 +4,7 @@
 // ============================================================
 
 import {
-  FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK,
+  FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK, ANG180,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
 } from './math';
 import { GameMap, ML_TWOSIDED } from '../src/map';
@@ -233,6 +233,7 @@ export interface Projectile {
   source?: MapObjState; // who fired this (to prevent self-hit)
   isMonsterProjectile?: boolean; // true if fired by a monster (can hit player)
   sourceAngle?: number; // shooter angle at time of firing (BAM, for BFG tracers)
+  tracerTarget?: MapObjState; // homing target (Revenant tracer)
 }
 
 // ---- Module state ----
@@ -332,6 +333,11 @@ export function spawnMonsterProjectile(
   };
 
   activeProjectiles.push(proj);
+
+  // Set tracer target for homing missiles (Revenant)
+  if (type === ProjectileType.revenantTracer) {
+    proj.tracerTarget = target;
+  }
 
   // Spawn dynamic light (table-driven)
   const msl = info.spawnLight;
@@ -448,6 +454,12 @@ export function updateProjectiles(): void {
     proj.x = newX;
     proj.y = newY;
     proj.z = newZ;
+
+    // ---- A_Tracer: Revenant homing missile logic ----
+    // Reference: p_enemy.c A_Tracer — homes every other tic
+    if (proj.type === ProjectileType.revenantTracer && (proj.tic & 1)) {
+      tracerHome(proj);
+    }
 
     // Flying dynamic light (table-driven)
     const fl = proj.info.flyLight;
@@ -680,6 +692,79 @@ function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projecti
     // Spawn green flash on target (BFE2 sprite in original DOOM)
     spawnBfgHit(target.x, target.y, target.z + (target.height >> 1));
   }
+}
+
+// ============================================================
+// A_Tracer — Revenant homing missile logic
+// Reference: p_enemy.c A_Tracer
+// Adjusts projectile angle/momz toward tracerTarget each call.
+// TRACEANGLE = ANG90/2/4 = 0x0C000000 ≈ 5.625°/tic
+// ============================================================
+
+const TRACEANGLE = 0x0C000000; // ~5.625° in BAM
+
+function tracerHome(proj: Projectile): void {
+  const target = proj.tracerTarget;
+  if (!target) return;
+
+  // Stop homing if target is dead
+  if (target.health <= 0) {
+    proj.tracerTarget = undefined;
+    return;
+  }
+
+  // Also home toward live player if tracerTarget is the player shim
+  const playerRef = getWorld().player;
+  const tx = (playerRef && target.thingIndex === -1) ? playerRef.x : target.x;
+  const ty = (playerRef && target.thingIndex === -1) ? playerRef.y : target.y;
+  const tz = (playerRef && target.thingIndex === -1) ? playerRef.z : target.z;
+  const tHeight = (playerRef && target.thingIndex === -1) ? 56 * FRACUNIT : target.height;
+
+  // Calculate exact angle to target
+  const exact = pointToAngle(proj.x, proj.y, tx, ty);
+
+  // Current movement angle
+  const projAngle = pointToAngle(0, 0, proj.momx, proj.momy);
+
+  // Determine which way to turn (signed difference in BAM)
+  const diff = ((exact - projAngle) | 0);
+
+  let newAngle: number;
+  if (diff > 0) {
+    // Turn left (counter-clockwise)
+    if ((diff >>> 0) > (ANG180 >>> 0)) {
+      // Actually more than 180° — turn right instead
+      newAngle = (projAngle - TRACEANGLE) >>> 0;
+    } else {
+      newAngle = (projAngle + TRACEANGLE) >>> 0;
+    }
+  } else {
+    // Turn right (clockwise)
+    if (((-diff) >>> 0) > (ANG180 >>> 0)) {
+      // Actually more than 180° — turn left instead
+      newAngle = (projAngle + TRACEANGLE) >>> 0;
+    } else {
+      newAngle = (projAngle - TRACEANGLE) >>> 0;
+    }
+  }
+
+  // Update momentum from new angle (keep same speed)
+  const an = (newAngle >>> ANGLETOFINESHIFT) & FINEMASK;
+  proj.momx = fixedMul(proj.info.speed, finecosine(an));
+  proj.momy = fixedMul(proj.info.speed, finesine[an]);
+
+  // Vertical homing: adjust momz toward target midpoint
+  const dx = tx - proj.x;
+  const dy = ty - proj.y;
+  const dist = Math.max(1, Math.sqrt(
+    (dx / FRACUNIT) * (dx / FRACUNIT) +
+    (dy / FRACUNIT) * (dy / FRACUNIT)
+  ));
+  // Target midpoint z
+  const targetMidZ = tz + (tHeight >> 1);
+  const slope = ((targetMidZ - proj.z) / dist) | 0;
+  // Adjust momz gradually (DOOM: slope * speed / FRACUNIT)
+  proj.momz = fixedMul(proj.info.speed, slope);
 }
 
 // ============================================================

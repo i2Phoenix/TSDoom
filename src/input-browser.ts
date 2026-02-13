@@ -10,7 +10,7 @@ import { CompositeInputProvider } from './input-composite';
 const state: InputState = createDefaultInputState();
 let pointerLocked = false;
 
-function handleKey(code: string, down: boolean): void {
+function handleKey(code: string, down: boolean, repeat: boolean = false): void {
   switch (code) {
     case 'KeyW':
     case 'ArrowUp':
@@ -44,13 +44,14 @@ function handleKey(code: string, down: boolean): void {
     case 'ShiftRight':
       state.run = down;
       break;
-    case 'Digit1': if (down) state.weaponSelect = 0; break;
-    case 'Digit2': if (down) state.weaponSelect = 1; break;
-    case 'Digit3': if (down) state.weaponSelect = 2; break;
-    case 'Digit4': if (down) state.weaponSelect = 3; break;
-    case 'Digit5': if (down) state.weaponSelect = 4; break;
-    case 'Digit6': if (down) state.weaponSelect = 5; break;
-    case 'Digit7': if (down) state.weaponSelect = 6; break;
+    // Weapon slots: only on initial press, not key repeat
+    case 'Digit1': if (down && !repeat) state.weaponSelect = 0; break;
+    case 'Digit2': if (down && !repeat) state.weaponSelect = 1; break;
+    case 'Digit3': if (down && !repeat) state.weaponSelect = 2; break;
+    case 'Digit4': if (down && !repeat) state.weaponSelect = 3; break;
+    case 'Digit5': if (down && !repeat) state.weaponSelect = 4; break;
+    case 'Digit6': if (down && !repeat) state.weaponSelect = 5; break;
+    case 'Digit7': if (down && !repeat) state.weaponSelect = 6; break;
   }
 }
 
@@ -62,6 +63,7 @@ const browserKeyboardMouseProvider: InputProvider = {
   resetAccumulated(): void {
     state.lookX = 0;
     state.lookY = 0;
+    state.weaponSelect = -1;  // consume weapon selection each tick
   },
   clearAll(): void {
     state.forward = false;
@@ -91,7 +93,7 @@ export function isPointerLocked(): boolean {
  */
 export function initBrowserInput(canvas: HTMLCanvasElement, menuActiveCheck: () => boolean): void {
   window.addEventListener('keydown', (e) => {
-    if (!menuActiveCheck()) handleKey(e.code, true);
+    if (!menuActiveCheck()) handleKey(e.code, true, e.repeat);
     e.preventDefault();
   });
 

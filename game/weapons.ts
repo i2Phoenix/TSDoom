@@ -155,6 +155,24 @@ export enum StateNum {
   S_SAW1,
   S_SAW2,
   S_SAW3,
+  // Super Shotgun (DOOM II)
+  S_DSGUN,
+  S_DSGUNDOWN,
+  S_DSGUNUP,
+  S_DSGUN1,
+  S_DSGUN2,
+  S_DSGUN3,
+  S_DSGUN4,
+  S_DSGUN5,
+  S_DSGUN6,
+  S_DSGUN7,
+  S_DSGUN8,
+  S_DSGUN9,
+  S_DSGUN10,
+  S_DSNR1,
+  S_DSNR2,
+  S_DSGUNFLASH1,
+  S_DSGUNFLASH2,
 }
 
 // ---- Action function type ----
@@ -277,6 +295,14 @@ weaponinfo[WeaponType.chainsaw] = {
   atkstate: StateNum.S_SAW1,
   flashstate: StateNum.S_NULL,
 };
+weaponinfo[WeaponType.supershotgun] = {
+  ammo: AmmoType.shell,
+  upstate: StateNum.S_DSGUNUP,
+  downstate: StateNum.S_DSGUNDOWN,
+  readystate: StateNum.S_DSGUN,
+  atkstate: StateNum.S_DSGUN1,
+  flashstate: StateNum.S_DSGUNFLASH1,
+};
 
 // ---- Forward declare action functions ----
 function A_WeaponReady(wp: WeaponPlayer): void { weaponReady(wp); }
@@ -335,6 +361,51 @@ function A_Saw(wp: WeaponPlayer): void {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawful);
     FX_Vibrate(0.1, 0.05, 40);
   }
+}
+
+// ---- Super Shotgun action functions (DOOM II) ----
+
+/** A_FireShotgun2 — fire 20 pellets, consume 2 shells */
+function A_FireShotgun2(wp: WeaponPlayer): void {
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.dshtgn);
+  FX_Vibrate(0.8, 0.6, 180);
+  wp.ammo[AmmoType.shell] -= 2;
+
+  // Flash — sync position with weapon
+  wp.psprites[PS_FLASH].sx = wp.psprites[PS_WEAPON].sx;
+  wp.psprites[PS_FLASH].sy = wp.psprites[PS_WEAPON].sy;
+  setPsprite(wp, PS_FLASH, weaponinfo[wp.readyweapon].flashstate);
+
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
+
+  // Fire 20 pellets with extra spread (original DOOM: ss_angle ± ANG90/20)
+  for (let i = 0; i < 20; i++) {
+    P_GunShot(wp.x, wp.y, wp.viewz, wp.angle, false);
+  }
+}
+
+/** A_CheckReload — check if enough ammo to keep firing SSG */
+function A_CheckReload(wp: WeaponPlayer): void {
+  if (!checkAmmo(wp)) {
+    // Not enough ammo — transition to "no reload" state (lower + switch)
+    setPsprite(wp, PS_WEAPON, StateNum.S_DSNR1);
+  }
+}
+
+/** A_OpenShotgun2 — SSG open break sound */
+function A_OpenShotgun2(_wp: WeaponPlayer): void {
+  FX_Sound({ x: _wp.x, y: _wp.y }, Sfx.dbopn);
+}
+
+/** A_LoadShotgun2 — SSG shell load sound */
+function A_LoadShotgun2(_wp: WeaponPlayer): void {
+  FX_Sound({ x: _wp.x, y: _wp.y }, Sfx.dbload);
+}
+
+/** A_CloseShotgun2 — SSG close break sound + refire check */
+function A_CloseShotgun2(wp: WeaponPlayer): void {
+  FX_Sound({ x: wp.x, y: wp.y }, Sfx.dbcls);
+  A_ReFire(wp);
 }
 
 function A_GunFlash(wp: WeaponPlayer): void {
@@ -474,6 +545,27 @@ states.set(StateNum.S_SAWUP, S('SAWG', 2, 1, A_Raise, StateNum.S_SAWUP));
 states.set(StateNum.S_SAW1, S('SAWG', 0, 4, A_Saw, StateNum.S_SAW2));
 states.set(StateNum.S_SAW2, S('SAWG', 1, 4, A_Saw, StateNum.S_SAW3));
 states.set(StateNum.S_SAW3, S('SAWG', 1, 0, A_ReFire, StateNum.S_SAW));
+
+// Super Shotgun (DOOM II) — sprite SHT2
+states.set(StateNum.S_DSGUN, S('SHT2', 0, 1, A_WeaponReady, StateNum.S_DSGUN));
+states.set(StateNum.S_DSGUNDOWN, S('SHT2', 0, 1, A_Lower, StateNum.S_DSGUNDOWN));
+states.set(StateNum.S_DSGUNUP, S('SHT2', 0, 1, A_Raise, StateNum.S_DSGUNUP));
+states.set(StateNum.S_DSGUN1, S('SHT2', 0, 3, null, StateNum.S_DSGUN2));
+states.set(StateNum.S_DSGUN2, S('SHT2', 0, 7, A_FireShotgun2, StateNum.S_DSGUN3));
+states.set(StateNum.S_DSGUN3, S('SHT2', 1, 7, null, StateNum.S_DSGUN4));
+states.set(StateNum.S_DSGUN4, S('SHT2', 2, 7, A_CheckReload, StateNum.S_DSGUN5));
+states.set(StateNum.S_DSGUN5, S('SHT2', 3, 7, A_OpenShotgun2, StateNum.S_DSGUN6));
+states.set(StateNum.S_DSGUN6, S('SHT2', 4, 7, null, StateNum.S_DSGUN7));
+states.set(StateNum.S_DSGUN7, S('SHT2', 5, 7, A_LoadShotgun2, StateNum.S_DSGUN8));
+states.set(StateNum.S_DSGUN8, S('SHT2', 6, 6, null, StateNum.S_DSGUN9));
+states.set(StateNum.S_DSGUN9, S('SHT2', 7, 6, A_CloseShotgun2, StateNum.S_DSGUN10));
+states.set(StateNum.S_DSGUN10, S('SHT2', 0, 5, A_ReFire, StateNum.S_DSGUN));
+// "No reload" path (out of ammo after firing)
+states.set(StateNum.S_DSNR1, S('SHT2', 1, 7, null, StateNum.S_DSNR2));
+states.set(StateNum.S_DSNR2, S('SHT2', 0, 3, null, StateNum.S_DSGUNDOWN));
+// Flash states (fullbright)
+states.set(StateNum.S_DSGUNFLASH1, S('SHT2', 8 | 0x8000, 5, A_Light1, StateNum.S_DSGUNFLASH2));
+states.set(StateNum.S_DSGUNFLASH2, S('SHT2', 9 | 0x8000, 4, A_Light2, StateNum.S_LIGHTDONE));
 
 // =============================================
 // P_SetPsprite — set weapon to a given state
@@ -639,12 +731,21 @@ export function bringUpWeapon(wp: WeaponPlayer): void {
 // =============================================
 export function checkAmmo(wp: WeaponPlayer): boolean {
   const ammo = weaponinfo[wp.readyweapon].ammo;
-  if (ammo === AmmoType.noammo || wp.ammo[ammo] >= 1) {
+  if (ammo === AmmoType.noammo) return true;
+
+  // Per-shot ammo cost (SSG=2, BFG=40, everything else=1)
+  let count = 1;
+  if (wp.readyweapon === WeaponType.supershotgun) count = 2;
+  else if (wp.readyweapon === WeaponType.bfg) count = 40;
+
+  if (wp.ammo[ammo] >= count) {
     return true;
   }
 
   // Out of ammo — find a weapon to switch to
-  if (wp.weaponowned[WeaponType.shotgun] && wp.ammo[AmmoType.shell]) {
+  if (wp.weaponowned[WeaponType.supershotgun] && wp.ammo[AmmoType.shell] >= 2) {
+    wp.pendingweapon = WeaponType.supershotgun;
+  } else if (wp.weaponowned[WeaponType.shotgun] && wp.ammo[AmmoType.shell]) {
     wp.pendingweapon = WeaponType.shotgun;
   } else if (wp.weaponowned[WeaponType.chaingun] && wp.ammo[AmmoType.clip]) {
     wp.pendingweapon = WeaponType.chaingun;

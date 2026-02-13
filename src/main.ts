@@ -287,13 +287,13 @@ function musicForMap(mapName: string): Music {
     // Maps 1-32 use music starting from Music.runnin (which = Music.introa + 1)
     const doom2Music: Music[] = [
       Music.runnin, Music.stalks, Music.countd, Music.betwee,
-      Music.doom,   Music.the_da, Music.shawn,  Music.ddtblu,
-      Music.in_cit, Music.dead,   Music.stlks2, Music.theda2,
-      Music.doom2,  Music.ddtbl2, Music.runni2, Music.dead2,
+      Music.doom, Music.the_da, Music.shawn, Music.ddtblu,
+      Music.in_cit, Music.dead, Music.stlks2, Music.theda2,
+      Music.doom2, Music.ddtbl2, Music.runni2, Music.dead2,
       Music.stlks3, Music.romero, Music.shawn2, Music.messag,
-      Music.count2, Music.ddtbl3, Music.ampie,  Music.theda3,
+      Music.count2, Music.ddtbl3, Music.ampie, Music.theda3,
       Music.adrian, Music.messg2, Music.romer2, Music.tense,
-      Music.shawn3, Music.openin, Music.evil,   Music.ultima,
+      Music.shawn3, Music.openin, Music.evil, Music.ultima,
     ];
     if (num >= 1 && num <= doom2Music.length) {
       return doom2Music[num - 1];
@@ -354,7 +354,8 @@ function G_DoNewGame(): void {
   setGameSkill(pendingSkill);
 
   resetLevelStats();
-  initMapFresh("E1M1");
+  const startMap = wad.checkNumForName("MAP01") !== -1 ? "MAP01" : "E1M1";
+  initMapFresh(startMap);
   player.spawn();
   ensureInput();
   ensureStatusBar();
@@ -664,9 +665,8 @@ async function main() {
             e.preventDefault();
             getRenderer().cycleRenderMode();
             if (player) {
-              player.message = `Render: ${
-                { normal: "Normal", depth: "Depth Buffer" }[getRenderer().getRenderMode() as 'normal' | 'depth']
-              }`;
+              player.message = `Render: ${{ normal: "Normal", depth: "Depth Buffer" }[getRenderer().getRenderMode() as 'normal' | 'depth']
+                }`;
             }
           }
 

@@ -287,3 +287,54 @@ export function spawnTeleportFog(x: number, y: number, z: number): void {
   FX_DynLight(x, y, z, 128 * FRACUNIT, 50, 255, 50, 0.6, 10);
 }
 
+// ---- Arch-vile fire: FIRE sprite (S_FIRE1..S_FIRE8, all fullbright) ----
+const VILE_FIRE_FRAMES: VfxFrame[] = [
+  { sprite: 'FIRE', frame: 0 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 1 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 2 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 3 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 4 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 5 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 6 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 7 | FF_FULLBRIGHT, tics: 2 },
+  // Repeat cycle to last full attack duration (~70 tics)
+  { sprite: 'FIRE', frame: 0 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 1 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 2 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 3 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 4 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 5 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 6 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 7 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 0 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 1 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 2 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 3 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 4 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 5 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 6 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 7 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 0 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 1 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 2 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 3 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 4 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 5 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 6 | FF_FULLBRIGHT, tics: 2 },
+  { sprite: 'FIRE', frame: 7 | FF_FULLBRIGHT, tics: 2 },
+];
+
+/** Spawn Arch-vile fire VFX at a position (MT_FIRE visual) */
+export function spawnVileFire(x: number, y: number, z: number): void {
+  const effect: VfxEffect = {
+    x, y, z,
+    frames: VILE_FIRE_FRAMES,
+    frameIndex: 0,
+    ticsLeft: VILE_FIRE_FRAMES[0].tics,
+    done: false,
+    totalTics: 0,
+  };
+  activeEffects.push(effect);
+  // Flickering orange/yellow fire light
+  FX_DynLight(x, y, z, 128 * FRACUNIT, 255, 128, 32, 0.6, 64);
+}

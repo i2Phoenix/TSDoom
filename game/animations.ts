@@ -544,7 +544,7 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
       { sprite: 'CYBR', frame: 18, tics: 10, nextState: 13 },
       { sprite: 'CYBR', frame: 19, tics: -1, nextState: 13 },
       // 14-17: see
-      { sprite: 'CYBR', frame: 0, tics: 3, nextState: 15, action: 'A_Chase' },
+      { sprite: 'CYBR', frame: 0, tics: 3, nextState: 15, action: 'A_Hoof' },
       { sprite: 'CYBR', frame: 1, tics: 3, nextState: 16, action: 'A_Chase' },
       { sprite: 'CYBR', frame: 2, tics: 3, nextState: 17, action: 'A_Chase' },
       { sprite: 'CYBR', frame: 3, tics: 3, nextState: 14, action: 'A_Chase' },

@@ -430,6 +430,7 @@ export function damageMobj(
  */
 function killMobj(target: MapObjState): void {
   target.flags &= ~(MF_SHOOTABLE | MF_SOLID);
+  target.flags |= MF_CORPSE;  // Mark as corpse for Arch-vile resurrection
 
   if (isBarrel(target.type)) {
     // Barrels: instant removal, explosion VFX spawned by combat.ts
