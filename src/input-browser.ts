@@ -86,6 +86,12 @@ export function isPointerLocked(): boolean {
   return pointerLocked;
 }
 
+/** Accumulate touch look deltas into the keyboard+mouse input state. */
+export function accumulateTouchLook(dx: number, dy: number): void {
+  state.lookX += dx;
+  state.lookY += dy;
+}
+
 /**
  * Initialize browser keyboard + mouse input and register as the active provider.
  * Call once at startup after the canvas is created.

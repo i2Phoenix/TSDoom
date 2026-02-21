@@ -2,6 +2,8 @@
 // Mobile Touch Input Provider (Virtual Keyboard + Joystick)
 // ============================================================
 
+import { accumulateTouchLook } from './input-browser';
+
 let touchEnabled = false;
 
 // Map codes to "key" values for complete emulation
@@ -270,6 +272,52 @@ export function initTouchControls(): void {
       joyBase.addEventListener('pointerup', handleJoyEnd);
       joyBase.addEventListener('pointercancel', handleJoyEnd);
       joyBase.addEventListener('pointerleave', handleJoyEnd);
+    }
+
+    // ── Touch Look Zone (right half of screen) ──
+    // Standard mobile FPS layout: left side = movement, right side = look.
+    // Touches on buttons/joystick are captured by those elements;
+    // touches in free areas fall through to the canvas.
+    const canvas = document.getElementById('doom') as HTMLCanvasElement | null;
+    if (canvas) {
+      canvas.style.touchAction = 'none'; // prevent browser zoom/scroll on canvas
+
+      let lookPointerId = -1;
+      let lookLastX = 0;
+      let lookLastY = 0;
+
+      canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'touch') return; // only touch, not mouse
+        if (lookPointerId >= 0) return; // already tracking a look touch
+        // Only capture touches on the right half of the screen
+        if (e.clientX < window.innerWidth / 2) return;
+
+        e.preventDefault();
+        lookPointerId = e.pointerId;
+        lookLastX = e.clientX;
+        lookLastY = e.clientY;
+        canvas.setPointerCapture(e.pointerId);
+      });
+
+      canvas.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== lookPointerId) return;
+        e.preventDefault();
+        const dx = e.clientX - lookLastX;
+        const dy = e.clientY - lookLastY;
+        lookLastX = e.clientX;
+        lookLastY = e.clientY;
+        accumulateTouchLook(dx, dy);
+      });
+
+      const handleLookEnd = (e: PointerEvent) => {
+        if (e.pointerId !== lookPointerId) return;
+        e.preventDefault();
+        canvas.releasePointerCapture(e.pointerId);
+        lookPointerId = -1;
+      };
+
+      canvas.addEventListener('pointerup', handleLookEnd);
+      canvas.addEventListener('pointercancel', handleLookEnd);
     }
   }
 }
