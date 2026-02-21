@@ -16,7 +16,7 @@ import type { GameInstance } from './game-instance';
  */
 export interface Renderer {
   /** Set camera position for the current frame */
-  setView(x: number, y: number, z: number, angle: number): void;
+  setView(x: number, y: number, z: number, angle: number, pitch?: number): void;
 
   /**
    * Run the full render pipeline for one frame.

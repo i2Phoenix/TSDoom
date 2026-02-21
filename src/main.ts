@@ -539,7 +539,7 @@ async function main() {
 
           // Render the new state for the wipe end frame (full pipeline)
           if (gi.gamestate === GameState.GS_LEVEL && gi.usergame) {
-            getRenderer().setView(player.x, player.y, player.viewz, player.angle);
+            getRenderer().setView(player.x, player.y, player.viewz, player.angle, player.pitch);
             getRenderer().renderFrame(gi);
             getRenderer().setWeaponInvisible(player.powers[2] > 0);
             getRenderer().drawWeaponOverlay();
@@ -568,7 +568,7 @@ async function main() {
             case GameState.GS_LEVEL:
               if (gi.usergame) {
                 profilerBegin('view');
-                getRenderer().setView(player.x, player.y, player.viewz, player.angle);
+                getRenderer().setView(player.x, player.y, player.viewz, player.angle, player.pitch);
                 updatePaletteFlash(player, palData);
                 profilerEnd('view');
 

@@ -117,6 +117,7 @@ export class RenderContext {
   viewangle = 0;
   viewsin = 0;
   viewcos = 0;
+  viewpitch = 0;          // fixed-point [-FRACUNIT..+FRACUNIT], for Y-shearing
 
   // ---- Resolution-dependent ----
   stHeight = Math.round(32 * SCREENWIDTH / BASE_WIDTH);

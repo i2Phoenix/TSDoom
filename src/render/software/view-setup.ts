@@ -22,14 +22,21 @@ import {
  */
 export class ViewSetup {
   /** Set camera position and recompute sin/cos. */
-  setPosition(ctx: RenderContext, x: number, y: number, z: number, angle: number): void {
+  setPosition(ctx: RenderContext, x: number, y: number, z: number, angle: number, pitch: number = 0): void {
     ctx.viewx = x;
     ctx.viewy = y;
     ctx.viewz = z;
     ctx.viewangle = angle >>> 0;
+    ctx.viewpitch = pitch;
     const fineAngle = (ctx.viewangle >>> ANGLETOFINESHIFT) & FINEMASK;
     ctx.viewsin = finesine[fineAngle] || 0;
     ctx.viewcos = finecosine(fineAngle) || 0;
+
+    // Y-shearing: shift vertical center based on pitch
+    // At pitch=±FRACUNIT (±45°), shift by ±viewheight/2 pixels
+    const baseCenterY = ctx.centery << FRACBITS;
+    const pitchShift = Math.round(pitch * (ctx.viewheight >> 1) / FRACUNIT) << FRACBITS;
+    ctx.centeryfrac = baseCenterY + pitchShift;
   }
 
   /** R_PointToAngle — angle from viewer to (x, y). */

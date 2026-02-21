@@ -45,8 +45,8 @@ export class SoftwareRenderer implements Renderer {
     }
   }
 
-  setView(x: number, y: number, z: number, angle: number): void {
-    this.pipeline.view.setPosition(this.pipeline.ctx, x, y, z, angle);
+  setView(x: number, y: number, z: number, angle: number, pitch?: number): void {
+    this.pipeline.view.setPosition(this.pipeline.ctx, x, y, z, angle, pitch ?? 0);
   }
 
   renderFrame(gi: GameInstance): void {
