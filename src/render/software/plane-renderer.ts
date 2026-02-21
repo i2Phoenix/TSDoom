@@ -157,13 +157,18 @@ export class PlaneRenderer {
       if (globalMinY < 0) globalMinY = 0;
       if (globalMaxY >= ctx.viewheight) globalMaxY = ctx.viewheight - 1;
 
+      // Pitch shear offset for yslope lookup
+      const pitchShearPx = Math.round(ctx.viewpitch * (ctx.viewheight >> 1) / FRACUNIT);
+
       for (let y = globalMinY; y <= globalMaxY; y++) {
-        const dy = y - ctx.centery;
+        const dy = y - ctx.centery - pitchShearPx;
         if (dy === 0) {
           ctx.planeRowValid[y] = 0;
           continue;
         }
-        const yslopeVal = ctx.yslope[y] || 0;
+        // Use unshifted y for yslope lookup (table is relative to base center)
+        const yslopeIdx = y - pitchShearPx;
+        const yslopeVal = (yslopeIdx >= 0 && yslopeIdx < ctx.viewheight) ? (ctx.yslope[yslopeIdx] || 0) : 0;
         const distance = Math.abs(fixedMul(planeheight, yslopeVal));
         if (distance === 0) {
           ctx.planeRowValid[y] = 0;
