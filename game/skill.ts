@@ -3,6 +3,8 @@
 // Reference: doomdef.h, g_game.c — skill levels and their effects
 // ============================================================
 
+import { GameInstance } from './game-instance';
+
 /**
  * DOOM skill levels (matches original enum order).
  * Maps directly to save-game byte value.
@@ -15,24 +17,10 @@ export enum SkillLevel {
   sk_nightmare = 4,  // Nightmare!
 }
 
-// ---- Current skill ----
-let gameskill: SkillLevel = SkillLevel.sk_medium;
-
-// ---- Fast monsters flag (Nightmare or -fast parameter) ----
-let fastMonsters = false;
-
 // ---- Setters ----
-export function setGameSkill(skill: SkillLevel): void {
-  gameskill = skill;
-  fastMonsters = skill === SkillLevel.sk_nightmare;
-}
-
-export function getGameSkill(): SkillLevel {
-  return gameskill;
-}
-
-export function setFastMonsters(v: boolean): void {
-  fastMonsters = v;
+export function setGameSkill(skill: SkillLevel, gi: GameInstance): void {
+  gi.gameskill = skill;
+  gi.fastMonsters = skill === SkillLevel.sk_nightmare;
 }
 
 // ============================================================
@@ -43,7 +31,8 @@ export function setFastMonsters(v: boolean): void {
  * Double ammo on skills 1 (Baby) and 5 (Nightmare).
  * Original DOOM: if (gameskill == sk_baby || gameskill == sk_nightmare)
  */
-export function isDoubleAmmo(): boolean {
+export function isDoubleAmmo(gi: GameInstance): boolean {
+  const gameskill = gi.gameskill;
   return gameskill === SkillLevel.sk_baby || gameskill === SkillLevel.sk_nightmare;
 }
 
@@ -52,32 +41,32 @@ export function isDoubleAmmo(): boolean {
  * Baby: 50% damage. All others: 100%.
  * Original DOOM: damage >>= 1 when sk_baby
  */
-export function getDamageMultiplier(): number {
-  return gameskill === SkillLevel.sk_baby ? 0.5 : 1.0;
+export function getDamageMultiplier(gi: GameInstance): number {
+  return gi.gameskill === SkillLevel.sk_baby ? 0.5 : 1.0;
 }
 
 /**
  * Fast monsters — Nightmare or -fast param.
  * Affects monster reaction time and movement speed.
  */
-export function isFastMonsters(): boolean {
-  return fastMonsters;
+export function isFastMonsters(gi: GameInstance): boolean {
+  return gi.fastMonsters;
 }
 
 /**
  * Monster respawn — Nightmare only (~12 seconds).
  * Stub: monster AI will check this.
  */
-export function isRespawnMonsters(): boolean {
-  return gameskill === SkillLevel.sk_nightmare;
+export function isRespawnMonsters(gi: GameInstance): boolean {
+  return gi.gameskill === SkillLevel.sk_nightmare;
 }
 
 /**
  * Cheats are completely disabled on Nightmare.
  * Original DOOM: checks gameskill in ST_Responder.
  */
-export function areCheatsDisabled(): boolean {
-  return gameskill === SkillLevel.sk_nightmare;
+export function areCheatsDisabled(gi: GameInstance): boolean {
+  return gi.gameskill === SkillLevel.sk_nightmare;
 }
 
 /**
@@ -90,7 +79,8 @@ export function areCheatsDisabled(): boolean {
  * A thing spawns only if its corresponding bit is set.
  * Things with options === 0 (no bits) are never spawned.
  */
-export function shouldSpawnThing(options: number): boolean {
+export function shouldSpawnThing(options: number, gi: GameInstance): boolean {
+  const gameskill = gi.gameskill;
   switch (gameskill) {
     case SkillLevel.sk_baby:
     case SkillLevel.sk_easy:

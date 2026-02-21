@@ -5,21 +5,14 @@
 // ============================================================
 
 import type { GameMap } from './map-types';
-import type { Player } from './player';
-import {
-  GameState, GameAction,
-  gamestate, gameaction, secretExit, usergame,
-  pendingSaveSlot, pendingWarpMap, pendingSkill,
-  setGameState, setGameAction, setUserGame, forceWipe,
-  setPendingSaveSlot,
-} from './gamestate';
+import { GameState, GameAction } from './gamestate';
 import { setGameSkill } from './skill';
 import { resetCheatBuffer } from './cheats';
 import { getNextMap, parseMapName } from './mapflow';
 import { captureGameState, applyGameState, saveToSlot, loadFromSlot, GameSaveData } from './savegame';
 import { Music } from './sounds';
-import { addTotalItem, addTotalSecret, resetLevelStats, totalKills, totalItems, totalSecrets, playerKills, playerItems, playerSecrets } from './level-stats';
-import { levelTime } from './thinkers';
+import { getLevelTime } from './thinkers';
+import { GameInstance } from './game-instance';
 
 // ---- Intermission data (re-exported from intermission for convenience) ----
 export interface WBStartStruct {
@@ -68,90 +61,65 @@ export interface GameFlowCallbacks {
 
 // ---- Module state ----
 let callbacks: GameFlowCallbacks;
-let player: Player;
-let pendingNextMap: string = '';
-
-/** Reference to the current map — updated by callbacks.loadMap via setFlowMap */
-let mapRef: GameMap;
 
 /** Initialize the game flow system. Call once at startup. */
 export function initGameFlow(cb: GameFlowCallbacks): void {
   callbacks = cb;
 }
 
-/** Update internal player reference (when Player object is recreated) */
-export function setFlowPlayer(p: Player): void {
-  player = p;
-}
-
-/** Update internal map reference (called by platform after loadMap) */
-export function setFlowMap(m: GameMap): void {
-  mapRef = m;
-}
-
-/** Get the current player reference */
-export function getFlowPlayer(): Player {
-  return player;
-}
-
-/** Get the current map reference */
-export function getFlowMap(): GameMap {
-  return mapRef;
-}
-
 // ============================================================
 // G_Ticker — process deferred game actions (like DOOM's g_game.c)
 // ============================================================
 
-export function G_Ticker(): void {
-  while (gameaction() !== GameAction.ga_nothing) {
-    switch (gameaction()) {
+export function G_Ticker(gi: GameInstance): void {
+  while (gi.gameaction !== GameAction.ga_nothing) {
+    switch (gi.gameaction) {
       case GameAction.ga_newgame:
-        G_DoNewGame();
+        G_DoNewGame(gi);
         break;
       case GameAction.ga_loadgame:
-        G_DoLoadGame();
+        G_DoLoadGame(gi);
         break;
       case GameAction.ga_savegame:
-        G_DoSaveGame();
+        G_DoSaveGame(gi);
         break;
       case GameAction.ga_warp:
-        G_DoWarp();
+        G_DoWarp(gi);
         break;
       case GameAction.ga_completed:
-        G_DoCompleted();
+        G_DoCompleted(gi);
         break;
       default:
-        setGameAction(GameAction.ga_nothing);
+        gi.gameaction = GameAction.ga_nothing;
         break;
     }
   }
 }
 
 /** G_DoNewGame — start a fresh game */
-function G_DoNewGame(): void {
-  setGameAction(GameAction.ga_nothing);
+function G_DoNewGame(gi: GameInstance): void {
+  gi.gameaction = GameAction.ga_nothing;
 
-  setGameSkill(pendingSkill());
+  setGameSkill(gi.pendingSkill, gi);
 
-  resetLevelStats();
+  { const s = gi.stats; s.totalKills = s.totalItems = s.totalSecrets = s.playerKills = s.playerItems = s.playerSecrets = 0; }
   const startMap = callbacks.checkMapExists("MAP01") ? "MAP01" : "E1M1";
   callbacks.loadMap(startMap);
-  player.spawn();
+  gi.world!.player.spawn();
   callbacks.ensureInput();
   callbacks.ensureStatusBar();
 
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
+  gi.gamestate = GameState.GS_LEVEL;
+  gi.usergame = true;
+  gi.wipegamestate = -1 as unknown as GameState;
 
-  console.log(`[gameflow] New game started (skill ${pendingSkill()})`);
+  console.log(`[gameflow] New game started (skill ${gi.pendingSkill})`);
 }
 
 /** G_DoWarp — warp to a new level (IDCLEV cheat) */
-function G_DoWarp(): void {
-  setGameAction(GameAction.ga_nothing);
-  const mapName = pendingWarpMap();
+function G_DoWarp(gi: GameInstance): void {
+  gi.gameaction = GameAction.ga_nothing;
+  const mapName = gi.pendingWarpMap;
   if (!mapName) return;
 
   // Validate that the map lump exists in the WAD
@@ -180,39 +148,40 @@ function G_DoWarp(): void {
 
   if (!callbacks.checkMapExists(resolvedMap)) {
     console.warn(`[gameflow] Map lump not found: ${mapName}`);
-    if (player) {
-      player.message = 'IMPOSSIBLE SELECTION';
+    const p = gi.world?.player;
+    if (p) {
+      p.message = 'IMPOSSIBLE SELECTION';
     }
     return;
   }
 
-  resetLevelStats();
+  { const s = gi.stats; s.totalKills = s.totalItems = s.totalSecrets = s.playerKills = s.playerItems = s.playerSecrets = 0; }
   callbacks.loadMap(resolvedMap);
-  player.spawn();
+  gi.world!.player.spawn();
   resetCheatBuffer();
   callbacks.ensureInput();
   callbacks.ensureStatusBar();
 
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
+  gi.gamestate = GameState.GS_LEVEL;
+  gi.usergame = true;
+  gi.wipegamestate = -1 as unknown as GameState;
 
   console.log(`[gameflow] Warped to ${mapName} (IDCLEV)`);
 }
 
 /** G_DoCompleted — transition to the intermission screen after a level exit */
-function G_DoCompleted(): void {
-  setGameAction(GameAction.ga_nothing);
-
+function G_DoCompleted(gi: GameInstance): void {
+  gi.gameaction = GameAction.ga_nothing;
+  const mapRef = gi.currentMap;
   if (!mapRef) return;
 
-  player.finishLevel();
+  gi.world!.player.finishLevel();
 
   const currentName = mapRef.name;
-  const nextMap = getNextMap(currentName, secretExit());
-  pendingNextMap = nextMap;
+  const nextMap = getNextMap(currentName, gi.secretExit);
+  gi.pendingNextMap = nextMap;
 
-  console.log(`[gameflow] Level completed: ${currentName} → ${nextMap}${secretExit() ? ' (secret)' : ''}`);
+  console.log(`[gameflow] Level completed: ${currentName} → ${nextMap}${gi.secretExit ? ' (secret)' : ''}`);
 
   const cur = parseMapName(currentName);
   const nxt = parseMapName(nextMap);
@@ -220,13 +189,13 @@ function G_DoCompleted(): void {
     epsd: cur.isCommercial ? 0 : cur.episode - 1,
     last: cur.isCommercial ? cur.map - 1 : cur.map - 1,
     next: nxt.isCommercial ? nxt.map - 1 : nxt.map - 1,
-    maxkills: totalKills || 1,
-    maxitems: totalItems || 1,
-    maxsecret: totalSecrets || 1,
-    skills: playerKills,
-    sitems: playerItems,
-    ssecret: playerSecrets,
-    stime: levelTime,
+    maxkills: gi.stats.totalKills || 1,
+    maxitems: gi.stats.totalItems || 1,
+    maxsecret: gi.stats.totalSecrets || 1,
+    skills: gi.stats.playerKills,
+    sitems: gi.stats.playerItems,
+    ssecret: gi.stats.playerSecrets,
+    stime: getLevelTime(gi),
     partime: 0,
     isCommercial: cur.isCommercial,
     lastMapName: currentName,
@@ -234,74 +203,76 @@ function G_DoCompleted(): void {
   };
 
   callbacks.startIntermission(wbs, () => {
-    const finaleConfig = callbacks.getFinaleConfig(currentName, cur.isCommercial, secretExit());
+    const finaleConfig = callbacks.getFinaleConfig(currentName, cur.isCommercial, gi.secretExit);
     if (finaleConfig) {
-      F_StartFinale(finaleConfig);
+      F_StartFinale(finaleConfig, gi);
     } else {
-      G_DoWorldDone();
+      G_DoWorldDone(gi);
     }
   });
 
-  setGameState(GameState.GS_INTERMISSION);
-  forceWipe();
+  gi.gamestate = GameState.GS_INTERMISSION;
+  gi.wipegamestate = -1 as unknown as GameState;
 }
 
 /** F_StartFinale — start the finale text screen */
-function F_StartFinale(config: FinaleConfig): void {
+function F_StartFinale(config: FinaleConfig, gi: GameInstance): void {
   callbacks.startFinale(config, () => {
     if (config.isCommercial) {
-      G_DoWorldDone();
+      G_DoWorldDone(gi);
     } else {
-      setGameState(GameState.GS_DEMOSCREEN);
-      setUserGame(false);
-      forceWipe();
+      gi.gamestate = GameState.GS_DEMOSCREEN;
+      gi.usergame = false;
+      gi.wipegamestate = -1 as unknown as GameState;
     }
   });
 
-  setGameState(GameState.GS_FINALE);
-  forceWipe();
+  gi.gamestate = GameState.GS_FINALE;
+  gi.wipegamestate = -1 as unknown as GameState;
 }
 
 /** G_DoWorldDone — actually load the next map after intermission */
-function G_DoWorldDone(): void {
-  resetLevelStats();
-  callbacks.loadMap(pendingNextMap);
-  player.respawnAtStart();
+function G_DoWorldDone(gi: GameInstance): void {
+  { const s = gi.stats; s.totalKills = s.totalItems = s.totalSecrets = s.playerKills = s.playerItems = s.playerSecrets = 0; }
+  callbacks.loadMap(gi.pendingNextMap);
+  gi.world!.player.respawnAtStart();
   resetCheatBuffer();
   callbacks.ensureInput();
   callbacks.ensureStatusBar();
 
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
+  gi.gamestate = GameState.GS_LEVEL;
+  gi.usergame = true;
+  gi.wipegamestate = -1 as unknown as GameState;
 }
 
 /** G_DoLoadGame — load from slot */
-function G_DoLoadGame(): void {
-  setGameAction(GameAction.ga_nothing);
+function G_DoLoadGame(gi: GameInstance): void {
+  gi.gameaction = GameAction.ga_nothing;
 
-  const data = loadFromSlot(pendingSaveSlot());
+  const data = loadFromSlot(gi.pendingSaveSlot);
   if (!data) {
-    if (player) player.message = "No save in this slot.";
+    const p = gi.world?.player;
+    if (p) p.message = "No save in this slot.";
     return;
   }
 
-  applyLoadedData(data);
+  applyLoadedData(data, gi);
 }
 
 /** G_DoSaveGame — save current state */
-function G_DoSaveGame(): void {
-  setGameAction(GameAction.ga_nothing);
-
-  if (!usergame() || !player || !mapRef) {
+function G_DoSaveGame(gi: GameInstance): void {
+  gi.gameaction = GameAction.ga_nothing;
+  const player = gi.world?.player;
+  const mapRef = gi.currentMap;
+  if (!gi.usergame || !player || !mapRef) {
     console.warn("[gameflow] Cannot save — not in game");
     return;
   }
 
-  const slot = pendingSaveSlot();
+  const slot = gi.pendingSaveSlot;
   const slotLabel = slot === -1 ? "Quick" : `Slot ${slot}`;
   const description = `${mapRef.name} ${slotLabel}`;
-  const data = captureGameState(player, mapRef, description);
+  const data = captureGameState(player, mapRef, description, gi);
   const ok = saveToSlot(slot, data);
 
   if (ok) {
@@ -312,17 +283,16 @@ function G_DoSaveGame(): void {
 }
 
 /** Apply loaded save data */
-function applyLoadedData(data: GameSaveData): void {
+function applyLoadedData(data: GameSaveData, gi: GameInstance): void {
   callbacks.loadMap(data.mapName);
   callbacks.ensureInput();
   callbacks.ensureStatusBar();
+  applyGameState(data, gi.world!.player, gi.currentMap!, gi);
 
-  applyGameState(data, player, mapRef);
-
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
-  player.message = "Game loaded.";
+  gi.gamestate = GameState.GS_LEVEL;
+  gi.usergame = true;
+  gi.wipegamestate = -1 as unknown as GameState;
+  gi.world!.player.message = "Game loaded.";
   console.log(`[gameflow] Game loaded: ${data.mapName} (${data.description})`);
 }
 
@@ -330,15 +300,15 @@ function applyLoadedData(data: GameSaveData): void {
 // Quick save/load helpers
 // ============================================================
 
-export function quickSave(): void {
-  if (!usergame() || gamestate() !== GameState.GS_LEVEL) return;
-  setPendingSaveSlot(-1);
-  setGameAction(GameAction.ga_savegame);
+export function quickSave(gi: GameInstance): void {
+  if (!gi.usergame || gi.gamestate !== GameState.GS_LEVEL) return;
+  gi.pendingSaveSlot = -1;
+  gi.gameaction = GameAction.ga_savegame;
 }
 
-export function quickLoad(): void {
-  setPendingSaveSlot(-1);
-  setGameAction(GameAction.ga_loadgame);
+export function quickLoad(gi: GameInstance): void {
+  gi.pendingSaveSlot = -1;
+  gi.gameaction = GameAction.ga_loadgame;
 }
 
 // ============================================================
@@ -380,7 +350,7 @@ export function musicForMap(mapName: string): Music {
 }
 
 /** Count pickup items on the map for intermission totalItems */
-export function countMapItems(map: GameMap): void {
+export function countMapItems(map: GameMap, gi: GameInstance): void {
   const COUNTABLE_ITEMS: Set<number> = new Set([
     2014, 2011, 2012, 2013,
     2015, 2018, 2019,
@@ -391,16 +361,16 @@ export function countMapItems(map: GameMap): void {
   ]);
   for (const thing of map.things) {
     if (COUNTABLE_ITEMS.has(thing.type)) {
-      addTotalItem();
+      gi.stats.totalItems++;
     }
   }
 }
 
 /** Count secret sectors for intermission totalSecrets */
-export function countMapSecrets(map: GameMap): void {
+export function countMapSecrets(map: GameMap, gi: GameInstance): void {
   for (const sector of map.sectors) {
     if ((sector.special & 0xFF) === 9) {
-      addTotalSecret();
+      gi.stats.totalSecrets++;
     }
   }
 }

@@ -133,7 +133,7 @@ export class PlaneRenderer {
         continue;
       }
 
-      const animatedPicnum = getAnimatedFlat(vp.picnum);
+      const animatedPicnum = getAnimatedFlat(vp.picnum, ctx.gi);
       const flat = ctx.texData.flatList[animatedPicnum];
       if (!flat) continue;
 

@@ -16,7 +16,7 @@ import { getDroppedItems, removeDroppedItem } from './mobj';
 import { isDoubleAmmo } from './skill';
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
-import { addPlayerItem } from './level-stats';
+import { GameInstance } from './game-instance';
 
 // Touch radius for pickups (20 map units — matches DOOM's MELEERANGE check)
 const PICKUP_RADIUS = 20 << FRACBITS;
@@ -26,15 +26,18 @@ const MAXHEALTH = 200;
 const MAXARMOR = 200;
 
 /** Set of thing indices that have been picked up and should no longer render */
-export const removedThings: Set<number> = new Set();
+export function getRemovedThings(gi: GameInstance): Set<number> {
+  return gi.removedThings;
+}
 
 /** Clear removed things (level change) */
-export function clearRemovedThings(): void {
-  removedThings.clear();
+export function clearRemovedThings(gi: GameInstance): void {
+  gi.removedThings.clear();
 }
 
 /** Restore removed things from save data */
-export function setRemovedThings(indices: number[]): void {
+export function setRemovedThings(indices: number[], gi: GameInstance): void {
+  const removedThings = gi.removedThings;
   removedThings.clear();
   for (const idx of indices) removedThings.add(idx);
 }
@@ -63,8 +66,10 @@ export function checkPickups(
     powers: number[];
     message: string | null;
   },
-  things: MapThing[]
+  things: MapThing[],
+  gi: GameInstance,
 ): void {
+  const removedThings = gi.removedThings;
   for (let i = 0; i < things.length; i++) {
     if (removedThings.has(i)) continue;
     const thing = things[i];
@@ -78,11 +83,11 @@ export function checkPickups(
     if (dx > PICKUP_RADIUS || dy > PICKUP_RADIUS) continue;
 
     // Try to pick up the item
-    const result = touchSpecialThing(thing.type, player);
+    const result = touchSpecialThing(thing.type, player, gi);
     if (result.picked) {
       removedThings.add(i);
       player.bonuscount = 6; // gold screen flash for 6 tics
-      addPlayerItem();
+      gi.stats.playerItems++;
       if (result.message) {
         player.message = result.message;
       }
@@ -92,7 +97,7 @@ export function checkPickups(
   }
 
   // Also check dropped items (weapons/ammo from killed monsters)
-  const drops = getDroppedItems();
+  const drops = getDroppedItems(gi);
   for (let i = drops.length - 1; i >= 0; i--) {
     const drop = drops[i];
     if (!isPickupType(drop.thingType)) continue;
@@ -101,9 +106,9 @@ export function checkPickups(
     const dy = Math.abs(player.y - drop.y);
     if (dx > PICKUP_RADIUS || dy > PICKUP_RADIUS) continue;
 
-    const result = touchSpecialThing(drop.thingType, player);
+    const result = touchSpecialThing(drop.thingType, player, gi);
     if (result.picked) {
-      removeDroppedItem(i);
+      removeDroppedItem(i, gi);
       player.bonuscount = 6;
       if (result.message) {
         player.message = result.message;
@@ -132,11 +137,12 @@ function touchSpecialThing(
     readyweapon: WeaponType;
     pendingweapon: WeaponType;
     powers: number[];
-  }
+  },
+  gi: GameInstance,
 ): PickupResult {
   const effect = PICKUP_EFFECTS[type];
   if (!effect) return { picked: false };
-  return effect(player);
+  return effect(player, gi);
 }
 
 // ---- Helper functions ----
@@ -156,13 +162,14 @@ function giveArmor(player: { armor: number }, amount: number, max: number): bool
 function giveAmmo(
   player: { ammo: number[]; maxammo: number[] },
   type: AmmoType,
-  count: number
+  count: number,
+  gi: GameInstance,
 ): boolean {
   if (type < 0) return false;
   if (player.ammo[type] >= player.maxammo[type]) return false;
 
   // Double ammo on Baby and Nightmare
-  if (isDoubleAmmo()) count *= 2;
+  if (isDoubleAmmo(gi)) count *= 2;
 
   player.ammo[type] = Math.min(player.ammo[type] + count, player.maxammo[type]);
   return true;
@@ -174,7 +181,8 @@ function giveWeapon(
     ammo: number[]; maxammo: number[];
     pendingweapon: WeaponType;
   },
-  weapon: WeaponType
+  weapon: WeaponType,
+  gi: GameInstance,
 ): boolean {
   const alreadyOwned = player.weaponowned[weapon];
 
@@ -188,7 +196,7 @@ function giveWeapon(
   if (ammoType !== undefined && ammoType >= 0) {
     const clipAmount = CLIP_AMMO[ammoType] ?? 0;
     // Weapons give 2x clip amount on pickup
-    if (giveAmmo(player, ammoType, clipAmount * 2)) {
+    if (giveAmmo(player, ammoType, clipAmount * 2, gi)) {
       gaveSomething = true;
     }
   }
@@ -222,7 +230,7 @@ type PickupFn = (player: {
   readyweapon: WeaponType;
   pendingweapon: WeaponType;
   powers: number[];
-}) => PickupResult;
+}, gi: GameInstance) => PickupResult;
 
 const PICKUP_EFFECTS: Record<number, PickupFn> = {
   // ---- Health ----
@@ -267,50 +275,50 @@ const PICKUP_EFFECTS: Record<number, PickupFn> = {
 
   // ---- Ammo ----
   // Clip (10 bullets)
-  2007: (p) => ({ picked: giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip]), message: 'Picked up a clip.' }),
+  2007: (p, gi) => ({ picked: giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip], gi), message: 'Picked up a clip.' }),
   // Box of bullets (50)
-  2048: (p) => ({ picked: giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip] * 5), message: 'Picked up a box of bullets.' }),
+  2048: (p, gi) => ({ picked: giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip] * 5, gi), message: 'Picked up a box of bullets.' }),
   // Shotgun shells (4)
-  2008: (p) => ({ picked: giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell]), message: 'Picked up 4 shotgun shells.' }),
+  2008: (p, gi) => ({ picked: giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell], gi), message: 'Picked up 4 shotgun shells.' }),
   // Box of shells (20)
-  2049: (p) => ({ picked: giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell] * 5), message: 'Picked up a box of shotgun shells.' }),
+  2049: (p, gi) => ({ picked: giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell] * 5, gi), message: 'Picked up a box of shotgun shells.' }),
   // Rocket
-  2010: (p) => ({ picked: giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl]), message: 'Picked up a rocket.' }),
+  2010: (p, gi) => ({ picked: giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl], gi), message: 'Picked up a rocket.' }),
   // Box of rockets (5)
-  2046: (p) => ({ picked: giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl] * 5), message: 'Picked up a box of rockets.' }),
+  2046: (p, gi) => ({ picked: giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl] * 5, gi), message: 'Picked up a box of rockets.' }),
   // Cell charge (20)
-  2047: (p) => ({ picked: giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell]), message: 'Picked up an energy cell.' }),
+  2047: (p, gi) => ({ picked: giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell], gi), message: 'Picked up an energy cell.' }),
   // Cell charge pack (100)
-  17:   (p) => ({ picked: giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell] * 5), message: 'Picked up an energy cell pack.' }),
+  17:   (p, gi) => ({ picked: giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell] * 5, gi), message: 'Picked up an energy cell pack.' }),
   // Backpack (doubles max ammo, gives one clip of each)
-  8: (p) => {
+  8: (p, gi) => {
     // Double max ammo
     for (let a = 0; a < AmmoType.NUMAMMO; a++) {
       p.maxammo[a] = (MAX_AMMO[a] ?? 0) * 2;
     }
     // Give one clip of each ammo type
-    giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip]);
-    giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell]);
-    giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell]);
-    giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl]);
+    giveAmmo(p, AmmoType.clip, CLIP_AMMO[AmmoType.clip], gi);
+    giveAmmo(p, AmmoType.shell, CLIP_AMMO[AmmoType.shell], gi);
+    giveAmmo(p, AmmoType.cell, CLIP_AMMO[AmmoType.cell], gi);
+    giveAmmo(p, AmmoType.misl, CLIP_AMMO[AmmoType.misl], gi);
     return { picked: true, message: 'Picked up a backpack full of ammo!' };
   },
 
   // ---- Weapons ----
   // Shotgun
-  2001: (p) => ({ picked: giveWeapon(p, WeaponType.shotgun), message: 'You got the shotgun!', sound: Sfx.wpnup }),
+  2001: (p, gi) => ({ picked: giveWeapon(p, WeaponType.shotgun, gi), message: 'You got the shotgun!', sound: Sfx.wpnup }),
   // Super shotgun (DOOM2)
-  82:   (p) => ({ picked: giveWeapon(p, WeaponType.supershotgun), message: 'You got the super shotgun!', sound: Sfx.wpnup }),
+  82:   (p, gi) => ({ picked: giveWeapon(p, WeaponType.supershotgun, gi), message: 'You got the super shotgun!', sound: Sfx.wpnup }),
   // Chaingun
-  2002: (p) => ({ picked: giveWeapon(p, WeaponType.chaingun), message: 'You got the chaingun!', sound: Sfx.wpnup }),
+  2002: (p, gi) => ({ picked: giveWeapon(p, WeaponType.chaingun, gi), message: 'You got the chaingun!', sound: Sfx.wpnup }),
   // Rocket launcher
-  2003: (p) => ({ picked: giveWeapon(p, WeaponType.missile), message: 'A rocket launcher!', sound: Sfx.wpnup }),
+  2003: (p, gi) => ({ picked: giveWeapon(p, WeaponType.missile, gi), message: 'A rocket launcher!', sound: Sfx.wpnup }),
   // Plasma rifle
-  2004: (p) => ({ picked: giveWeapon(p, WeaponType.plasma), message: 'You got the plasma rifle!', sound: Sfx.wpnup }),
+  2004: (p, gi) => ({ picked: giveWeapon(p, WeaponType.plasma, gi), message: 'You got the plasma rifle!', sound: Sfx.wpnup }),
   // BFG9000
-  2006: (p) => ({ picked: giveWeapon(p, WeaponType.bfg), message: 'You got the BFG9000!  Oh, yes.', sound: Sfx.wpnup }),
+  2006: (p, gi) => ({ picked: giveWeapon(p, WeaponType.bfg, gi), message: 'You got the BFG9000!  Oh, yes.', sound: Sfx.wpnup }),
   // Chainsaw
-  2005: (p) => ({ picked: giveWeapon(p, WeaponType.chainsaw), message: 'A chainsaw!  Find some meat!', sound: Sfx.wpnup }),
+  2005: (p, gi) => ({ picked: giveWeapon(p, WeaponType.chainsaw, gi), message: 'A chainsaw!  Find some meat!', sound: Sfx.wpnup }),
 
   // ---- Powerups ----
   // Berserk (full health + berserk mode)

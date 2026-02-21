@@ -5,12 +5,13 @@
 
 import type { LineDef, Sector } from './map-types';
 import { FRACUNIT } from './math';
+import { GameInstance } from './game-instance';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
 import {
   PLATSPEED, PLATWAIT, MoveResult,
-  getCurrentMap, sectorSoundOrg, movePlane,
+  sectorSoundOrg, movePlane,
   findLowestFloorSurrounding, findHighestFloorSurrounding, findNextHighestFloor,
   findSectorsFromTag,
   hasSectorSpecial, setSectorSpecial, deleteSectorSpecial,
@@ -47,25 +48,25 @@ export interface PlatThinker extends Thinker {
   tag: number;
 }
 
-export function platTick(t: Thinker): void {
+export function platTick(t: Thinker, gi: GameInstance): void {
   const plat = t as PlatThinker;
 
   switch (plat.status) {
     case PlatStatus.up: {
-      const res = movePlane(plat.sector, plat.speed, plat.high, plat.crush, 0, 1);
+      const res = movePlane(plat.sector, plat.speed, plat.high, plat.crush, 0, 1, gi);
       if (res === MoveResult.crushed && !plat.crush) {
         plat.count = plat.wait;
         plat.status = PlatStatus.down;
       } else if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
+        FX_Sound(sectorSoundOrg(plat.sector, gi), Sfx.pstop);
         switch (plat.type) {
           case PlatType.blazeDWUS:
           case PlatType.downWaitUpStay:
           case PlatType.raiseAndChange:
           case PlatType.raiseToNearestAndChange:
-            removeActivePlat(plat);
+            removeActivePlat(plat, gi);
             break;
         }
       }
@@ -73,11 +74,11 @@ export function platTick(t: Thinker): void {
     }
 
     case PlatStatus.down: {
-      const res = movePlane(plat.sector, plat.speed, plat.low, false, 0, -1);
+      const res = movePlane(plat.sector, plat.speed, plat.low, false, 0, -1, gi);
       if (res === MoveResult.pastdest) {
         plat.count = plat.wait;
         plat.status = PlatStatus.waiting;
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
+        FX_Sound(sectorSoundOrg(plat.sector, gi), Sfx.pstop);
       }
       break;
     }
@@ -89,7 +90,7 @@ export function platTick(t: Thinker): void {
         } else {
           plat.status = PlatStatus.down;
         }
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstart);
+        FX_Sound(sectorSoundOrg(plat.sector, gi), Sfx.pstart);
       }
       break;
 
@@ -98,11 +99,11 @@ export function platTick(t: Thinker): void {
   }
 }
 
-function removeActivePlat(plat: PlatThinker): void {
-  const activePlats = getActivePlats();
+function removeActivePlat(plat: PlatThinker, gi: GameInstance): void {
+  const activePlats = getActivePlats(gi);
   for (let i = 0; i < activePlats.length; i++) {
     if (activePlats[i] === plat) {
-      deleteSectorSpecial(plat.sector);
+      deleteSectorSpecial(plat.sector, gi);
       removeThinker(plat);
       activePlats[i] = null;
       return;
@@ -114,8 +115,8 @@ function removeActivePlat(plat: PlatThinker): void {
  * EV_StopPlat -- stop platforms with matching tag.
  * Reference: p_plats.c EV_StopPlat
  */
-export function evStopPlat(line: LineDef): void {
-  const activePlats = getActivePlats();
+export function evStopPlat(line: LineDef, gi: GameInstance): void {
+  const activePlats = getActivePlats(gi);
   for (let i = 0; i < activePlats.length; i++) {
     const plat = activePlats[i] as PlatThinker | null;
     if (plat && plat.tag === line.tag && plat.status !== PlatStatus.in_stasis) {
@@ -129,13 +130,13 @@ export function evStopPlat(line: LineDef): void {
  * EV_DoPlat -- activate platforms by tag
  * Reference: p_plats.c
  */
-export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean {
+export function evDoPlat(line: LineDef, type: PlatType, amount: number, gi: GameInstance): boolean {
   let rtn = false;
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
   const sectors = findSectorsFromTag(line.tag, map);
 
   for (const sec of sectors) {
-    if (hasSectorSpecial(sec)) continue;
+    if (hasSectorSpecial(sec, gi)) continue;
 
     rtn = true;
     const plat: PlatThinker = {
@@ -157,7 +158,7 @@ export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean
     switch (type) {
       case PlatType.raiseToNearestAndChange:
         plat.speed = PLATSPEED / 2;
-        plat.high = findNextHighestFloor(sec, sec.floorHeight, map);
+        plat.high = findNextHighestFloor(sec, sec.floorHeight, map, gi);
         plat.wait = 0;
         plat.status = PlatStatus.up;
         sec.special = 0;
@@ -170,7 +171,7 @@ export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean
         break;
       case PlatType.downWaitUpStay:
         plat.speed = PLATSPEED * 4;
-        plat.low = findLowestFloorSurrounding(sec, map);
+        plat.low = findLowestFloorSurrounding(sec, map, gi);
         if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
         plat.high = sec.floorHeight;
         plat.wait = 35 * PLATWAIT;
@@ -178,7 +179,7 @@ export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean
         break;
       case PlatType.blazeDWUS:
         plat.speed = PLATSPEED * 8;
-        plat.low = findLowestFloorSurrounding(sec, map);
+        plat.low = findLowestFloorSurrounding(sec, map, gi);
         if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
         plat.high = sec.floorHeight;
         plat.wait = 35 * PLATWAIT;
@@ -186,19 +187,19 @@ export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean
         break;
       case PlatType.perpetualRaise:
         plat.speed = PLATSPEED;
-        plat.low = findLowestFloorSurrounding(sec, map);
+        plat.low = findLowestFloorSurrounding(sec, map, gi);
         if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
-        plat.high = findHighestFloorSurrounding(sec, map);
+        plat.high = findHighestFloorSurrounding(sec, map, gi);
         if (plat.high < sec.floorHeight) plat.high = sec.floorHeight;
         plat.wait = 35 * PLATWAIT;
         plat.status = Math.random() > 0.5 ? PlatStatus.up : PlatStatus.down;
         break;
     }
 
-    FX_Sound(sectorSoundOrg(sec), Sfx.pstart);
-    addThinker(plat);
-    setSectorSpecial(sec, plat);
-    addActivePlat(plat);
+    FX_Sound(sectorSoundOrg(sec, gi), Sfx.pstart);
+    addThinker(plat, gi);
+    setSectorSpecial(sec, plat, gi);
+    addActivePlat(plat, gi);
   }
   return rtn;
 }
@@ -209,14 +210,15 @@ export function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean
 export function restorePlatThinker(
   sector: Sector, type: PlatType, speed: number, low: number, high: number,
   wait: number, count: number, status: PlatStatus, oldstatus: PlatStatus,
-  crush: boolean, tag: number
+  crush: boolean, tag: number,
+  gi: GameInstance,
 ): PlatThinker {
   const plat: PlatThinker = {
     action: platTick, removed: false,
     type, sector, speed, low, high, wait, count, status, oldstatus, crush, tag,
   };
-  addThinker(plat);
-  setSectorSpecial(sector, plat);
-  addActivePlat(plat);
+  addThinker(plat, gi);
+  setSectorSpecial(sector, plat, gi);
+  addActivePlat(plat, gi);
   return plat;
 }

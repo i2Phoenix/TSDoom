@@ -5,10 +5,11 @@
 
 import { ML_TWOSIDED, type LineDef, type Sector } from './map-types';
 import { FRACBITS, FRACUNIT } from './math';
+import { GameInstance } from './game-instance';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import {
   FLOORSPEED, STAIRSPEED, TURBOSTAIRSPEED, DONUT_SPEED, MoveResult,
-  getCurrentMap, movePlane, getNextSector,
+  movePlane, getNextSector,
   findLowestCeilingSurrounding, findLowestFloorSurrounding,
   findHighestFloorSurrounding, findNextHighestFloor, findSectorsFromTag,
   hasSectorSpecial, setSectorSpecial, deleteSectorSpecial,
@@ -40,13 +41,13 @@ export interface FloorThinker extends Thinker {
   direction: number;
 }
 
-export function floorTick(t: Thinker): void {
+export function floorTick(t: Thinker, gi: GameInstance): void {
   const floor = t as FloorThinker;
   const res = movePlane(floor.sector, floor.speed,
-    floor.floordestheight, floor.crush, 0, floor.direction);
+    floor.floordestheight, floor.crush, 0, floor.direction, gi);
 
   if (res === MoveResult.pastdest) {
-    deleteSectorSpecial(floor.sector);
+    deleteSectorSpecial(floor.sector, gi);
     removeThinker(floor);
   }
 }
@@ -56,8 +57,8 @@ export function floorTick(t: Thinker): void {
  * on two-sided linedefs touching a sector.
  * Reference: p_floor.c P_FindShortestTextureAround
  */
-function findShortestTextureAround(sec: Sector): number {
-  const currentMap = getCurrentMap();
+function findShortestTextureAround(sec: Sector, gi: GameInstance): number {
+  const currentMap = gi.currentMap;
   if (!currentMap) return FRACUNIT; // fallback: 1 unit
 
   let minSize = 0x7FFFFFFF;
@@ -90,13 +91,13 @@ function findShortestTextureAround(sec: Sector): number {
   return minSize !== 0x7FFFFFFF ? minSize * FRACUNIT : FRACUNIT;
 }
 
-export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
+export function evDoFloor(line: LineDef, floortype: FloorType, gi: GameInstance): boolean {
   let rtn = false;
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
   const sectors = findSectorsFromTag(line.tag, map);
 
   for (const sec of sectors) {
-    if (hasSectorSpecial(sec)) continue;
+    if (hasSectorSpecial(sec, gi)) continue;
 
     rtn = true;
     const floor: FloorThinker = {
@@ -113,16 +114,16 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
     switch (floortype) {
       case FloorType.lowerFloor:
         floor.direction = -1;
-        floor.floordestheight = findHighestFloorSurrounding(sec, map);
+        floor.floordestheight = findHighestFloorSurrounding(sec, map, gi);
         break;
       case FloorType.lowerFloorToLowest:
         floor.direction = -1;
-        floor.floordestheight = findLowestFloorSurrounding(sec, map);
+        floor.floordestheight = findLowestFloorSurrounding(sec, map, gi);
         break;
       case FloorType.turboLower:
         floor.direction = -1;
         floor.speed = FLOORSPEED * 4;
-        floor.floordestheight = findHighestFloorSurrounding(sec, map);
+        floor.floordestheight = findHighestFloorSurrounding(sec, map, gi);
         if (floor.floordestheight !== sec.floorHeight) {
           floor.floordestheight += 8 * FRACUNIT;
         }
@@ -130,7 +131,7 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
       case FloorType.raiseFloorCrush:
         floor.crush = true;
         floor.direction = 1;
-        floor.floordestheight = findLowestCeilingSurrounding(sec, map);
+        floor.floordestheight = findLowestCeilingSurrounding(sec, map, gi);
         if (floor.floordestheight > sec.ceilingHeight) {
           floor.floordestheight = sec.ceilingHeight;
         }
@@ -138,7 +139,7 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
         break;
       case FloorType.raiseFloor:
         floor.direction = 1;
-        floor.floordestheight = findLowestCeilingSurrounding(sec, map);
+        floor.floordestheight = findLowestCeilingSurrounding(sec, map, gi);
         if (floor.floordestheight > sec.ceilingHeight) {
           floor.floordestheight = sec.ceilingHeight;
         }
@@ -146,11 +147,11 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
       case FloorType.raiseFloorTurbo:
         floor.direction = 1;
         floor.speed = FLOORSPEED * 4;
-        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, map);
+        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, map, gi);
         break;
       case FloorType.raiseFloorToNearest:
         floor.direction = 1;
-        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, map);
+        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, map, gi);
         break;
       case FloorType.raiseFloor24:
         floor.direction = 1;
@@ -162,7 +163,7 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
         break;
       case FloorType.raiseToTexture:
         floor.direction = 1;
-        floor.floordestheight = sec.floorHeight + findShortestTextureAround(sec);
+        floor.floordestheight = sec.floorHeight + findShortestTextureAround(sec, gi);
         break;
       case FloorType.raiseFloor512:
         floor.direction = 1;
@@ -170,8 +171,8 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
         break;
     }
 
-    addThinker(floor);
-    setSectorSpecial(sec, floor);
+    addThinker(floor, gi);
+    setSectorSpecial(sec, floor, gi);
   }
   return rtn;
 }
@@ -187,17 +188,17 @@ export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
  * floor texture, raising each sector by stepSize more than the previous.
  * Reference: p_floor.c EV_BuildStairs
  */
-export function evBuildStairs(line: LineDef, turbo: boolean): boolean {
+export function evBuildStairs(line: LineDef, turbo: boolean, gi: GameInstance): boolean {
   const stepSize = turbo ? (16 << FRACBITS) : (8 << FRACBITS);
   const speed = turbo ? TURBOSTAIRSPEED : STAIRSPEED;
 
   let rtn = false;
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
   const sectors = findSectorsFromTag(line.tag, map);
-  const sectorLinesMap = getSectorLines();
+  const sectorLinesMap = getSectorLines(gi);
 
   for (const sec of sectors) {
-    if (hasSectorSpecial(sec)) continue;
+    if (hasSectorSpecial(sec, gi)) continue;
 
     rtn = true;
     let height = sec.floorHeight + stepSize;
@@ -214,8 +215,8 @@ export function evBuildStairs(line: LineDef, turbo: boolean): boolean {
       crush: false,
       direction: 1,
     };
-    addThinker(firstFloor);
-    setSectorSpecial(sec, firstFloor);
+    addThinker(firstFloor, gi);
+    setSectorSpecial(sec, firstFloor, gi);
 
     // Cascade through neighboring sectors with same floor texture
     let prevSec = sec;
@@ -239,7 +240,7 @@ export function evBuildStairs(line: LineDef, turbo: boolean): boolean {
         if (nextSec.floorPic !== stairFloorPic) continue;
 
         // Already has a thinker -- skip
-        if (hasSectorSpecial(nextSec)) continue;
+        if (hasSectorSpecial(nextSec, gi)) continue;
 
         // Found next stair sector
         height += stepSize;
@@ -253,8 +254,8 @@ export function evBuildStairs(line: LineDef, turbo: boolean): boolean {
           crush: false,
           direction: 1,
         };
-        addThinker(nextFloor);
-        setSectorSpecial(nextSec, nextFloor);
+        addThinker(nextFloor, gi);
+        setSectorSpecial(nextSec, nextFloor, gi);
 
         prevSec = nextSec;
         ok = true;
@@ -276,14 +277,14 @@ export function evBuildStairs(line: LineDef, turbo: boolean): boolean {
 //   1) Raise hole floor to ring's floor height + copy ring's floor texture
 //   2) Lower ring floor to outer sector's floor height
 // ===============================================
-export function evDoDonut(line: LineDef): boolean {
+export function evDoDonut(line: LineDef, gi: GameInstance): boolean {
   let rtn = false;
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
   const sectors = findSectorsFromTag(line.tag, map);
-  const sectorLinesMap = getSectorLines();
+  const sectorLinesMap = getSectorLines(gi);
 
   for (const hole of sectors) {
-    if (hasSectorSpecial(hole)) continue;
+    if (hasSectorSpecial(hole, gi)) continue;
 
     // Find the ring sector: first two-sided line's other sector
     const holeLines = sectorLinesMap.get(hole);
@@ -295,7 +296,7 @@ export function evDoDonut(line: LineDef): boolean {
       if (ring) break;
     }
     if (!ring) continue;
-    if (hasSectorSpecial(ring)) continue;
+    if (hasSectorSpecial(ring, gi)) continue;
 
     // Find the outer sector: first two-sided line of the ring that leads
     // to a sector OTHER than the hole
@@ -322,8 +323,8 @@ export function evDoDonut(line: LineDef): boolean {
       crush: false,
       direction: 1,
     };
-    addThinker(raiseFloor);
-    setSectorSpecial(hole, raiseFloor);
+    addThinker(raiseFloor, gi);
+    setSectorSpecial(hole, raiseFloor, gi);
     // Copy ring floor texture to hole
     hole.floorPic = ring.floorPic;
 
@@ -338,8 +339,8 @@ export function evDoDonut(line: LineDef): boolean {
       crush: false,
       direction: -1,
     };
-    addThinker(lowerFloor);
-    setSectorSpecial(ring, lowerFloor);
+    addThinker(lowerFloor, gi);
+    setSectorSpecial(ring, lowerFloor, gi);
   }
 
   return rtn;
@@ -350,13 +351,14 @@ export function evDoDonut(line: LineDef): boolean {
  */
 export function restoreFloorThinker(
   sector: Sector, type: FloorType, speed: number, floordestheight: number,
-  crush: boolean, direction: number
+  crush: boolean, direction: number,
+  gi: GameInstance,
 ): FloorThinker {
   const floor: FloorThinker = {
     action: floorTick, removed: false,
     type, sector, speed, floordestheight, crush, direction,
   };
-  addThinker(floor);
-  setSectorSpecial(sector, floor);
+  addThinker(floor, gi);
+  setSectorSpecial(sector, floor, gi);
   return floor;
 }

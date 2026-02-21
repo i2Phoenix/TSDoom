@@ -13,7 +13,8 @@
 
 import { WeaponType, AmmoType, MAX_AMMO } from './weapons';
 import { PowerType, INVULNTICS, INVISTICS, IRONTICS, INFRATICS } from './player';
-import { setGameAction, setPendingWarpMap, GameAction } from './gamestate';
+import { GameAction } from './gamestate';
+import { GameInstance } from './game-instance';
 import { FRACBITS } from './math';
 import { areCheatsDisabled } from './skill';
 import { FX_Music } from './effects';
@@ -54,7 +55,7 @@ export interface CheatPlayer {
 // ---- Cheat definitions ----
 interface CheatDef {
   sequence: string;
-  handler: (player: CheatPlayer, extra?: string) => void;
+  handler: (player: CheatPlayer, gi: GameInstance, extra?: string) => void;
   /** If true, the sequence is a prefix and extra chars are captured */
   paramCount?: number;
 }
@@ -63,7 +64,7 @@ const cheats: CheatDef[] = [
   // ---- IDDQD — God Mode ----
   {
     sequence: 'iddqd',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.cheats ^= CF_GODMODE;
       if (p.cheats & CF_GODMODE) {
         p.health = 100;
@@ -77,7 +78,7 @@ const cheats: CheatDef[] = [
   // ---- IDKFA — All weapons, max ammo, 200% armor, all keys ----
   {
     sequence: 'idkfa',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.armortype = 2;
       p.armor = 200;
       // Give all weapons
@@ -100,7 +101,7 @@ const cheats: CheatDef[] = [
   // ---- IDFA — All weapons, max ammo, 200% armor (no keys) ----
   {
     sequence: 'idfa',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.armortype = 2;
       p.armor = 200;
       for (let i = 0; i < WeaponType.NUMWEAPONS; i++) {
@@ -117,7 +118,7 @@ const cheats: CheatDef[] = [
   // ---- IDSPISPOPD — Noclip (Doom 1) ----
   {
     sequence: 'idspispopd',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.cheats ^= CF_NOCLIP;
       p.message = (p.cheats & CF_NOCLIP)
         ? 'No Clipping Mode ON'
@@ -128,7 +129,7 @@ const cheats: CheatDef[] = [
   // ---- IDCLIP — Noclip (Doom 2) ----
   {
     sequence: 'idclip',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.cheats ^= CF_NOCLIP;
       p.message = (p.cheats & CF_NOCLIP)
         ? 'No Clipping Mode ON'
@@ -139,7 +140,7 @@ const cheats: CheatDef[] = [
   // ---- IDCHOPPERS — Give chainsaw ----
   {
     sequence: 'idchoppers',
-    handler: (p) => {
+    handler: (p, _gi) => {
       p.weaponowned[WeaponType.chainsaw] = true;
       p.pendingweapon = WeaponType.chainsaw;
       p.message = '... Strstrings this chainsaw got a lot of ...';
@@ -149,7 +150,7 @@ const cheats: CheatDef[] = [
   // ---- IDBEHOLD — Power-up toggle (prefix, needs one more key) ----
   {
     sequence: 'idbehold',
-    handler: (_p) => {
+    handler: (_p, _gi) => {
       awaitingBeholdKey = true;
       _p.message = 'inVuln, Str, Inviso, Rad, Allmap, or Lite-amp';
     },
@@ -158,7 +159,7 @@ const cheats: CheatDef[] = [
   // ---- IDMYPOS — Show position ----
   {
     sequence: 'idmypos',
-    handler: (p) => {
+    handler: (p, _gi) => {
       const x = (p.x >> FRACBITS).toString(16);
       const y = (p.y >> FRACBITS).toString(16);
       const ang = Math.round((p.angle / 0x100000000) * 360);
@@ -169,8 +170,8 @@ const cheats: CheatDef[] = [
   // ---- IDDT — Automap reveal toggle ----
   {
     sequence: 'iddt',
-    handler: (p) => {
-      AM_CycleReveal();
+    handler: (p, gi) => {
+      AM_CycleReveal(gi);
       p.message = 'Map Reveal Toggled';
     },
   },
@@ -179,7 +180,7 @@ const cheats: CheatDef[] = [
   {
     sequence: 'idclev',
     paramCount: 2,
-    handler: (_p, extra) => {
+    handler: (_p, gi, extra) => {
       if (!extra || extra.length < 2) return;
       const d1 = parseInt(extra[0]);
       const d2 = parseInt(extra[1]);
@@ -197,8 +198,8 @@ const cheats: CheatDef[] = [
         ? doom1Name   // Looks like Doom 1 episode/map
         : doom2Name;  // Treat as Doom 2 MAP##
 
-      setPendingWarpMap(mapName);
-      setGameAction(GameAction.ga_warp);
+      gi.pendingWarpMap = mapName;
+      gi.gameaction = GameAction.ga_warp;
       _p.message = null;
       console.log(`[cheats] IDCLEV: warping to ${mapName}`);
     },
@@ -208,7 +209,7 @@ const cheats: CheatDef[] = [
   {
     sequence: 'idmus',
     paramCount: 2,
-    handler: (p, extra) => {
+    handler: (p, _gi, extra) => {
       if (!extra || extra.length < 2) return;
       const d1 = parseInt(extra[0]);
       const d2 = parseInt(extra[1]);
@@ -291,12 +292,12 @@ let pendingParamPlayer: CheatPlayer | null = null;
  * @param player The current player
  * @returns true if a cheat was activated (to optionally suppress input)
  */
-export function feedCheatKey(char: string, player: CheatPlayer): boolean {
+export function feedCheatKey(char: string, player: CheatPlayer, gi: GameInstance): boolean {
   // Only single printable characters
   if (char.length !== 1) return false;
 
   // Cheats are disabled on Nightmare
-  if (areCheatsDisabled()) return false;
+  if (areCheatsDisabled(gi)) return false;
 
   const lc = char.toLowerCase();
 
@@ -309,7 +310,7 @@ export function feedCheatKey(char: string, player: CheatPlayer): boolean {
   if (pendingParamCheat && pendingParamPlayer) {
     pendingParamChars += lc;
     if (pendingParamChars.length >= (pendingParamCheat.paramCount ?? 0)) {
-      pendingParamCheat.handler(pendingParamPlayer, pendingParamChars);
+      pendingParamCheat.handler(pendingParamPlayer, gi, pendingParamChars);
       pendingParamCheat = null;
       pendingParamChars = '';
       pendingParamPlayer = null;
@@ -344,7 +345,7 @@ export function feedCheatKey(char: string, player: CheatPlayer): boolean {
         pendingParamPlayer = player;
         return false; // wait for param chars
       }
-      cheat.handler(player);
+      cheat.handler(player, gi);
       // Clear buffer to prevent re-triggering
       keyBuffer.fill('');
       bufferPos = 0;

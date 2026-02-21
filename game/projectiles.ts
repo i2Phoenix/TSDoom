@@ -14,7 +14,7 @@ import {
 } from './mobj';
 import {
   P_AimLineAttack, P_RadiusAttack, getBulletSlope,
-  lineIntersectFrac, linetarget,
+  lineIntersectFrac, getLinetarget,
 } from './combat';
 import {
   spawnRocketExplosion, spawnPlasmaHit, spawnBfgHit,
@@ -24,7 +24,7 @@ import { spawnBarrelExplosion } from './vfx';
 import { P_Random } from './random';
 import { FX_DynLight } from './effects';
 import { Player } from './player';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 
 // ---- Projectile types ----
 export enum ProjectileType {
@@ -236,8 +236,7 @@ export interface Projectile {
   tracerTarget?: MapObjState; // homing target (Revenant tracer)
 }
 
-// ---- Module state ----
-const activeProjectiles: Projectile[] = [];
+// ---- Module state (delegated to GameInstance) ----
 
 const PLAYERRADIUS = 16; // map units
 
@@ -249,7 +248,8 @@ const PLAYERRADIUS = 16; // map units
 export function spawnPlayerProjectile(
   px: number, py: number, pz: number,
   angle: number, aimSlope: number,
-  type: ProjectileType
+  type: ProjectileType,
+  gi: GameInstance,
 ): void {
   const info = PROJECTILE_INFO[type];
 
@@ -275,7 +275,7 @@ export function spawnPlayerProjectile(
     sourceAngle: angle,
   };
 
-  activeProjectiles.push(proj);
+  gi.activeProjectiles.push(proj);
 
   // Muzzle flash dynamic light (table-driven)
   const sl = info.spawnLight;
@@ -292,7 +292,8 @@ export function spawnPlayerProjectile(
 export function spawnMonsterProjectile(
   source: MapObjState,
   target: MapObjState,
-  type: ProjectileType
+  type: ProjectileType,
+  gi: GameInstance,
 ): void {
   const info = PROJECTILE_INFO[type];
   if (!info) return;
@@ -332,7 +333,7 @@ export function spawnMonsterProjectile(
     isMonsterProjectile: true,
   };
 
-  activeProjectiles.push(proj);
+  gi.activeProjectiles.push(proj);
 
   // Set tracer target for homing missiles (Revenant)
   if (type === ProjectileType.revenantTracer) {
@@ -355,6 +356,7 @@ export function spawnMonsterProjectileAngled(
   target: MapObjState,
   type: ProjectileType,
   angleOffset: number,
+  gi: GameInstance,
 ): void {
   const info = PROJECTILE_INFO[type];
   if (!info) return;
@@ -389,7 +391,7 @@ export function spawnMonsterProjectileAngled(
     isMonsterProjectile: true,
   };
 
-  activeProjectiles.push(proj);
+  gi.activeProjectiles.push(proj);
 
   const msl = info.spawnLight;
   if (msl) {
@@ -402,10 +404,11 @@ export function spawnMonsterProjectileAngled(
 // Reference: P_MobjThinker for missiles (p_mobj.c)
 // ============================================================
 
-export function updateProjectiles(): void {
-  const projectileMap = getWorld().map;
+export function updateProjectiles(gi: GameInstance): void {
+  const projectileMap = gi.world?.map;
   if (!projectileMap) return;
 
+  const activeProjectiles = gi.activeProjectiles;
   for (let i = activeProjectiles.length - 1; i >= 0; i--) {
     const proj = activeProjectiles[i];
     if (proj.removed) {
@@ -421,20 +424,20 @@ export function updateProjectiles(): void {
     const newZ = proj.z + proj.momz;
 
     // --- Check wall collision ---
-    if (checkWallCollision(proj, newX, newY, newZ)) {
-      explodeProjectile(proj, proj.x, proj.y, proj.z);
+    if (checkWallCollision(proj, newX, newY, newZ, gi)) {
+      explodeProjectile(proj, proj.x, proj.y, proj.z, gi);
       continue;
     }
 
     // --- Check thing collision ---
-    if (checkThingCollision(proj, newX, newY, newZ)) {
+    if (checkThingCollision(proj, newX, newY, newZ, gi)) {
       continue; // explode already called inside
     }
 
     // --- Check player collision (not own rocket at point-blank range) ---
-    const projectilePlayer = getWorld().player;
+    const projectilePlayer = gi.world?.player;
     if (projectilePlayer && projectilePlayer.health > 0) {
-      if (checkPlayerCollision(proj, newX, newY, newZ)) {
+      if (checkPlayerCollision(proj, newX, newY, newZ, gi)) {
         continue; // explode already called inside
       }
     }
@@ -445,7 +448,7 @@ export function updateProjectiles(): void {
       const floorZ = ss.sector.floorHeight;
       const ceilZ = ss.sector.ceilingHeight;
       if (newZ <= floorZ || newZ + proj.info.height >= ceilZ) {
-        explodeProjectile(proj, newX, newY, newZ <= floorZ ? floorZ : ceilZ);
+        explodeProjectile(proj, newX, newY, newZ <= floorZ ? floorZ : ceilZ, gi);
         continue;
       }
     }
@@ -458,7 +461,7 @@ export function updateProjectiles(): void {
     // ---- A_Tracer: Revenant homing missile logic ----
     // Reference: p_enemy.c A_Tracer — homes every other tic
     if (proj.type === ProjectileType.revenantTracer && (proj.tic & 1)) {
-      tracerHome(proj);
+      tracerHome(proj, gi);
     }
 
     // Flying dynamic light (table-driven)
@@ -479,8 +482,8 @@ export function updateProjectiles(): void {
 // Reference: P_BlockLinesIterator + PIT_CheckLine (p_map.c)
 // ============================================================
 
-function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: number): boolean {
-  const projectileMap = getWorld().map;
+function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: number, gi: GameInstance): boolean {
+  const projectileMap = gi.world?.map;
   if (!projectileMap) return false;
 
   const dx = newX - proj.x;
@@ -536,7 +539,7 @@ function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: 
     }
     // Otherwise passes through
     return true;
-  });
+  }, gi);
 
   return blocked;
 }
@@ -546,8 +549,8 @@ function checkWallCollision(proj: Projectile, newX: number, newY: number, newZ: 
 // Reference: PIT_CheckThing (p_map.c)
 // ============================================================
 
-function checkThingCollision(proj: Projectile, newX: number, newY: number, newZ: number): boolean {
-  const mapObjs = getMapObjects();
+function checkThingCollision(proj: Projectile, newX: number, newY: number, newZ: number, gi: GameInstance): boolean {
+  const mapObjs = getMapObjects(gi);
 
   for (const obj of mapObjs) {
     if (obj.removed) continue;
@@ -568,25 +571,25 @@ function checkThingCollision(proj: Projectile, newX: number, newY: number, newZ:
     if (newZ + proj.info.height < obj.z) continue; // projectile below thing
 
     // Hit! Apply damage
-    const damage = proj.info.damage * ((P_Random() % 8) + 1);
-    const killed = damageMobj(obj, damage, proj.source);
+    const damage = proj.info.damage * ((P_Random(gi) % 8) + 1);
+    const killed = damageMobj(obj, damage, proj.source, gi);
 
     // Spawn hit effect
     if (obj.flags & MF_NOBLOOD) {
-      spawnPuff(newX, newY, newZ, false);
+      spawnPuff(newX, newY, newZ, false, gi);
     } else {
-      spawnBlood(newX, newY, newZ, damage);
+      spawnBlood(newX, newY, newZ, damage, gi);
     }
 
     // Barrel chain explosion
     if (killed && isBarrel(obj.type)) {
       spawnBarrelExplosion(obj.x, obj.y, obj.z, () => {
-        P_RadiusAttack(obj.x, obj.y, obj.z, 128);
-      });
+        P_RadiusAttack(obj.x, obj.y, obj.z, 128, gi);
+      }, gi);
     }
 
     // Explode for rockets (splash damage)
-    explodeProjectile(proj, newX, newY, newZ);
+    explodeProjectile(proj, newX, newY, newZ, gi);
     return true;
   }
 
@@ -601,11 +604,12 @@ function checkThingCollision(proj: Projectile, newX: number, newY: number, newZ:
 
 function checkPlayerCollision(
   proj: Projectile,
-  newX: number, newY: number, newZ: number
+  newX: number, newY: number, newZ: number,
+  gi: GameInstance,
 ): boolean {
   // Only monster projectiles can hit the player
   if (!proj.isMonsterProjectile) return false;
-  const projectilePlayer = getWorld().player;
+  const projectilePlayer = gi.world?.player;
   if (!projectilePlayer || projectilePlayer.health <= 0) return false;
 
   const pdist = proj.info.radius + (PLAYERRADIUS * FRACUNIT);
@@ -620,14 +624,14 @@ function checkPlayerCollision(
   if (newZ + proj.info.height < pz) return false;
 
   // Hit! Apply damage
-  const damage = proj.info.damage * ((P_Random() % 8) + 1);
+  const damage = proj.info.damage * ((P_Random(gi) % 8) + 1);
   projectilePlayer.takeDamage(damage);
 
   // Spawn blood
-  spawnBlood(newX, newY, newZ + (pHeight >> 1), damage);
+  spawnBlood(newX, newY, newZ + (pHeight >> 1), damage, gi);
 
   // Explode
-  explodeProjectile(proj, newX, newY, newZ);
+  explodeProjectile(proj, newX, newY, newZ, gi);
   return true;
 }
 
@@ -635,22 +639,22 @@ function checkPlayerCollision(
 // Explode a projectile
 // ============================================================
 
-function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: number): void {
+function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: number, gi?: GameInstance): void {
   proj.removed = true;
 
   // Spawn visual explosion effect
   switch (proj.type) {
     case ProjectileType.rocket:
     case ProjectileType.cyberdemonRocket:
-      spawnRocketExplosion(hitX, hitY, hitZ);
-      P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius);
+      spawnRocketExplosion(hitX, hitY, hitZ, gi!);
+      P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius, gi!);
       break;
     case ProjectileType.plasma:
-      spawnPlasmaHit(hitX, hitY, hitZ);
+      spawnPlasmaHit(hitX, hitY, hitZ, gi!);
       break;
     case ProjectileType.bfg:
-      spawnBfgHit(hitX, hitY, hitZ);
-      fireBfgTracers(hitX, hitY, hitZ, proj);
+      spawnBfgHit(hitX, hitY, hitZ, gi!);
+      fireBfgTracers(hitX, hitY, hitZ, proj, gi!);
       break;
   }
 
@@ -668,7 +672,7 @@ function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: n
 // Damage per hit: 15 * (1..8) = 15-120.
 // ============================================================
 
-function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projectile): void {
+function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projectile, gi: GameInstance): void {
   const ANG90 = 0x40000000;
   const ANG45 = ANG90 >>> 1;
   const AIMRANGE = 16 * 64 * FRACUNIT; // 1024 map units
@@ -679,18 +683,16 @@ function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projecti
     const an = (sourceAngle - ANG45 + Math.round((ANG90 / 40) * i)) >>> 0;
 
     // P_AimLineAttack sets linetarget if a shootable thing is in LOS
-    P_AimLineAttack(hitX, hitY, hitZ, an, AIMRANGE);
-    if (!linetarget) continue;
-
-    // Avoid hitting same target source (shouldn't happen, but safety)
-    const target = linetarget;
+    P_AimLineAttack(hitX, hitY, hitZ, an, AIMRANGE, gi);
+    const target = getLinetarget(gi);
+    if (!target) continue;
 
     // BFG tracer damage: 15 * (1..8)
-    const damage = 15 * ((P_Random() % 8) + 1);
-    damageMobj(target, damage, proj.source);
+    const damage = 15 * ((P_Random(gi) % 8) + 1);
+    damageMobj(target, damage, proj.source, gi);
 
     // Spawn green flash on target (BFE2 sprite in original DOOM)
-    spawnBfgHit(target.x, target.y, target.z + (target.height >> 1));
+    spawnBfgHit(target.x, target.y, target.z + (target.height >> 1), gi);
   }
 }
 
@@ -703,7 +705,7 @@ function fireBfgTracers(hitX: number, hitY: number, hitZ: number, proj: Projecti
 
 const TRACEANGLE = 0x0C000000; // ~5.625° in BAM
 
-function tracerHome(proj: Projectile): void {
+function tracerHome(proj: Projectile, gi: GameInstance): void {
   const target = proj.tracerTarget;
   if (!target) return;
 
@@ -714,7 +716,7 @@ function tracerHome(proj: Projectile): void {
   }
 
   // Also home toward live player if tracerTarget is the player shim
-  const playerRef = getWorld().player;
+  const playerRef = gi.world?.player;
   const tx = (playerRef && target.thingIndex === -1) ? playerRef.x : target.x;
   const ty = (playerRef && target.thingIndex === -1) ? playerRef.y : target.y;
   const tz = (playerRef && target.thingIndex === -1) ? playerRef.z : target.z;
@@ -772,13 +774,13 @@ function tracerHome(proj: Projectile): void {
 // ============================================================
 
 /** Get all active projectiles (for renderer) */
-export function getActiveProjectiles(): ReadonlyArray<Projectile> {
-  return activeProjectiles;
+export function getActiveProjectiles(gi: GameInstance): ReadonlyArray<Projectile> {
+  return gi.activeProjectiles;
 }
 
 /** Clear all projectiles (on level change) */
-export function clearProjectiles(): void {
-  activeProjectiles.length = 0;
+export function clearProjectiles(gi: GameInstance): void {
+  gi.activeProjectiles.length = 0;
 }
 
 /** Get the current animation frame for a projectile */

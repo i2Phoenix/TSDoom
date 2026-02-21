@@ -37,14 +37,6 @@ enum IntState {
 // WBStartStruct imported from game/gameflow.ts — re-export for consumers
 export type { WBStartStruct } from '../../game/gameflow';
 
-// ---- Level Stats (re-exported from game/level-stats.ts) ----
-export {
-  totalKills, totalItems, totalSecrets,
-  playerKills, playerItems, playerSecrets,
-  resetLevelStats,
-  addTotalKill, addTotalItem, addTotalSecret,
-  addPlayerKill, addPlayerItem, addPlayerSecret,
-} from '../../game/level-stats';
 
 // ---- Par Times (in tics) ----
 // Episode par times from wi_stuff.c (Doom I only, episodes 0-2)

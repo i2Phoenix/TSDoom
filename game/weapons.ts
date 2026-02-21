@@ -6,18 +6,18 @@
 import { FRACBITS, FRACUNIT, FINEMASK, finesine, finecosine, fixedMul } from './math';
 import { FX_Sound, FX_SetExtraLight, FX_Vibrate } from './effects';
 import { Sfx } from './sounds';
-import { levelTime } from './thinkers';
+import { getLevelTime } from './thinkers';
 import { P_Random } from './random';
 
 import {
   P_BulletSlope, P_GunShot, P_AimLineAttack, P_LineAttack,
   getBulletSlope,
-  linetarget,
+  getLinetarget,
 } from './combat';
 import { MELEERANGE } from './constants';
 import { spawnPlayerProjectile, ProjectileType } from './projectiles';
 import { MapObjState, DI_NODIR } from './mobj';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 import { MF_SHOOTABLE } from './mobjinfo';
 import { P_NoiseAlert } from './enemy';
 
@@ -219,6 +219,8 @@ export interface WeaponPlayer {
   health: number;
   // View bob amplitude (computed by Player.calcHeight, used for weapon psprite bob)
   bob: number;
+  // GameInstance reference for combat/random/projectile functions
+  gi: GameInstance;
 }
 
 // ---- Weapon info table (from d_items.c) ----
@@ -331,17 +333,18 @@ function A_FireCGun(wp: WeaponPlayer): void {
 
 function A_Punch(wp: WeaponPlayer): void {
   // Melee attack — port of A_Punch from p_pspr.c
-  let damage = (P_Random() % 10 + 1) << 1; // 2*(rand%10+1)
+  const gi = wp.gi;
+  let damage = (P_Random(gi) % 10 + 1) << 1; // 2*(rand%10+1)
   if (wp.powers && wp.powers[1]) { // pw_strength (berserk)
     damage *= 10;
   }
 
   const angle = wp.angle;
-  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE);
-  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, getBulletSlope(), damage);
+  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, gi);
+  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, getBulletSlope(gi), damage, gi);
 
   // Sound: hit sound only if we hit something
-  if (linetarget) {
+  if (getLinetarget(gi)) {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.punch);
     FX_Vibrate(0.3, 0.5, 100);
   }
@@ -349,13 +352,14 @@ function A_Punch(wp: WeaponPlayer): void {
 
 function A_Saw(wp: WeaponPlayer): void {
   // Chainsaw attack — port of A_Saw from p_pspr.c
-  const damage = 2 * (P_Random() % 10 + 1);
+  const gi = wp.gi;
+  const damage = 2 * (P_Random(gi) % 10 + 1);
   const angle = wp.angle;
-  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT);
-  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, getBulletSlope(), damage);
+  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, gi);
+  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, getBulletSlope(gi), damage, gi);
 
   // Sound: hit or miss
-  if (linetarget) {
+  if (getLinetarget(gi)) {
     FX_Sound({ x: wp.x, y: wp.y }, Sfx.sawhit);
     FX_Vibrate(0.4, 0.3, 80);
   } else {
@@ -368,6 +372,7 @@ function A_Saw(wp: WeaponPlayer): void {
 
 /** A_FireShotgun2 — fire 20 pellets, consume 2 shells */
 function A_FireShotgun2(wp: WeaponPlayer): void {
+  const gi = wp.gi;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.dshtgn);
   FX_Vibrate(0.8, 0.6, 180);
   wp.ammo[AmmoType.shell] -= 2;
@@ -377,11 +382,11 @@ function A_FireShotgun2(wp: WeaponPlayer): void {
   wp.psprites[PS_FLASH].sy = wp.psprites[PS_WEAPON].sy;
   setPsprite(wp, PS_FLASH, weaponinfo[wp.readyweapon].flashstate);
 
-  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle, gi);
 
   // Fire 20 pellets with extra spread (original DOOM: ss_angle ± ANG90/20)
   for (let i = 0; i < 20; i++) {
-    P_GunShot(wp.x, wp.y, wp.viewz, wp.angle, false);
+    P_GunShot(wp.x, wp.y, wp.viewz, wp.angle, false, gi);
   }
 }
 
@@ -416,34 +421,37 @@ function A_GunFlash(wp: WeaponPlayer): void {
   setPsprite(wp, PS_FLASH, weaponinfo[wp.readyweapon].flashstate);
 }
 function A_FireMissile(wp: WeaponPlayer): void {
+  const gi = wp.gi;
   wp.ammo[AmmoType.misl]--;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.rlaunc);
   FX_Vibrate(0.7, 0.8, 200);
   // Autoaim slope for vertical aiming
-  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
-  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.rocket);
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle, gi);
+  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(gi), ProjectileType.rocket, gi);
 }
 function A_FirePlasma(wp: WeaponPlayer): void {
+  const gi = wp.gi;
   wp.ammo[AmmoType.cell]--;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.plasma);
   FX_Vibrate(0.3, 0.2, 60);
   // Random flash state (original DOOM: P_Random()&1 picks flash1 or flash2)
-  const flashOffset = P_Random() & 1;
+  const flashOffset = P_Random(gi) & 1;
   const flashBase = weaponinfo[wp.readyweapon].flashstate;
   wp.psprites[PS_FLASH].sx = wp.psprites[PS_WEAPON].sx;
   wp.psprites[PS_FLASH].sy = wp.psprites[PS_WEAPON].sy;
   setPsprite(wp, PS_FLASH, flashBase + flashOffset);
   // Autoaim slope
-  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
-  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.plasma);
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle, gi);
+  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(gi), ProjectileType.plasma, gi);
 }
 function A_FireBFG(wp: WeaponPlayer): void {
+  const gi = wp.gi;
   wp.ammo[AmmoType.cell] -= 40;
   FX_Sound({ x: wp.x, y: wp.y }, Sfx.bfg);
   FX_Vibrate(1.0, 1.0, 350);
   // Autoaim slope
-  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
-  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(), ProjectileType.bfg);
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle, gi);
+  spawnPlayerProjectile(wp.x, wp.y, wp.viewz, wp.angle, getBulletSlope(gi), ProjectileType.bfg, gi);
 }
 function A_Light0(_wp: WeaponPlayer): void { FX_SetExtraLight(0); }
 function A_Light1(_wp: WeaponPlayer): void { FX_SetExtraLight(1); }
@@ -640,7 +648,7 @@ function weaponReady(wp: WeaponPlayer): void {
   // Weapon bobbing — use player.bob (computed in P_CalcHeight)
   // Original DOOM: A_WeaponReady uses player->bob/2 for psprite amplitude
   const bobAmplitude = (wp.bob ?? 0) >> 1;
-  const angle = (128 * levelTime) & FINEMASK;
+  const angle = (128 * getLevelTime(wp.gi)) & FINEMASK;
   psp.sx = FRACUNIT + fixedMul(bobAmplitude, finecosine(angle));
   const angle2 = angle & (FINEANGLES / 2 - 1);
   psp.sy = WEAPONTOP + fixedMul(bobAmplitude, finesine[angle2]);
@@ -693,6 +701,7 @@ function weaponReFire(wp: WeaponPlayer): void {
 
 /** Hitscan fire — consumes ammo, traces bullets, applies damage */
 function fireHitscan(wp: WeaponPlayer, pellets: number, accurate: boolean): void {
+  const gi = wp.gi;
   const ammoType = weaponinfo[wp.readyweapon].ammo;
   if (ammoType !== AmmoType.noammo) {
     wp.ammo[ammoType]--;
@@ -706,9 +715,9 @@ function fireHitscan(wp: WeaponPlayer, pellets: number, accurate: boolean): void
   }
 
   // Hitscan: autoaim + fire bullets
-  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle);
+  P_BulletSlope(wp.x, wp.y, wp.viewz, wp.angle, gi);
   for (let i = 0; i < pellets; i++) {
-    P_GunShot(wp.x, wp.y, wp.viewz, wp.angle, accurate && i === 0);
+    P_GunShot(wp.x, wp.y, wp.viewz, wp.angle, accurate && i === 0, gi);
   }
 }
 
@@ -769,10 +778,11 @@ export function fireWeapon(wp: WeaponPlayer): void {
   setPsprite(wp, PS_WEAPON, newstate);
 
   // Alert nearby monsters — sound propagates through connected sectors
-  const map = getWorld().map;
+  const gi = wp.gi;
+  const map = gi.currentMap;
   if (map) {
     const playerMobj = createPlayerMobjFromWP(wp, map);
-    P_NoiseAlert(playerMobj, playerMobj, map);
+    P_NoiseAlert(playerMobj, playerMobj, map, gi);
   }
 }
 

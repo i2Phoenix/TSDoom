@@ -10,7 +10,7 @@ import { Thinker, addThinker, removeThinker } from './thinkers';
 import { FX_Sound, SoundOrigin } from './effects';
 import { Sfx } from './sounds';
 import { getMapObjects, damageMobj } from './mobj';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 
 import { PLAYERHEIGHT } from './constants';
 
@@ -35,73 +35,63 @@ export enum MoveResult {
 }
 
 // ===============================================
-// Sector shared state
+// Sector shared state (delegated to GameInstance)
 // ===============================================
-const sectorLines: Map<Sector, LineDef[]> = new Map();
-const sectorSpecialData: Map<Sector, Thinker> = new Map();
 
-let currentMap: GameMap;
-
-export function getCurrentMap(): GameMap {
-  return currentMap;
+export function getSectorLines(gi: GameInstance): Map<Sector, LineDef[]> {
+  return gi.sectorLines;
 }
 
-export function getSectorLines(): Map<Sector, LineDef[]> {
-  return sectorLines;
+export function getSectorSpecialData(gi: GameInstance): Map<Sector, Thinker> {
+  return gi.sectorSpecialData;
 }
 
-export function getSectorSpecialData(): Map<Sector, Thinker> {
-  return sectorSpecialData;
+export function hasSectorSpecial(sec: Sector, gi: GameInstance): boolean {
+  return gi.sectorSpecialData.has(sec);
 }
 
-export function hasSectorSpecial(sec: Sector): boolean {
-  return sectorSpecialData.has(sec);
+export function setSectorSpecial(sec: Sector, thinker: Thinker, gi: GameInstance): void {
+  gi.sectorSpecialData.set(sec, thinker);
 }
 
-export function setSectorSpecial(sec: Sector, thinker: Thinker): void {
-  sectorSpecialData.set(sec, thinker);
+export function getSectorSpecial(sec: Sector, gi: GameInstance): Thinker | undefined {
+  return gi.sectorSpecialData.get(sec);
 }
 
-export function getSectorSpecial(sec: Sector): Thinker | undefined {
-  return sectorSpecialData.get(sec);
-}
-
-export function deleteSectorSpecial(sec: Sector): void {
-  sectorSpecialData.delete(sec);
+export function deleteSectorSpecial(sec: Sector, gi: GameInstance): void {
+  gi.sectorSpecialData.delete(sec);
 }
 
 // ===============================================
-// Active tracking arrays (forward-compatible typing)
+// Active tracking arrays (delegated to GameInstance)
 // ===============================================
-const activePlats: (Thinker | null)[] = new Array(30).fill(null);
-const activeCeilings: (Thinker | null)[] = new Array(MAXCEILINGS).fill(null);
 
-export function getActivePlats(): (Thinker | null)[] {
-  return activePlats;
+export function getActivePlats(gi: GameInstance): (Thinker | null)[] {
+  return gi.activePlats;
 }
 
-export function getActiveCeilings(): (Thinker | null)[] {
-  return activeCeilings;
+export function getActiveCeilings(gi: GameInstance): (Thinker | null)[] {
+  return gi.activeCeilings;
 }
 
 // ===============================================
 // Init
 // ===============================================
-export function initSpecials(): void {
-  currentMap = getWorld().map;
-  sectorLines.clear();
-  sectorSpecialData.clear();
+export function initSpecials(gi: GameInstance): void {
+  const currentMap = gi.currentMap!;
+  gi.sectorLines.clear();
+  gi.sectorSpecialData.clear();
 
   // Build sector -> lines lookup
   for (const line of currentMap.linedefs) {
     if (line.frontsector) {
-      let arr = sectorLines.get(line.frontsector);
-      if (!arr) { arr = []; sectorLines.set(line.frontsector, arr); }
+      let arr = gi.sectorLines.get(line.frontsector);
+      if (!arr) { arr = []; gi.sectorLines.set(line.frontsector, arr); }
       arr.push(line);
     }
     if (line.backsector && line.backsector !== line.frontsector) {
-      let arr = sectorLines.get(line.backsector);
-      if (!arr) { arr = []; sectorLines.set(line.backsector, arr); }
+      let arr = gi.sectorLines.get(line.backsector);
+      if (!arr) { arr = []; gi.sectorLines.set(line.backsector, arr); }
       arr.push(line);
     }
   }
@@ -113,10 +103,11 @@ export function initSpecials(): void {
 
 /** Get a sound origin for the center of a sector.
  *  Uses the sector's first line's midpoint as a rough approximation. */
-export function sectorSoundOrg(sec: Sector): SoundOrigin {
-  const lines = sectorLines.get(sec);
+export function sectorSoundOrg(sec: Sector, gi: GameInstance): SoundOrigin {
+  const lines = gi.sectorLines.get(sec);
   if (lines && lines.length > 0) {
     const l = lines[0];
+    const currentMap = gi.currentMap!;
     const v1 = currentMap.vertices[l.v1];
     const v2 = currentMap.vertices[l.v2];
     return { x: (v1.x + v2.x) >> 1, y: (v1.y + v2.y) >> 1 };
@@ -125,8 +116,9 @@ export function sectorSoundOrg(sec: Sector): SoundOrigin {
 }
 
 /** Check if the player is standing inside a given sector */
-export function playerInSector(sector: Sector): boolean {
-  const playerRef = getWorld().player;
+export function playerInSector(sector: Sector, gi: GameInstance): boolean {
+  const playerRef = gi.world?.player;
+  const currentMap = gi.currentMap;
   if (!playerRef || !currentMap) return false;
   const ss = currentMap.pointInSubsector(playerRef.x, playerRef.y);
   return ss.sector === sector;
@@ -134,14 +126,15 @@ export function playerInSector(sector: Sector): boolean {
 
 /** Apply 10 damage to all monsters standing inside the given sector.
  *  Matches original Doom's PIT_ChangeSector crush logic. */
-export function crushMonstersInSector(sector: Sector): void {
+export function crushMonstersInSector(sector: Sector, gi: GameInstance): void {
+  const currentMap = gi.currentMap;
   if (!currentMap) return;
-  for (const obj of getMapObjects()) {
+  for (const obj of getMapObjects(gi)) {
     if (obj.removed || obj.health <= 0) continue;
     // Check if this mobj is inside the sector
     const ss = currentMap.pointInSubsector(obj.x, obj.y);
     if (ss.sector === sector) {
-      damageMobj(obj, 10);
+      damageMobj(obj, 10, null, gi);
     }
   }
 }
@@ -156,7 +149,8 @@ export function movePlane(
   dest: number,
   crush: boolean,
   floorOrCeiling: number, // 0=floor, 1=ceiling
-  direction: number       // -1=down, 1=up
+  direction: number,      // -1=down, 1=up
+  gi: GameInstance,
 ): MoveResult {
   if (floorOrCeiling === 0) {
     // FLOOR
@@ -176,7 +170,7 @@ export function movePlane(
       } else {
         // Check if floor would crush player against ceiling
         const newFloor = sector.floorHeight + speed;
-        if (newFloor + PLAYERHEIGHT > sector.ceilingHeight && playerInSector(sector)) {
+        if (newFloor + PLAYERHEIGHT > sector.ceilingHeight && playerInSector(sector, gi)) {
           if (!crush) {
             sector.floorHeight = sector.ceilingHeight - PLAYERHEIGHT;
             return MoveResult.crushed;
@@ -195,7 +189,7 @@ export function movePlane(
         return MoveResult.pastdest;
       } else {
         // Check if ceiling would crush player against floor
-        if (newCeil < sector.floorHeight + PLAYERHEIGHT && playerInSector(sector)) {
+        if (newCeil < sector.floorHeight + PLAYERHEIGHT && playerInSector(sector, gi)) {
           if (!crush) {
             // Don't move -- report crush so door can reverse
             return MoveResult.crushed;
@@ -230,9 +224,9 @@ export function getNextSector(line: LineDef, sec: Sector, map: GameMap): Sector 
 }
 
 /** Find lowest ceiling height in surrounding sectors */
-export function findLowestCeilingSurrounding(sec: Sector, map: GameMap): number {
+export function findLowestCeilingSurrounding(sec: Sector, map: GameMap, gi: GameInstance): number {
   let height = MAXINT;
-  const lines = sectorLines.get(sec);
+  const lines = gi.sectorLines.get(sec);
   if (!lines) return height;
   for (const line of lines) {
     const other = getNextSector(line, sec, map);
@@ -243,9 +237,9 @@ export function findLowestCeilingSurrounding(sec: Sector, map: GameMap): number 
 }
 
 /** Find lowest floor height in surrounding sectors */
-export function findLowestFloorSurrounding(sec: Sector, map: GameMap): number {
+export function findLowestFloorSurrounding(sec: Sector, map: GameMap, gi: GameInstance): number {
   let floor = sec.floorHeight;
-  const lines = sectorLines.get(sec);
+  const lines = gi.sectorLines.get(sec);
   if (!lines) return floor;
   for (const line of lines) {
     const other = getNextSector(line, sec, map);
@@ -256,9 +250,9 @@ export function findLowestFloorSurrounding(sec: Sector, map: GameMap): number {
 }
 
 /** Find highest floor height in surrounding sectors */
-export function findHighestFloorSurrounding(sec: Sector, map: GameMap): number {
+export function findHighestFloorSurrounding(sec: Sector, map: GameMap, gi: GameInstance): number {
   let floor = -500 * FRACUNIT;
-  const lines = sectorLines.get(sec);
+  const lines = gi.sectorLines.get(sec);
   if (!lines) return floor;
   for (const line of lines) {
     const other = getNextSector(line, sec, map);
@@ -269,9 +263,9 @@ export function findHighestFloorSurrounding(sec: Sector, map: GameMap): number {
 }
 
 /** Find next highest floor in surrounding sectors above currentheight */
-export function findNextHighestFloor(sec: Sector, currentheight: number, map: GameMap): number {
+export function findNextHighestFloor(sec: Sector, currentheight: number, map: GameMap, gi: GameInstance): number {
   const heights: number[] = [];
-  const lines = sectorLines.get(sec);
+  const lines = gi.sectorLines.get(sec);
   if (!lines) return currentheight;
   for (const line of lines) {
     const other = getNextSector(line, sec, map);
@@ -285,9 +279,9 @@ export function findNextHighestFloor(sec: Sector, currentheight: number, map: Ga
 }
 
 /** Find highest ceiling height in surrounding sectors */
-export function findHighestCeilingSurrounding(sec: Sector, map: GameMap): number {
+export function findHighestCeilingSurrounding(sec: Sector, map: GameMap, gi: GameInstance): number {
   let height = 0;
-  const lines = sectorLines.get(sec);
+  const lines = gi.sectorLines.get(sec);
   if (!lines) return height;
   for (const line of lines) {
     const other = getNextSector(line, sec, map);
@@ -363,10 +357,10 @@ export function initSwitchList(
   switchesInitialized = true;
 }
 
-export function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
+export function changeSwitchTexture(line: LineDef, useAgain: boolean, gi: GameInstance): void {
   if (!useAgain) line.special = 0;
 
-  const side = currentMap.sidedefs[line.sidenum[0]];
+  const side = gi.currentMap!.sidedefs[line.sidenum[0]];
   if (!side) return;
 
   // Check top, mid, bottom textures
@@ -390,18 +384,19 @@ export function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
 // ===============================================
 
 /** Clear sectorSpecialData and activePlats (for load -- before restoring) */
-export function clearSpecialsState(): void {
-  sectorSpecialData.clear();
-  activePlats.fill(null);
+export function clearSpecialsState(gi: GameInstance): void {
+  gi.sectorSpecialData.clear();
+  gi.activePlats.fill(null);
 }
 
 /** Link a thinker to a sector (for load restore) */
-export function linkSectorSpecial(sector: Sector, thinker: Thinker): void {
-  sectorSpecialData.set(sector, thinker);
+export function linkSectorSpecial(sector: Sector, thinker: Thinker, gi: GameInstance): void {
+  gi.sectorSpecialData.set(sector, thinker);
 }
 
 /** Add a platform to activePlats (for load restore) */
-export function addActivePlat(plat: Thinker): void {
+export function addActivePlat(plat: Thinker, gi: GameInstance): void {
+  const activePlats = gi.activePlats;
   for (let i = 0; i < activePlats.length; i++) {
     if (activePlats[i] === null) {
       activePlats[i] = plat;

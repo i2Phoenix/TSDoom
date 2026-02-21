@@ -22,12 +22,11 @@ import { spawnMonsterProjectile, spawnMonsterProjectileAngled, ProjectileType } 
 import { spawnVileFire } from './vfx';
 import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 
 import { MELEERANGE, MISSILERANGE } from './constants';
 
 // ---- Sound propagation (P_RecursiveSound / P_NoiseAlert) ----
-let soundValidcount = 0;
 
 /**
  * P_RecursiveSound — flood-fill sound through sectors.
@@ -39,13 +38,14 @@ function P_RecursiveSound(
   sec: Sector,
   soundblocks: number,
   soundtarget: MapObjState,
+  gi: GameInstance,
 ): void {
   // Already flooded
-  if (sec.validcount === soundValidcount && sec.soundtraversed <= soundblocks + 1) {
+  if (sec.validcount === gi.soundValidcount && sec.soundtraversed <= soundblocks + 1) {
     return;
   }
 
-  sec.validcount = soundValidcount;
+  sec.validcount = gi.soundValidcount;
   sec.soundtraversed = soundblocks + 1;
   sec.soundtarget = soundtarget;
 
@@ -74,11 +74,11 @@ function P_RecursiveSound(
     if (line.flags & ML_SOUNDBLOCK) {
       if (soundblocks === 0) {
         // First soundblock — pass through but mark as blocked
-        P_RecursiveSound(map, other, 1, soundtarget);
+        P_RecursiveSound(map, other, 1, soundtarget, gi);
       }
       // soundblocks > 0: already passed one block, stop here
     } else {
-      P_RecursiveSound(map, other, soundblocks, soundtarget);
+      P_RecursiveSound(map, other, soundblocks, soundtarget, gi);
     }
   }
 }
@@ -95,12 +95,13 @@ export function P_NoiseAlert(
   target: MapObjState,
   emitter: MapObjState,
   map: GameMap,
+  gi: GameInstance,
 ): void {
-  soundValidcount++;
+  gi.soundValidcount++;
   // Find the sector of the emitter
   const ss = map.pointInSubsector(emitter.x, emitter.y);
   if (ss.sector) {
-    P_RecursiveSound(map, ss.sector, 0, target);
+    P_RecursiveSound(map, ss.sector, 0, target, gi);
   }
 }
 
@@ -150,40 +151,37 @@ export function createPlayerMobj(player: Player, map: GameMap): MapObjState {
   };
 }
 
-// Module-level player mobj reference (updated each tick)
-let playerMobj: MapObjState | null = null;
-
 /** Update the player shim mobj each tick (call from game loop) */
-export function updatePlayerMobj(map: GameMap): void {
-  const player = getWorld().player;
-  if (!playerMobj) {
-    playerMobj = createPlayerMobj(player, map);
+export function updatePlayerMobj(map: GameMap, gi: GameInstance): void {
+  const player = gi.world!.player;
+  if (!gi.playerMobj) {
+    gi.playerMobj = createPlayerMobj(player, map);
   } else {
-    playerMobj.x = player.x;
-    playerMobj.y = player.y;
-    playerMobj.z = player.z;
-    playerMobj.health = player.health;
-    playerMobj.angle = player.angle;
-    playerMobj.momx = player.momx;
-    playerMobj.momy = player.momy;
+    gi.playerMobj.x = player.x;
+    gi.playerMobj.y = player.y;
+    gi.playerMobj.z = player.z;
+    gi.playerMobj.health = player.health;
+    gi.playerMobj.angle = player.angle;
+    gi.playerMobj.momx = player.momx;
+    gi.playerMobj.momy = player.momy;
     // Clear shootable flag when player is dead so monsters stop targeting
     if (player.health <= 0) {
-      playerMobj.flags &= ~MF_SHOOTABLE;
+      gi.playerMobj.flags &= ~MF_SHOOTABLE;
     } else {
-      playerMobj.flags |= MF_SHOOTABLE;
+      gi.playerMobj.flags |= MF_SHOOTABLE;
     }
     // Sync MF_SHADOW: partial invisibility makes enemies less accurate
     if (player.powers[PowerType.invisibility] > 0) {
-      playerMobj.flags |= MF_SHADOW;
+      gi.playerMobj.flags |= MF_SHADOW;
     } else {
-      playerMobj.flags &= ~MF_SHADOW;
+      gi.playerMobj.flags &= ~MF_SHADOW;
     }
   }
 }
 
 /** Get the current player mobj */
-export function getPlayerMobj(): MapObjState | null {
-  return playerMobj;
+export function getPlayerMobj(gi: GameInstance): MapObjState | null {
+  return gi.playerMobj;
 }
 
 // ---- P_LookForPlayers ----
@@ -201,7 +199,9 @@ function P_LookForPlayers(
   actor: MapObjState,
   allAround: boolean,
   map: GameMap,
+  gi: GameInstance,
 ): boolean {
+  const playerMobj = gi.playerMobj;
   if (!playerMobj) return false;
 
   // Player must be alive and shootable
@@ -209,7 +209,7 @@ function P_LookForPlayers(
   if (!(playerMobj.flags & MF_SHOOTABLE)) return false;
 
   // Check line of sight
-  if (!P_CheckSight(actor, playerMobj, map)) return false;
+  if (!P_CheckSight(actor, playerMobj, map, gi)) return false;
 
   // Field of view check (180° cone, front only)
   if (!allAround) {
@@ -241,11 +241,11 @@ function P_LookForPlayers(
  * Receives thingIndex, looks up the MapObjState, checks for sound targets
  * and visible players. If a target is found, transitions to see/chase state.
  */
-function A_Look_impl(thingIndex: number): void {
-  const map = getWorld().map;
+function A_Look_impl(thingIndex: number, gi: GameInstance): void {
+  const map = gi.currentMap;
   if (!map) return;
 
-  const actor = getMapObjectByThingIndex(thingIndex);
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || actor.removed || actor.health <= 0) return;
 
   // Reset pursuit threshold
@@ -261,9 +261,9 @@ function A_Look_impl(thingIndex: number): void {
 
     // If MF_AMBUSH, still need line of sight to actually wake up
     if (actor.flags & MF_AMBUSH) {
-      if (!P_CheckSight(actor, actor.target, map)) {
+      if (!P_CheckSight(actor, actor.target, map, gi)) {
         // Try looking for players visually instead
-        if (!P_LookForPlayers(actor, false, map)) {
+        if (!P_LookForPlayers(actor, false, map, gi)) {
           return; // Stay idle
         }
       }
@@ -271,7 +271,7 @@ function A_Look_impl(thingIndex: number): void {
     // Sound target is valid — wake up!
   } else {
     // No sound target — look for players visually
-    if (!P_LookForPlayers(actor, false, map)) {
+    if (!P_LookForPlayers(actor, false, map, gi)) {
       return; // Stay idle
     }
   }
@@ -279,10 +279,10 @@ function A_Look_impl(thingIndex: number): void {
   // Found a target — transition to see/chase state!
   const animDef = getThingAnimDef(actor.type);
   if (animDef && animDef.seeState !== undefined) {
-    setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing');
+    setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing', gi);
     // Play see sound (randomized from array)
     if (animDef.seeSound && animDef.seeSound.length > 0) {
-      const sfx = animDef.seeSound[P_Random() % animDef.seeSound.length];
+      const sfx = animDef.seeSound[P_Random(gi) % animDef.seeSound.length];
       FX_Sound({ x: actor.x, y: actor.y }, sfx);
     }
   }
@@ -290,11 +290,11 @@ function A_Look_impl(thingIndex: number): void {
 
 // ---- A_Chase (full implementation — Phase 4) ----
 
-function A_Chase_impl(thingIndex: number): void {
-  const map = getWorld().map;
+function A_Chase_impl(thingIndex: number, gi: GameInstance): void {
+  const map = gi.currentMap;
   if (!map) return;
 
-  const actor = getMapObjectByThingIndex(thingIndex);
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || actor.removed || actor.health <= 0) return;
 
   // Decrement reactiontime (delay before first attack)
@@ -325,14 +325,14 @@ function A_Chase_impl(thingIndex: number): void {
 
   // If no target or target is dead → look for players, return to idle
   if (!actor.target || !(actor.target.flags & MF_SHOOTABLE)) {
-    if (P_LookForPlayers(actor, true, map)) {
+    if (P_LookForPlayers(actor, true, map, gi)) {
       return; // found new target, stay in chase
     }
 
     // No target found — return to idle state
     const animDef = getThingAnimDef(actor.type);
     if (animDef) {
-      setMonsterState(thingIndex, actor.type, animDef.spawnState, 'alive');
+      setMonsterState(thingIndex, actor.type, animDef.spawnState, 'alive', gi);
     }
     return;
   }
@@ -341,19 +341,19 @@ function A_Chase_impl(thingIndex: number): void {
   // Original DOOM: clear flag, call P_NewChaseDir, then return (skip attack + force movement)
   if (actor.flags & MF_JUSTATTACKED) {
     actor.flags &= ~MF_JUSTATTACKED;
-    P_NewChaseDir(actor);
+    P_NewChaseDir(actor, gi);
     return;
   }
 
   // Check melee attack
   const animDef = getThingAnimDef(actor.type);
   if (animDef && animDef.meleeState !== undefined) {
-    if (P_CheckMeleeRange(actor)) {
+    if (P_CheckMeleeRange(actor, gi)) {
       // Play melee attack sound (attacksound from mobjinfo)
       if (animDef.attackSound !== undefined) {
         FX_Sound({ x: actor.x, y: actor.y }, animDef.attackSound);
       }
-      setMonsterState(thingIndex, actor.type, animDef.meleeState, 'attacking');
+      setMonsterState(thingIndex, actor.type, animDef.meleeState, 'attacking', gi);
       return;
     }
   }
@@ -362,8 +362,8 @@ function A_Chase_impl(thingIndex: number): void {
   // This ensures monsters walk several steps between ranged attacks
   if (animDef && animDef.missileState !== undefined) {
     if (actor.movecount <= 0) {
-      if (P_CheckMissileRange(actor)) {
-        setMonsterState(thingIndex, actor.type, animDef.missileState, 'attacking');
+      if (P_CheckMissileRange(actor, gi)) {
+        setMonsterState(thingIndex, actor.type, animDef.missileState, 'attacking', gi);
         actor.flags |= MF_JUSTATTACKED;
         return;
       }
@@ -371,13 +371,13 @@ function A_Chase_impl(thingIndex: number): void {
   }
 
   // Chase towards target
-  if (actor.movecount <= 0 || !P_Move(actor)) {
-    P_NewChaseDir(actor);
+  if (actor.movecount <= 0 || !P_Move(actor, gi)) {
+    P_NewChaseDir(actor, gi);
   }
   actor.movecount--;
 
   // Active sound (random chance, 3/256)
-  if (P_Random() < 3) {
+  if (P_Random(gi) < 3) {
     const animDef2 = getThingAnimDef(actor.type);
     if (animDef2?.activeSound !== undefined) {
       FX_Sound({ x: actor.x, y: actor.y }, animDef2.activeSound);
@@ -387,8 +387,8 @@ function A_Chase_impl(thingIndex: number): void {
 
 // ---- A_FaceTarget ----
 
-function A_FaceTarget_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_FaceTarget_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
 
   // Turn to face target
@@ -398,7 +398,7 @@ function A_FaceTarget_impl(thingIndex: number): void {
 
   // Add some randomness if target has MF_SHADOW (partial invisibility)
   if (actor.target.flags & MF_SHADOW) {
-    actor.angle = (actor.angle + ((P_Random() - P_Random()) << 21)) >>> 0;
+    actor.angle = (actor.angle + ((P_Random(gi) - P_Random(gi)) << 21)) >>> 0;
   }
 }
 
@@ -458,19 +458,19 @@ export function initAICallbacks(): void {
 }
 
 // ---- A_Metal — Spiderdemon metallic walk sound ----
-function A_Metal_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_Metal_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor) return;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.metal);
-  A_Chase_impl(thingIndex);
+  A_Chase_impl(thingIndex, gi);
 }
 
 // ---- A_Hoof — Cyberdemon heavy footstep sound ----
-function A_Hoof_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_Hoof_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor) return;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.hoof);
-  A_Chase_impl(thingIndex);
+  A_Chase_impl(thingIndex, gi);
 }
 
 // ---- Attack helper: hitscan toward target ----
@@ -478,17 +478,17 @@ function A_Hoof_impl(thingIndex: number): void {
 // Traces the bullet along the actual spread angle, checks walls via traceWalls,
 // and only damages the player if the bullet reaches them without hitting a wall.
 
-function monsterHitscan(actor: MapObjState, damage: number): void {
-  if (!actor.target || !getWorld().player) return;
-  const playerRef = getWorld().player;
+function monsterHitscan(actor: MapObjState, damage: number, gi: GameInstance): void {
+  if (!actor.target || !gi.world!.player) return;
+  const playerRef = gi.world!.player;
   // Check both playerRef (live data) and target for being dead
   if (playerRef.health <= 0) return;
   if (actor.target.health <= 0) return;
 
-  A_FaceTarget_impl(actor.thingIndex);
+  A_FaceTarget_impl(actor.thingIndex, gi);
 
   // Add random spread: (P_Random()-P_Random()) << 20 in BAM
-  const angle = (actor.angle + ((P_Random() - P_Random()) << 20)) >>> 0;
+  const angle = (actor.angle + ((P_Random(gi) - P_Random(gi)) << 20)) >>> 0;
 
   // Shoot height: actor z + half height + 8 (same as original DOOM shootz)
   const shootz = actor.z + (actor.height >> 1) + 8 * FRACUNIT;
@@ -506,7 +506,7 @@ function monsterHitscan(actor: MapObjState, damage: number): void {
   const dy = fixedMul(MISSILERANGE, finesine[an]);
 
   // Trace walls along the ACTUAL bullet ray to find the nearest wall hit
-  const { frac: wallFrac } = traceWalls(actor.x, actor.y, dx, dy, slope, shootz);
+  const { frac: wallFrac } = traceWalls(actor.x, actor.y, dx, dy, slope, shootz, MISSILERANGE, gi);
 
   // Now check if the player is hit by this ray BEFORE the wall
   const pdx = playerRef.x - actor.x;
@@ -535,164 +535,164 @@ function monsterHitscan(actor: MapObjState, damage: number): void {
 
   // Also fire P_LineAttack to hit map objects (monsters, barrels) along the way
   // and spawn puffs/blood. This won't damage the player (not in mapObjects).
-  P_LineAttack(actor.x, actor.y, shootz, angle, MISSILERANGE, slope, damage);
+  P_LineAttack(actor.x, actor.y, shootz, angle, MISSILERANGE, slope, damage, gi);
 
   // Apply damage to player — bullet passed all checks
   playerRef.takeDamage(damage, actor.x, actor.y);
 }
 
 // ---- A_PosAttack — Zombieman: single bullet ----
-function A_PosAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_PosAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.pistol);
-  const damage = ((P_Random() % 5) + 1) * 3;  // 3-15 damage
-  monsterHitscan(actor, damage);
+  const damage = ((P_Random(gi) % 5) + 1) * 3;  // 3-15 damage
+  monsterHitscan(actor, damage, gi);
 }
 
 // ---- A_SPosAttack — Shotgun Guy: 3 bullets ----
 // Original DOOM: 3 separate P_LineAttack calls, each with spread
-function A_SPosAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SPosAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
 
   // 3 bullets, each individually traced (can be blocked by walls separately)
   for (let i = 0; i < 3; i++) {
-    const damage = ((P_Random() % 5) + 1) * 3;
-    monsterHitscan(actor, damage);
+    const damage = ((P_Random(gi) % 5) + 1) * 3;
+    monsterHitscan(actor, damage, gi);
   }
 }
 
 // ---- A_CPosAttack — Chaingunner: 1 bullet per frame ----
-function A_CPosAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_CPosAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.shotgn);
-  const damage = ((P_Random() % 5) + 1) * 3;
-  monsterHitscan(actor, damage);
+  const damage = ((P_Random(gi) % 5) + 1) * 3;
+  monsterHitscan(actor, damage, gi);
 }
 
 // ---- A_CPosRefire — Chaingunner refire check ----
-function A_CPosRefire_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_CPosRefire_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
 
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   // Random chance to stop firing
-  if (P_Random() < 40) return;
+  if (P_Random(gi) < 40) return;
 
   // Stop if target is dead or lost sight
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return;
-  if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map)) {
+  if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map, gi)) {
     // Return to see/chase state
     const animDef = getThingAnimDef(actor.type);
     if (animDef && animDef.seeState !== undefined) {
-      setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing');
+      setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing', gi);
     }
   }
 }
 
 // ---- A_TroopAttack — Imp: melee (claw) or fireball ----
-function A_TroopAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_TroopAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  if (P_CheckMeleeRange(actor)) {
+  if (P_CheckMeleeRange(actor, gi)) {
     // Melee: 1-24 damage (3*(rand%8+1))
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.claw);
-    const damage = ((P_Random() % 8) + 1) * 3;
+    const damage = ((P_Random(gi) % 8) + 1) * 3;
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
     // Ranged: imp fireball
-    spawnMonsterProjectile(actor, actor.target, ProjectileType.impFireball);
+    spawnMonsterProjectile(actor, actor.target, ProjectileType.impFireball, gi);
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
 // ---- A_SargAttack — Demon/Spectre: melee only ----
-function A_SargAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SargAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  if (P_CheckMeleeRange(actor)) {
+  if (P_CheckMeleeRange(actor, gi)) {
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.sgtatk);
-    const damage = ((P_Random() % 10) + 1) * 4;  // 4-40 damage
+    const damage = ((P_Random(gi) % 10) + 1) * 4;  // 4-40 damage
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   }
 }
 
 // ---- A_HeadAttack — Cacodemon: melee or fireball ----
-function A_HeadAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_HeadAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  if (P_CheckMeleeRange(actor)) {
-    const damage = ((P_Random() % 6) + 1) * 10;  // 10-60 damage
+  if (P_CheckMeleeRange(actor, gi)) {
+    const damage = ((P_Random(gi) % 6) + 1) * 10;  // 10-60 damage
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
-    spawnMonsterProjectile(actor, actor.target, ProjectileType.cacoFireball);
+    spawnMonsterProjectile(actor, actor.target, ProjectileType.cacoFireball, gi);
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
 // ---- A_BruisAttack — Baron/Hell Knight: melee or fireball ----
-function A_BruisAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_BruisAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  if (P_CheckMeleeRange(actor)) {
-    const damage = ((P_Random() % 8) + 1) * 10;  // 10-80 damage
+  if (P_CheckMeleeRange(actor, gi)) {
+    const damage = ((P_Random(gi) % 8) + 1) * 10;  // 10-80 damage
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.claw);
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   } else {
-    spawnMonsterProjectile(actor, actor.target, ProjectileType.baronFireball);
+    spawnMonsterProjectile(actor, actor.target, ProjectileType.baronFireball, gi);
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.firsht);
   }
 }
 
 // ---- A_CyberAttack — Cyberdemon: rocket ----
-function A_CyberAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_CyberAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  spawnMonsterProjectile(actor, actor.target, ProjectileType.cyberdemonRocket);
+  spawnMonsterProjectile(actor, actor.target, ProjectileType.cyberdemonRocket, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.rlaunc);
 }
 
 // ---- A_SkullAttack — Lost Soul: charge at player ----
-function A_SkullAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SkullAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   // Set momentum directly toward target (charge attack)
   const speed = 20 * FRACUNIT;
@@ -714,15 +714,15 @@ function A_SkullAttack_impl(thingIndex: number): void {
 // Reference: p_enemy.c A_VileChase
 // During chase, scans for nearby corpses (MF_CORPSE) to resurrect.
 // Resurrected monsters get health restored and return to seeState.
-function A_VileChase_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_VileChase_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor) return;
 
   // Scan for corpses to resurrect
-  const map = getWorld().map;
-  if (!map) { A_Chase_impl(thingIndex); return; }
+  const map = gi.currentMap;
+  if (!map) { A_Chase_impl(thingIndex, gi); return; }
 
-  const allObjs = getMapObjects();
+  const allObjs = getMapObjects(gi);
   for (const corpse of allObjs) {
     if (corpse === actor) continue;
     if (corpse.removed) continue;
@@ -736,7 +736,7 @@ function A_VileChase_impl(thingIndex: number): void {
     if (dx > maxDist || dy > maxDist) continue;
 
     // Check line of sight from Arch-vile to corpse
-    if (!P_CheckSight(actor, corpse, map)) continue;
+    if (!P_CheckSight(actor, corpse, map, gi)) continue;
 
     // Get the corpse's animation definition — need seeState to resurrect
     const corpseAnimDef = getThingAnimDef(corpse.type);
@@ -767,12 +767,12 @@ function A_VileChase_impl(thingIndex: number): void {
     corpse.deathHandled = false;
 
     // Set animation to see/chase state
-    setMonsterState(corpse.thingIndex, corpse.type, corpseAnimDef.seeState, 'chasing');
+    setMonsterState(corpse.thingIndex, corpse.type, corpseAnimDef.seeState, 'chasing', gi);
 
     // Arch-vile faces the corpse it just resurrected (set state to seeState)
     const vileDef = getThingAnimDef(actor.type);
     if (vileDef && vileDef.seeState !== undefined) {
-      setMonsterState(thingIndex, actor.type, vileDef.seeState, 'chasing');
+      setMonsterState(thingIndex, actor.type, vileDef.seeState, 'chasing', gi);
     }
 
     // Only resurrect one corpse per chase tic
@@ -780,61 +780,61 @@ function A_VileChase_impl(thingIndex: number): void {
   }
 
   // No corpse found — perform standard chase behavior
-  A_Chase_impl(thingIndex);
+  A_Chase_impl(thingIndex, gi);
 }
 
 // ---- A_VileStart — Arch-vile attack start: play attack sound ----
-function A_VileStart_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_VileStart_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.vilatk);
 }
 
 // ---- A_VileTarget — Arch-vile: mark target, store reference ----
 // In original DOOM this spawns MT_FIRE at target position.
 // We store the target reference on the actor's tracer field for A_VileAttack.
-function A_VileTarget_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_VileTarget_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
   // Store target reference for the attack (tracer field)
   actor.tracer = actor.target;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.flamst);
   // Spawn fire VFX at target position (MT_FIRE in original DOOM)
-  spawnVileFire(actor.target.x, actor.target.y, actor.target.z);
+  spawnVileFire(actor.target.x, actor.target.y, actor.target.z, gi);
 }
 
 // ---- A_VileAttack — Arch-vile: deal damage + vertical launch ----
 // Original DOOM: 20 direct damage, 70 radius damage, momz = 1000*FRACUNIT/mass
-function A_VileAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_VileAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   const target = actor.target;
 
   // Check line of sight
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return;
-  if (!P_CheckSight(actor, target, map)) return;
+  if (!P_CheckSight(actor, target, map, gi)) return;
 
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.barexp);
 
   // Direct damage: 20 hp
   // For player targets, use playerRef.takeDamage
-  if (playerRef && target === playerMobj) {
+  if (playerRef && target === gi.playerMobj) {
     playerRef.takeDamage(20, actor.x, actor.y);
   } else {
-    damageMobj(target, 20, actor);
+    damageMobj(target, 20, actor, gi);
   }
 
   // Vertical launch: momz = 1000 * FRACUNIT / target.info.mass
   // This is the iconic Arch-vile "bounce" — sends player flying
   const mass = target.info ? target.info.mass : 100;
-  if (playerRef && target === playerMobj) {
+  if (playerRef && target === gi.playerMobj) {
     playerRef.momz = Math.round((1000 * FRACUNIT) / mass);
   } else {
     target.momz = Math.round((1000 * FRACUNIT) / mass);
@@ -863,112 +863,112 @@ function A_VileAttack_impl(thingIndex: number): void {
 const FATSPREAD = (ANG90 >>> 3) >>> 0;
 
 // ---- A_SkelWhoosh — Revenant: melee whoosh sound ----
-function A_SkelWhoosh_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SkelWhoosh_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.skeswg);
 }
 
 // ---- A_SkelFist — Revenant: melee punch ----
-function A_SkelFist_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SkelFist_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  if (P_CheckMeleeRange(actor)) {
-    const damage = ((P_Random() % 10) + 1) * 6;  // 6-60 damage
+  if (P_CheckMeleeRange(actor, gi)) {
+    const damage = ((P_Random(gi) % 10) + 1) * 6;  // 6-60 damage
     FX_Sound({ x: actor.x, y: actor.y }, Sfx.skepch);
     if (playerRef) playerRef.takeDamage(damage, actor.x, actor.y);
   }
 }
 
 // ---- A_SkelMissile — Revenant: fire homing tracer ----
-function A_SkelMissile_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SkelMissile_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  spawnMonsterProjectile(actor, actor.target, ProjectileType.revenantTracer);
+  spawnMonsterProjectile(actor, actor.target, ProjectileType.revenantTracer, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.skeatk);
 }
 
 // ---- A_FatRaise — Mancubus: raise arms + sound ----
-function A_FatRaise_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_FatRaise_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.manatk);
 }
 
 // ---- A_FatAttack1 — Mancubus: volley 1 (two fireballs) ----
-function A_FatAttack1_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_FatAttack1_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   // Fire two fireballs at spread angles (original: an += FATSPREAD)
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, FATSPREAD);
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, -FATSPREAD);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, FATSPREAD, gi);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, -FATSPREAD, gi);
 }
 
 // ---- A_FatAttack2 — Mancubus: volley 2 ----
-function A_FatAttack2_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_FatAttack2_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 1) >>> 0);
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 1) >>> 0);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 1) >>> 0, gi);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 1) >>> 0, gi);
 }
 
 // ---- A_FatAttack3 — Mancubus: volley 3 ----
-function A_FatAttack3_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_FatAttack3_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 2) >>> 0);
-  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 2) >>> 0);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (FATSPREAD >>> 2) >>> 0, gi);
+  spawnMonsterProjectileAngled(actor, actor.target, ProjectileType.mancubusFireball, (-FATSPREAD >>> 2) >>> 0, gi);
 }
 
 // ---- A_BspiAttack — Arachnotron: fire plasma ----
-function A_BspiAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_BspiAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
-  spawnMonsterProjectile(actor, actor.target, ProjectileType.arachnotronPlasma);
+  spawnMonsterProjectile(actor, actor.target, ProjectileType.arachnotronPlasma, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.plasma);
 }
 
 // ---- A_BabyMetal — Arachnotron: walk sound ----
-function A_BabyMetal_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_BabyMetal_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor) return;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.bspwlk);
-  A_Chase_impl(thingIndex);
+  A_Chase_impl(thingIndex, gi);
 }
 
 // ---- A_PainAttack — Pain Elemental: spawn Lost Soul toward target ----
-function A_PainAttack_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_PainAttack_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
   if (playerRef && playerRef.health <= 0) return;
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   // Spawn a Lost Soul 4 units ahead at actor's Z
   const an = (actor.angle >>> ANGLETOFINESHIFT) & FINEMASK;
@@ -977,15 +977,15 @@ function A_PainAttack_impl(thingIndex: number): void {
   const y = actor.y + fixedMul(prestep, finesine[an]);
   const z = actor.z + 8 * FRACUNIT;
 
-  spawnLostSoul(x, y, z, actor.target, actor.angle);
+  spawnLostSoul(x, y, z, actor.target, actor.angle, gi);
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.sklatk);
 }
 
 // ---- A_PainDie — Pain Elemental: spawn 3 Lost Souls on death ----
-function A_PainDie_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_PainDie_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor) return;
-  const playerRef = getWorld().player;
+  const playerRef = gi.world!.player;
 
   // Determine a target for spawned skulls
   const target = actor.target || (playerRef ? {
@@ -1003,28 +1003,28 @@ function A_PainDie_impl(thingIndex: number): void {
     const x = actor.x + fixedMul(prestep, finecosine(an));
     const y = actor.y + fixedMul(prestep, finesine[an]);
     const z = actor.z + 8 * FRACUNIT;
-    spawnLostSoul(x, y, z, target, angle);
+    spawnLostSoul(x, y, z, target, angle, gi);
   }
 }
 
 // ---- A_SpidRefire — Spiderdemon refire check ----
 // Original DOOM uses threshold 10 (not 40 like Chaingunner) — Spiderdemon fires sustained bursts
-function A_SpidRefire_impl(thingIndex: number): void {
-  const actor = getMapObjectByThingIndex(thingIndex);
+function A_SpidRefire_impl(thingIndex: number, gi: GameInstance): void {
+  const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
 
-  A_FaceTarget_impl(thingIndex);
+  A_FaceTarget_impl(thingIndex, gi);
 
   // Only ~4% chance to stop firing per tic (vs chaingunner's ~16%)
-  if (P_Random() < 10) return;
+  if (P_Random(gi) < 10) return;
 
   // Stop if target is dead or lost sight
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return;
-  if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map)) {
+  if (actor.target.health <= 0 || !P_CheckSight(actor, actor.target, map, gi)) {
     const animDef = getThingAnimDef(actor.type);
     if (animDef && animDef.seeState !== undefined) {
-      setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing');
+      setMonsterState(thingIndex, actor.type, animDef.seeState, 'chasing', gi);
     }
   }
 }
@@ -1032,14 +1032,14 @@ function A_SpidRefire_impl(thingIndex: number): void {
 /**
  * Legacy A_Look export (for anything still calling directly)
  */
-export function A_Look(actor: MapObjState): void {
-  A_Look_impl(actor.thingIndex);
+export function A_Look(actor: MapObjState, gi: GameInstance): void {
+  A_Look_impl(actor.thingIndex, gi);
 }
 
 /**
  * Initialize the enemy AI module (call on level start / reset)
  */
-export function initEnemyAI(): void {
-  playerMobj = null;
-  soundValidcount = 0;
+export function initEnemyAI(gi: GameInstance): void {
+  gi.playerMobj = null;
+  gi.soundValidcount = 0;
 }

@@ -11,7 +11,7 @@ import {
 } from './math';
 import { ML_TWOSIDED, type GameMap, type LineDef } from './map-types';
 import { FX_DynLight, FX_Sound } from './effects';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 import { P_Random } from './random';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
@@ -26,9 +26,7 @@ import { shootSpecialLine } from './specials';
 import { MELEERANGE, MISSILERANGE } from './constants';
 const PLAYERRADIUS = 16;  // player collision radius in map units
 
-// ---- Module state (mirrors DOOM's globals in p_map.c) ----
-let linetarget: MapObjState | null = null;
-let aimslope = 0;
+// ---- Module state (delegated to GameInstance.combat) ----
 
 // ============================================================
 // Line–wall intersection test
@@ -80,8 +78,9 @@ export function traceWalls(
   slope: number,
   shootz: number,
   range: number = MISSILERANGE,
+  gi: GameInstance,
 ): { frac: number; hitLine: LineDef | null } {
-  const currentMap = getWorld().map;
+  const currentMap = gi.currentMap;
   if (!currentMap) return { frac: FRACUNIT, hitLine: null };
 
   let bestFrac = FRACUNIT;
@@ -157,8 +156,9 @@ interface AimIntercept {
 function collectAimIntercepts(
   x1: number, y1: number,
   dx: number, dy: number,
+  gi: GameInstance,
 ): { intercepts: AimIntercept[]; solidFrac: number } {
-  const currentMap = getWorld().map;
+  const currentMap = gi.currentMap;
   if (!currentMap) return { intercepts: [], solidFrac: FRACUNIT };
 
   const intercepts: AimIntercept[] = [];
@@ -226,10 +226,12 @@ function collectAimIntercepts(
 export function P_AimLineAttack(
   shooterX: number, shooterY: number, shooterZ: number,
   angle: number,
-  range: number
+  range: number,
+  gi: GameInstance,
 ): number {
-  linetarget = null;
-  aimslope = 0;
+  const cc = gi.combat;
+  cc.linetarget = null;
+  cc.aimslope = 0;
 
   const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
   const dx = fixedMul(range, finecosine(an));
@@ -246,7 +248,7 @@ export function P_AimLineAttack(
 
   // Collect all wall intercepts for slope narrowing
   const { intercepts, solidFrac } = collectAimIntercepts(
-    shooterX, shooterY, dx, dy
+    shooterX, shooterY, dx, dy, gi
   );
 
   // Build sorted list of all things along the ray
@@ -257,7 +259,7 @@ export function P_AimLineAttack(
   }
   const thingHits: ThingHit[] = [];
 
-  const mapObjs = getMapObjects();
+  const mapObjs = getMapObjects(gi);
   for (const obj of mapObjs) {
     if (obj.removed) continue;
     if (!(obj.flags & MF_SHOOTABLE)) continue;
@@ -346,9 +348,9 @@ export function P_AimLineAttack(
         clampedBottom = bottomslope;
       }
 
-      aimslope = ((thingtopslope + clampedBottom) / 2) | 0;
-      linetarget = th.obj;
-      return aimslope;  // don't go any farther
+      cc.aimslope = ((thingtopslope + clampedBottom) / 2) | 0;
+      cc.linetarget = th.obj;
+      return cc.aimslope;  // don't go any farther
     }
   }
 
@@ -365,7 +367,8 @@ export function P_LineAttack(
   angle: number,
   range: number,
   slope: number,
-  damage: number
+  damage: number,
+  gi: GameInstance,
 ): void {
   const an = (angle >>> ANGLETOFINESHIFT) & FINEMASK;
   const dx = fixedMul(range, finecosine(an));
@@ -373,13 +376,13 @@ export function P_LineAttack(
   const shootz = shooterZ;
 
   // Get wall block distance
-  const { frac: wallFrac, hitLine: wallHitLine } = traceWalls(shooterX, shooterY, dx, dy, slope, shootz, range);
+  const { frac: wallFrac, hitLine: wallHitLine } = traceWalls(shooterX, shooterY, dx, dy, slope, shootz, range, gi);
 
   // Check thing hits (find closest within wall block distance)
   let bestFrac = wallFrac;
   let hitTarget: MapObjState | null = null;
 
-  const mapObjs = getMapObjects();
+  const mapObjs = getMapObjects(gi);
   for (const obj of mapObjs) {
     if (obj.removed) continue;
     if (!(obj.flags & MF_SHOOTABLE)) continue;
@@ -408,9 +411,9 @@ export function P_LineAttack(
   }
 
   if (hitTarget && damage > 0) {
-    linetarget = hitTarget;
+    gi.combat.linetarget = hitTarget;
     console.log(`[combat] Hit type=${hitTarget.type} health=${hitTarget.health} damage=${damage}`);
-    const killed = damageMobj(hitTarget, damage);
+    const killed = damageMobj(hitTarget, damage, null, gi);
     console.log(`[combat] killed=${killed} isBarrel=${isBarrel(hitTarget.type)} health_after=${hitTarget.health}`);
 
     // Spawn blood/puff at hit location
@@ -419,17 +422,17 @@ export function P_LineAttack(
     const hitZ = shootz + fixedMul(slope, fixedMul(bestFrac, range));
 
     if (hitTarget.flags & MF_NOBLOOD) {
-      spawnPuff(hitX, hitY, hitZ, false);
+      spawnPuff(hitX, hitY, hitZ, false, gi);
     } else {
-      spawnBlood(hitX, hitY, hitZ, damage);
+      spawnBlood(hitX, hitY, hitZ, damage, gi);
     }
 
     // If it was a barrel and it died, trigger explosion animation
     if (killed && isBarrel(hitTarget.type)) {
       console.log(`[combat] Spawning barrel explosion VFX`);
       spawnBarrelExplosion(hitTarget.x, hitTarget.y, hitTarget.z, () => {
-        P_RadiusAttack(hitTarget.x, hitTarget.y, hitTarget.z, 128);
-      });
+        P_RadiusAttack(hitTarget.x, hitTarget.y, hitTarget.z, 128, gi);
+      }, gi);
     }
   } else if (bestFrac < FRACUNIT) {
     // Hit a wall — spawn puff slightly BACK from wall surface
@@ -442,11 +445,11 @@ export function P_LineAttack(
     const hitY = shooterY + fixedMul(adjFrac, dy);
     const hitZ = shootz + fixedMul(slope, adjustedLen);
     const isMelee = range <= MELEERANGE + FRACUNIT;
-    spawnPuff(hitX, hitY, hitZ, isMelee);
+    spawnPuff(hitX, hitY, hitZ, isMelee, gi);
 
     // P_ShootSpecialLine — trigger gun-activated linedefs
     if (wallHitLine && wallHitLine.special) {
-      shootSpecialLine(wallHitLine);
+      shootSpecialLine(wallHitLine, gi);
     }
   }
 }
@@ -457,30 +460,30 @@ export function P_LineAttack(
 // (from p_pspr.c)
 // ============================================================
 
-let bulletslope = 0;
-
 export function P_BulletSlope(
-  x: number, y: number, z: number, angle: number
+  x: number, y: number, z: number, angle: number,
+  gi: GameInstance,
 ): void {
+  const cc = gi.combat;
   // Try center first
-  bulletslope = P_AimLineAttack(x, y, z, angle, 16 * 64 * FRACUNIT);
+  cc.bulletslope = P_AimLineAttack(x, y, z, angle, 16 * 64 * FRACUNIT, gi);
 
-  if (!linetarget) {
+  if (!cc.linetarget) {
     // Try +5 degrees (1<<26 ≈ 5.625°)
     const an1 = (angle + (1 << 26)) >>> 0;
-    bulletslope = P_AimLineAttack(x, y, z, an1, 16 * 64 * FRACUNIT);
+    cc.bulletslope = P_AimLineAttack(x, y, z, an1, 16 * 64 * FRACUNIT, gi);
 
-    if (!linetarget) {
+    if (!cc.linetarget) {
       // Try -5 degrees
       const an2 = (angle - (2 << 26)) >>> 0;
-      bulletslope = P_AimLineAttack(x, y, z, an2, 16 * 64 * FRACUNIT);
+      cc.bulletslope = P_AimLineAttack(x, y, z, an2, 16 * 64 * FRACUNIT, gi);
     }
   }
 }
 
 /** Get current bulletslope value */
-export function getBulletSlope(): number {
-  return bulletslope;
+export function getBulletSlope(gi: GameInstance): number {
+  return gi.combat.bulletslope;
 }
 
 // ============================================================
@@ -491,16 +494,17 @@ export function getBulletSlope(): number {
 export function P_GunShot(
   x: number, y: number, z: number,
   angle: number,
-  accurate: boolean
+  accurate: boolean,
+  gi: GameInstance,
 ): void {
-  const damage = 5 * ((P_Random() % 3) + 1);
+  const damage = 5 * ((P_Random(gi) % 3) + 1);
   let shotAngle = angle;
 
   if (!accurate) {
-    shotAngle = (shotAngle + ((P_Random() - P_Random()) << 18)) >>> 0;
+    shotAngle = (shotAngle + ((P_Random(gi) - P_Random(gi)) << 18)) >>> 0;
   }
 
-  P_LineAttack(x, y, z, shotAngle, MISSILERANGE, bulletslope, damage);
+  P_LineAttack(x, y, z, shotAngle, MISSILERANGE, gi.combat.bulletslope, damage, gi);
 
   // Muzzle flash dynamic light (yellow-white, short)
   FX_DynLight(x, y, z, 96 * FRACUNIT, 255, 224, 128, 0.5, 3);
@@ -514,13 +518,14 @@ export function P_GunShot(
 
 export function P_RadiusAttack(
   spotX: number, spotY: number, spotZ: number,
-  damage: number
+  damage: number,
+  gi: GameInstance,
 ): void {
   // Explosion dynamic light (orange, moderate)
   FX_DynLight(spotX, spotY, spotZ, 192 * FRACUNIT, 255, 160, 48, 0.6, 10);
   FX_Sound({ x: spotX, y: spotY }, Sfx.barexp);
 
-  const mapObjs = getMapObjects();
+  const mapObjs = getMapObjects(gi);
 
   for (const obj of mapObjs) {
     if (obj.removed) continue;
@@ -534,18 +539,18 @@ export function P_RadiusAttack(
     if (finalDist >= damage) continue; // out of range
 
     const appliedDamage = damage - finalDist;
-    const killed = damageMobj(obj, appliedDamage);
+    const killed = damageMobj(obj, appliedDamage, null, gi);
 
     // Chain barrel explosions with VFX
     if (killed && isBarrel(obj.type)) {
       spawnBarrelExplosion(obj.x, obj.y, obj.z, () => {
-        P_RadiusAttack(obj.x, obj.y, obj.z, 128);
-      });
+        P_RadiusAttack(obj.x, obj.y, obj.z, 128, gi);
+      }, gi);
     }
   }
 
   // Also damage the player (original DOOM iterates ALL things including player)
-  const combatPlayer = getWorld().player;
+  const combatPlayer = gi.world?.player;
   if (combatPlayer && combatPlayer.health > 0) {
     const pdx = Math.abs(combatPlayer.x - spotX) >> FRACBITS;
     const pdy = Math.abs(combatPlayer.y - spotY) >> FRACBITS;
@@ -563,4 +568,8 @@ export function P_RadiusAttack(
 // ============================================================
 // Exports for weapon actions
 // ============================================================
-export { MELEERANGE, MISSILERANGE, linetarget };
+/** Get current linetarget (set by P_AimLineAttack / P_LineAttack) */
+export function getLinetarget(gi: GameInstance): MapObjState | null {
+  return gi.combat.linetarget;
+}
+export { MELEERANGE, MISSILERANGE };

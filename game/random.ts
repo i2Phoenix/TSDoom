@@ -3,6 +3,8 @@
 // Reference: m_random.c
 // ============================================================
 
+import { GameInstance } from './game-instance';
+
 const rndtable: readonly number[] = [
   0,   8, 109, 220, 222, 241, 149, 107,  75, 248, 254, 140,  16,  66,
   74,  21, 211,  47,  80, 242, 154,  27, 205, 128, 161,  89,  77,  36,
@@ -25,25 +27,13 @@ const rndtable: readonly number[] = [
   120, 163, 236, 249
 ];
 
-let prndindex = 0;
-
 /** Deterministic random 0–255 (from DOOM's m_random.c) */
-export function P_Random(): number {
-  prndindex = (prndindex + 1) & 0xff;
-  return rndtable[prndindex];
+export function P_Random(gi: GameInstance): number {
+  gi.prndindex = (gi.prndindex + 1) & 0xff;
+  return rndtable[gi.prndindex];
 }
 
 /** Reset the random state */
-export function P_ClearRandom(): void {
-  prndindex = 0;
-}
-
-/** Get current index (for save) */
-export function getPrndIndex(): number {
-  return prndindex;
-}
-
-/** Restore index (for load) */
-export function setPrndIndex(idx: number): void {
-  prndindex = idx & 0xff;
+export function P_ClearRandom(gi: GameInstance): void {
+  gi.prndindex = 0;
 }

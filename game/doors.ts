@@ -5,13 +5,14 @@
 
 import type { LineDef, Sector } from './map-types';
 import { FRACUNIT } from './math';
+import { GameInstance } from './game-instance';
 import { Thinker, addThinker, removeThinker } from './thinkers';
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
 import type { Player } from './player';
 import {
   VDOORSPEED, VDOORWAIT, MoveResult,
-  getCurrentMap, sectorSoundOrg, movePlane,
+  sectorSoundOrg, movePlane,
   findLowestCeilingSurrounding, findSectorsFromTag,
   hasSectorSpecial, setSectorSpecial, getSectorSpecial, deleteSectorSpecial,
 } from './sector-utils';
@@ -38,7 +39,7 @@ export interface DoorThinker extends Thinker {
   topcountdown: number;
 }
 
-export function doorTick(t: Thinker): void {
+export function doorTick(t: Thinker, gi: GameInstance): void {
   const door = t as DoorThinker;
 
   switch (door.direction) {
@@ -48,11 +49,11 @@ export function doorTick(t: Thinker): void {
           case DoorType.blazeRaise:
           case DoorType.normal:
             door.direction = -1; // time to go back down
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
+            FX_Sound(sectorSoundOrg(door.sector, gi), Sfx.dorcls);
             break;
           case DoorType.close30ThenOpen:
             door.direction = 1;
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
+            FX_Sound(sectorSoundOrg(door.sector, gi), Sfx.doropn);
             break;
         }
       }
@@ -69,15 +70,15 @@ export function doorTick(t: Thinker): void {
 
     case -1: { // DOWN
       const res = movePlane(door.sector, door.speed,
-        door.sector.floorHeight, false, 1, door.direction);
+        door.sector.floorHeight, false, 1, door.direction, gi);
       if (res === MoveResult.pastdest) {
         switch (door.type) {
           case DoorType.blazeRaise:
           case DoorType.blazeClose:
           case DoorType.normal:
           case DoorType.close:
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
-            deleteSectorSpecial(door.sector);
+            FX_Sound(sectorSoundOrg(door.sector, gi), Sfx.dorcls);
+            deleteSectorSpecial(door.sector, gi);
             removeThinker(door);
             break;
           case DoorType.close30ThenOpen:
@@ -92,7 +93,7 @@ export function doorTick(t: Thinker): void {
             break; // DO NOT GO BACK UP
           default:
             door.direction = 1;
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
+            FX_Sound(sectorSoundOrg(door.sector, gi), Sfx.doropn);
             break;
         }
       }
@@ -101,7 +102,7 @@ export function doorTick(t: Thinker): void {
 
     case 1: { // UP
       const res = movePlane(door.sector, door.speed,
-        door.topheight, false, 1, door.direction);
+        door.topheight, false, 1, door.direction, gi);
       if (res === MoveResult.pastdest) {
         switch (door.type) {
           case DoorType.blazeRaise:
@@ -112,7 +113,7 @@ export function doorTick(t: Thinker): void {
           case DoorType.close30ThenOpen:
           case DoorType.blazeOpen:
           case DoorType.open:
-            deleteSectorSpecial(door.sector);
+            deleteSectorSpecial(door.sector, gi);
             removeThinker(door);
             break;
         }
@@ -126,13 +127,13 @@ export function doorTick(t: Thinker): void {
  * EV_DoDoor -- open doors by tag
  * Reference: p_doors.c
  */
-export function evDoDoor(line: LineDef, type: DoorType): boolean {
+export function evDoDoor(line: LineDef, type: DoorType, gi: GameInstance): boolean {
   let rtn = false;
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
   const sectors = findSectorsFromTag(line.tag, map);
 
   for (const sec of sectors) {
-    if (hasSectorSpecial(sec)) continue;
+    if (hasSectorSpecial(sec, gi)) continue;
 
     rtn = true;
     const door: DoorThinker = {
@@ -149,12 +150,12 @@ export function evDoDoor(line: LineDef, type: DoorType): boolean {
 
     switch (type) {
       case DoorType.blazeClose:
-        door.topheight = findLowestCeilingSurrounding(sec, map) - 4 * FRACUNIT;
+        door.topheight = findLowestCeilingSurrounding(sec, map, gi) - 4 * FRACUNIT;
         door.direction = -1;
         door.speed = VDOORSPEED * 4;
         break;
       case DoorType.close:
-        door.topheight = findLowestCeilingSurrounding(sec, map) - 4 * FRACUNIT;
+        door.topheight = findLowestCeilingSurrounding(sec, map, gi) - 4 * FRACUNIT;
         door.direction = -1;
         break;
       case DoorType.close30ThenOpen:
@@ -164,19 +165,19 @@ export function evDoDoor(line: LineDef, type: DoorType): boolean {
       case DoorType.blazeRaise:
       case DoorType.blazeOpen:
         door.direction = 1;
-        door.topheight = findLowestCeilingSurrounding(sec, map) - 4 * FRACUNIT;
+        door.topheight = findLowestCeilingSurrounding(sec, map, gi) - 4 * FRACUNIT;
         door.speed = VDOORSPEED * 4;
         break;
       case DoorType.normal:
       case DoorType.open:
         door.direction = 1;
-        door.topheight = findLowestCeilingSurrounding(sec, map) - 4 * FRACUNIT;
+        door.topheight = findLowestCeilingSurrounding(sec, map, gi) - 4 * FRACUNIT;
         break;
     }
 
-    FX_Sound(sectorSoundOrg(sec), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
-    addThinker(door);
-    setSectorSpecial(sec, door);
+    FX_Sound(sectorSoundOrg(sec, gi), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
+    addThinker(door, gi);
+    setSectorSpecial(sec, door, gi);
   }
   return rtn;
 }
@@ -186,7 +187,7 @@ export function evDoDoor(line: LineDef, type: DoorType): boolean {
  * EV_VerticalDoor -- manual door (no tag, uses back sector)
  * Reference: p_doors.c
  */
-export function evVerticalDoor(line: LineDef, player: Player | null): void {
+export function evVerticalDoor(line: LineDef, player: Player | null, gi: GameInstance): void {
   // Check for locks (DOOM: p_doors.c EV_VerticalDoor)
   if (player) {
     switch (line.special) {
@@ -217,7 +218,7 @@ export function evVerticalDoor(line: LineDef, player: Player | null): void {
     }
   }
 
-  const map = getCurrentMap();
+  const map = gi.currentMap!;
 
   // Get the back sector (door sector)
   const sideIdx = line.sidenum[1];
@@ -227,8 +228,8 @@ export function evVerticalDoor(line: LineDef, player: Player | null): void {
   if (!sec) return;
 
   // If the sector already has a thinker, toggle direction
-  if (hasSectorSpecial(sec)) {
-    const existing = getSectorSpecial(sec) as DoorThinker;
+  if (hasSectorSpecial(sec, gi)) {
+    const existing = getSectorSpecial(sec, gi) as DoorThinker;
     switch (line.special) {
       case 1: case 26: case 27: case 28: case 117:
         if (existing.direction === -1) {
@@ -273,11 +274,11 @@ export function evVerticalDoor(line: LineDef, player: Player | null): void {
       break;
   }
 
-  door.topheight = findLowestCeilingSurrounding(sec, map) - 4 * FRACUNIT;
+  door.topheight = findLowestCeilingSurrounding(sec, map, gi) - 4 * FRACUNIT;
 
-  FX_Sound(sectorSoundOrg(sec), Sfx.doropn);
-  addThinker(door);
-  setSectorSpecial(sec, door);
+  FX_Sound(sectorSoundOrg(sec, gi), Sfx.doropn);
+  addThinker(door, gi);
+  setSectorSpecial(sec, door, gi);
 }
 
 /**
@@ -285,7 +286,7 @@ export function evVerticalDoor(line: LineDef, player: Player | null): void {
  * Reference: p_doors.c EV_DoLockedDoor
  * Checks key, sets message if locked, then delegates to evDoDoor.
  */
-export function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): boolean {
+export function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null, gi: GameInstance): boolean {
   if (!player) return false;
 
   switch (line.special) {
@@ -315,7 +316,7 @@ export function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | n
       break;
   }
 
-  return evDoDoor(line, type);
+  return evDoDoor(line, type, gi);
 }
 
 /**
@@ -324,13 +325,14 @@ export function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | n
  */
 export function restoreDoorThinker(
   sector: Sector, type: DoorType, topheight: number, speed: number,
-  direction: number, topwait: number, topcountdown: number
+  direction: number, topwait: number, topcountdown: number,
+  gi: GameInstance,
 ): DoorThinker {
   const door: DoorThinker = {
     action: doorTick, removed: false,
     type, sector, topheight, speed, direction, topwait, topcountdown,
   };
-  addThinker(door);
-  setSectorSpecial(sector, door);
+  addThinker(door, gi);
+  setSectorSpecial(sector, door, gi);
   return door;
 }

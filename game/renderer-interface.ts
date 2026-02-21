@@ -4,6 +4,8 @@
 // Implementations: SoftwareRenderer, HeadlessRenderer, WebGPURenderer
 // ============================================================
 
+import type { GameInstance } from './game-instance';
+
 /**
  * Abstract renderer interface.
  *
@@ -21,7 +23,7 @@ export interface Renderer {
    * For software: BSP traversal → walls → planes → sprites → G-Buffer resolve → fuzz
    * For headless: no-op
    */
-  renderFrame(): void;
+  renderFrame(gi: GameInstance): void;
 
   /** Draw weapon overlay on top of the scene */
   drawWeaponOverlay(): void;

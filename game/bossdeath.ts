@@ -9,7 +9,7 @@
 
 import type { MapObjState } from './mobj';
 import { getMapObjects } from './mobj';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 import { parseMapName } from './mapflow';
 import { G_ExitLevel } from './mapflow';
 import { evDoFloor, evDoDoor, FloorType, DoorType } from './specials';
@@ -46,8 +46,8 @@ function makeJunkLine(tag: number): LineDef {
  * Check whether all monsters of a given DoomEd type are dead.
  * A monster is considered "alive" if it has health > 0 and hasn't been removed.
  */
-function allBossTypesDead(doomedType: number): boolean {
-    for (const obj of getMapObjects()) {
+function allBossTypesDead(doomedType: number, gi: GameInstance): boolean {
+    for (const obj of getMapObjects(gi)) {
         if (obj.removed) continue;
         if (obj.type === doomedType && obj.health > 0) {
             return false;
@@ -61,8 +61,8 @@ function allBossTypesDead(doomedType: number): boolean {
  * Checks if the level has a boss trigger for this monster type,
  * and if all monsters of that type are now dead, fires the trigger.
  */
-export function A_BossDeath(target: MapObjState): void {
-    const map = getWorld().map;
+export function A_BossDeath(target: MapObjState, gi: GameInstance): void {
+    const map = gi.currentMap;
     if (!map) return;
 
     const info = parseMapName(map.name);
@@ -71,16 +71,16 @@ export function A_BossDeath(target: MapObjState): void {
         // ── Doom II: MAP07 ──
         if (info.map === 7) {
             if (target.type === DOOMEDNUM_MANCUBUS) {
-                if (allBossTypesDead(DOOMEDNUM_MANCUBUS)) {
+                if (allBossTypesDead(DOOMEDNUM_MANCUBUS, gi)) {
                     // All Mancubi dead → lower floor tag 666
-                    evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest);
+                    evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest, gi);
                 }
                 return;
             }
             if (target.type === DOOMEDNUM_ARACHNOTRON) {
-                if (allBossTypesDead(DOOMEDNUM_ARACHNOTRON)) {
+                if (allBossTypesDead(DOOMEDNUM_ARACHNOTRON, gi)) {
                     // All Arachnotrons dead → raise floor tag 667
-                    evDoFloor(makeJunkLine(667), FloorType.raiseToTexture);
+                    evDoFloor(makeJunkLine(667), FloorType.raiseToTexture, gi);
                 }
                 return;
             }
@@ -91,36 +91,36 @@ export function A_BossDeath(target: MapObjState): void {
         switch (info.episode) {
             case 1:
                 if (info.map === 8 && target.type === DOOMEDNUM_BARON) {
-                    if (allBossTypesDead(DOOMEDNUM_BARON)) {
-                        evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest);
+                    if (allBossTypesDead(DOOMEDNUM_BARON, gi)) {
+                        evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest, gi);
                     }
                 }
                 break;
 
             case 2:
                 if (info.map === 8 && target.type === DOOMEDNUM_CYBERDEMON) {
-                    if (allBossTypesDead(DOOMEDNUM_CYBERDEMON)) {
-                        G_ExitLevel();
+                    if (allBossTypesDead(DOOMEDNUM_CYBERDEMON, gi)) {
+                        G_ExitLevel(gi);
                     }
                 }
                 break;
 
             case 3:
                 if (info.map === 8 && target.type === DOOMEDNUM_SPIDER) {
-                    if (allBossTypesDead(DOOMEDNUM_SPIDER)) {
-                        G_ExitLevel();
+                    if (allBossTypesDead(DOOMEDNUM_SPIDER, gi)) {
+                        G_ExitLevel(gi);
                     }
                 }
                 break;
 
             case 4:
                 if (info.map === 6 && target.type === DOOMEDNUM_CYBERDEMON) {
-                    if (allBossTypesDead(DOOMEDNUM_CYBERDEMON)) {
-                        evDoDoor(makeJunkLine(666), DoorType.blazeOpen);
+                    if (allBossTypesDead(DOOMEDNUM_CYBERDEMON, gi)) {
+                        evDoDoor(makeJunkLine(666), DoorType.blazeOpen, gi);
                     }
                 } else if (info.map === 8 && target.type === DOOMEDNUM_SPIDER) {
-                    if (allBossTypesDead(DOOMEDNUM_SPIDER)) {
-                        evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest);
+                    if (allBossTypesDead(DOOMEDNUM_SPIDER, gi)) {
+                        evDoFloor(makeJunkLine(666), FloorType.lowerFloorToLowest, gi);
                     }
                 }
                 break;
@@ -129,8 +129,8 @@ export function A_BossDeath(target: MapObjState): void {
 
     // Commander Keen — any level: when all Keens die, open door tag 666
     if (target.type === DOOMEDNUM_KEEN) {
-        if (allBossTypesDead(DOOMEDNUM_KEEN)) {
-            evDoDoor(makeJunkLine(666), DoorType.open);
+        if (allBossTypesDead(DOOMEDNUM_KEEN, gi)) {
+            evDoDoor(makeJunkLine(666), DoorType.open, gi);
         }
     }
 }

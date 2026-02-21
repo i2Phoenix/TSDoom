@@ -24,7 +24,9 @@ import {
   I_ResumeSong,
   I_SetMusicVolume,
 } from './i_music';
-import { P_Random } from '../../game/random';
+// M_Random — non-deterministic random for sound pitch (matches original DOOM's m_random.c)
+// Unlike P_Random (game-critical), M_Random doesn't affect game determinism.
+const M_Random = (): number => (Math.random() * 256) | 0;
 import {
   FRACBITS,
   ANGLETOFINESHIFT,
@@ -189,9 +191,9 @@ export function S_StartSound(origin: SoundOrigin | null, sfxId: Sfx): void {
   // Pitch perturbation (randomize slightly)
   if (sfxId >= Sfx.sawup && sfxId <= Sfx.sawhit) {
     // Chainsaw: smaller pitch range
-    pitch += 8 - (P_Random() & 15);
+    pitch += 8 - (M_Random() & 15);
   } else if (sfxId !== Sfx.itemup && sfxId !== Sfx.tink) {
-    pitch += 16 - (P_Random() & 31);
+    pitch += 16 - (M_Random() & 31);
   }
   pitch = Math.max(0, Math.min(255, pitch));
 

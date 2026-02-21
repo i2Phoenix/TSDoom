@@ -20,6 +20,7 @@ export type {
 
 import type { Vertex, Sector, SideDef, LineDef, Seg, SubSector, Node, MapThing, GameMap } from '../game/map-types';
 import { ML_TWOSIDED, NF_SUBSECTOR, incValidcount } from '../game/map-types';
+import type { GameInstance } from '../game/game-instance';
 
 // Map lump ordering (relative to map label)
 const ML_THINGS = 1;
@@ -375,8 +376,9 @@ export class GameMapImpl implements GameMap {
   forEachBlockLine(
     top: number, bottom: number, left: number, right: number,
     callback: (line: LineDef) => boolean,
+    gi: GameInstance,
   ): void {
-    const vc = incValidcount();
+    const vc = incValidcount(gi);
 
     const bx0 = Math.max(0, (left - this.bmapOrgX) >> MAPBLOCKSHIFT);
     const bx1 = Math.min(this.bmapWidth - 1, (right - this.bmapOrgX) >> MAPBLOCKSHIFT);

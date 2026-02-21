@@ -7,12 +7,11 @@ import type { GameMap, Sector } from './map-types';
 import { FRACBITS } from './math';
 import { Player, PlayerState } from './player';
 import { WeaponType, StateNum, getWeaponState, createPspDef } from './weapons';
-import { levelTime } from './thinkers';
-import { getThinkersList, setLevelTime, clearThinkers, Thinker } from './thinkers';
-import { removedThings, setRemovedThings } from './pickups';
+import { getLevelTime, getThinkersList, setLevelTime, clearThinkers, Thinker } from './thinkers';
+import { getRemovedThings, setRemovedThings } from './pickups';
 import { getMapObjects, setMapObjects, getDroppedItems, setDroppedItems, MapObjState, DroppedItem } from './mobj';
 import { getThingAnimStates, setThingAnimStates, ThingAnimState, MobjLifecycle } from './animations';
-import { getPrndIndex, setPrndIndex } from './random';
+import { GameInstance } from './game-instance';
 import {
   DoorType, PlatType, PlatStatus, FloorType,
   DoorThinker, PlatThinker, FloorThinker,
@@ -23,7 +22,7 @@ import {
   FireFlickerThinker, LightFlashThinker, StrobeFlashThinker, GlowThinker,
   restoreFireFlicker, restoreLightFlash, restoreStrobeFlash, restoreGlow,
 } from './lights';
-import { SkillLevel, getGameSkill, setGameSkill } from './skill';
+import { SkillLevel, setGameSkill } from './skill';
 
 // ============================================================
 // GameSaveData — JSON-friendly save format
@@ -136,7 +135,8 @@ const QUICKSAVE_KEY = 'tsdoom_quicksave';
 export function captureGameState(
   player: Player,
   map: GameMap,
-  description: string
+  description: string,
+  gi: GameInstance
 ): GameSaveData {
   // Player
   const savedPlayer: SavedPlayer = {
@@ -203,7 +203,7 @@ export function captureGameState(
   }
 
   // Thinkers (specials)
-  const thinkerList = getThinkersList();
+  const thinkerList = getThinkersList(gi);
   const savedThinkers: SavedThinker[] = [];
   for (const t of thinkerList) {
     if (t.removed) continue;
@@ -230,17 +230,17 @@ export function captureGameState(
     mapName: map.name,
     description,
     timestamp: Date.now(),
-    levelTime,
-    prndIndex: getPrndIndex(),
-    gameskill: getGameSkill(),
+    levelTime: getLevelTime(gi),
+    prndIndex: gi.prndindex,
+    gameskill: gi.gameskill,
     player: savedPlayer,
     sectors,
     lines,
     sides,
     thinkers: savedThinkers,
-    removedThings: Array.from(removedThings),
-    mapObjects: getMapObjects().map(o => ({ ...o })),
-    droppedItems: [...getDroppedItems()],
+    removedThings: Array.from(getRemovedThings(gi)),
+    mapObjects: getMapObjects(gi).map(o => ({ ...o })),
+    droppedItems: [...getDroppedItems(gi)],
     thingAnims,
   };
 }
@@ -310,7 +310,8 @@ function serializeThinker(t: Thinker, map: GameMap): SavedThinker | null {
 export function applyGameState(
   data: GameSaveData,
   player: Player,
-  map: GameMap
+  map: GameMap,
+  gi: GameInstance
 ): void {
   // Player
   const p = data.player;
@@ -383,8 +384,8 @@ export function applyGameState(
   }
 
   // Clear existing thinkers and specials state, then restore
-  clearThinkers();
-  clearSpecialsState();
+  clearThinkers(gi);
+  clearSpecialsState(gi);
 
   for (const st of data.thinkers) {
     const sector = map.sectors[st.sectorIndex];
@@ -392,35 +393,35 @@ export function applyGameState(
     const d = st.data;
     switch (st.tag) {
       case 'door':
-        restoreDoorThinker(sector, d.type as DoorType, d.topheight as number, d.speed as number, d.direction as number, d.topwait as number, d.topcountdown as number);
+        restoreDoorThinker(sector, d.type as DoorType, d.topheight as number, d.speed as number, d.direction as number, d.topwait as number, d.topcountdown as number, gi);
         break;
       case 'plat':
-        restorePlatThinker(sector, d.type as PlatType, d.speed as number, d.low as number, d.high as number, d.wait as number, d.count as number, d.status as PlatStatus, d.oldstatus as PlatStatus, d.crush as boolean, d.tag as number);
+        restorePlatThinker(sector, d.type as PlatType, d.speed as number, d.low as number, d.high as number, d.wait as number, d.count as number, d.status as PlatStatus, d.oldstatus as PlatStatus, d.crush as boolean, d.tag as number, gi);
         break;
       case 'floor':
-        restoreFloorThinker(sector, d.type as FloorType, d.speed as number, d.floordestheight as number, d.crush as boolean, d.direction as number);
+        restoreFloorThinker(sector, d.type as FloorType, d.speed as number, d.floordestheight as number, d.crush as boolean, d.direction as number, gi);
         break;
       case 'fireflicker':
-        restoreFireFlicker(sector, d.maxlight as number, d.minlight as number, d.count as number);
+        restoreFireFlicker(sector, d.maxlight as number, d.minlight as number, d.count as number, gi);
         break;
       case 'lightflash':
-        restoreLightFlash(sector, d.maxlight as number, d.minlight as number, d.count as number);
+        restoreLightFlash(sector, d.maxlight as number, d.minlight as number, d.count as number, gi);
         break;
       case 'strobe':
-        restoreStrobeFlash(sector, d.maxlight as number, d.minlight as number, d.darktime as number, d.brighttime as number, d.count as number);
+        restoreStrobeFlash(sector, d.maxlight as number, d.minlight as number, d.darktime as number, d.brighttime as number, d.count as number, gi);
         break;
       case 'glow':
-        restoreGlow(sector, d.maxlight as number, d.minlight as number, d.direction as number);
+        restoreGlow(sector, d.maxlight as number, d.minlight as number, d.direction as number, gi);
         break;
     }
   }
 
   // Map objects
-  setMapObjects(data.mapObjects.map(o => ({ ...o })));
-  setDroppedItems([...data.droppedItems]);
+  setMapObjects(data.mapObjects.map(o => ({ ...o })), gi);
+  setDroppedItems([...data.droppedItems], gi);
 
   // Removed things
-  setRemovedThings(data.removedThings);
+  setRemovedThings(data.removedThings, gi);
 
   // Thing animations
   const animMap = new Map<number, ThingAnimState>();
@@ -437,12 +438,12 @@ export function applyGameState(
   setThingAnimStates(animMap);
 
   // Timing & random
-  setLevelTime(data.levelTime);
-  setPrndIndex(data.prndIndex);
+  setLevelTime(data.levelTime, gi);
+  gi.prndindex = data.prndIndex & 0xff;
 
   // Skill level
   if (data.gameskill !== undefined) {
-    setGameSkill(data.gameskill);
+    setGameSkill(data.gameskill, gi);
   }
 
   console.log(`[savegame] State applied: map=${data.mapName} skill=${data.gameskill ?? '?'} levelTime=${data.levelTime}`);

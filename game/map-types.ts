@@ -19,11 +19,16 @@ export const ML_MAPPED = 256;
 export const NF_SUBSECTOR = 0x8000;
 
 // ---- Global validcount for linedef deduplication ----
-let validcount = 0;
+import { GameInstance } from './game-instance';
 
 /** Increment and return the global validcount (call before each forEachBlockLine batch) */
-export function incValidcount(): number {
-  return ++validcount;
+export function incValidcount(gi: GameInstance): number {
+  return ++gi.validcount;
+}
+
+/** Return the current global validcount */
+export function getValidcount(gi: GameInstance): number {
+  return gi.validcount;
 }
 
 // ---- Map data interfaces ----
@@ -139,5 +144,5 @@ export interface GameMap {
   pointInSubsector(x: number, y: number): SubSector;
   pointOnSide(x: number, y: number, node: Node): number;
   blockLinesIterator(bx: number, by: number, vc: number, callback: (line: LineDef) => boolean): boolean;
-  forEachBlockLine(top: number, bottom: number, left: number, right: number, callback: (line: LineDef) => boolean): void;
+  forEachBlockLine(top: number, bottom: number, left: number, right: number, callback: (line: LineDef) => boolean, gi: GameInstance): void;
 }

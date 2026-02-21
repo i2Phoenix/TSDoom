@@ -4,23 +4,22 @@
 // ============================================================
 
 import type { Sector, GameMap } from './map-types';
+import { GameInstance } from './game-instance';
 import { addThinker, Thinker } from './thinkers';
 
-// ---- Saved original sector state (for respawn) ----
-let savedSectorSpecials: number[] = [];
-let savedSectorLightLevels: number[] = [];
+// ---- Saved original sector state (delegated to GameInstance) ----
 
 /** Save original sector state — call once at initial level load */
-export function saveSectorState(map: GameMap): void {
-  savedSectorSpecials = map.sectors.map(s => s.special);
-  savedSectorLightLevels = map.sectors.map(s => s.lightLevel);
+export function saveSectorState(map: GameMap, gi: GameInstance): void {
+  gi.savedSectorSpecials = map.sectors.map(s => s.special);
+  gi.savedSectorLightLevels = map.sectors.map(s => s.lightLevel);
 }
 
 /** Restore original sector state — call before re-init on respawn */
-export function restoreSectorState(map: GameMap): void {
+export function restoreSectorState(map: GameMap, gi: GameInstance): void {
   for (let i = 0; i < map.sectors.length; i++) {
-    map.sectors[i].special = savedSectorSpecials[i] ?? map.sectors[i].special;
-    map.sectors[i].lightLevel = savedSectorLightLevels[i] ?? map.sectors[i].lightLevel;
+    map.sectors[i].special = gi.savedSectorSpecials[i] ?? map.sectors[i].special;
+    map.sectors[i].lightLevel = gi.savedSectorLightLevels[i] ?? map.sectors[i].lightLevel;
   }
 }
 
@@ -67,7 +66,7 @@ export interface FireFlickerThinker extends Thinker {
   count: number;
 }
 
-function T_FireFlicker(t: Thinker): void {
+function T_FireFlicker(t: Thinker, _gi: GameInstance): void {
   const flick = t as FireFlickerThinker;
   if (--flick.count > 0) return;
 
@@ -82,7 +81,7 @@ function T_FireFlicker(t: Thinker): void {
   flick.count = 4;
 }
 
-function spawnFireFlicker(sector: Sector, map: GameMap): void {
+function spawnFireFlicker(sector: Sector, map: GameMap, gi: GameInstance): void {
   const maxlight = sector.lightLevel;
   const minlight = findMinSurroundingLight(sector, sector.lightLevel, map) + 16;
 
@@ -96,7 +95,7 @@ function spawnFireFlicker(sector: Sector, map: GameMap): void {
     minlight,
     count: 4,
   };
-  addThinker(flick);
+  addThinker(flick, gi);
 }
 
 // ===========================================================
@@ -114,7 +113,7 @@ export interface LightFlashThinker extends Thinker {
   count: number;
 }
 
-function T_LightFlash(t: Thinker): void {
+function T_LightFlash(t: Thinker, _gi: GameInstance): void {
   const flash = t as LightFlashThinker;
   if (--flash.count > 0) return;
 
@@ -127,7 +126,7 @@ function T_LightFlash(t: Thinker): void {
   }
 }
 
-function spawnLightFlash(sector: Sector, map: GameMap): void {
+function spawnLightFlash(sector: Sector, map: GameMap, gi: GameInstance): void {
   const maxlight = sector.lightLevel;
   const minlight = findMinSurroundingLight(sector, sector.lightLevel, map);
 
@@ -143,7 +142,7 @@ function spawnLightFlash(sector: Sector, map: GameMap): void {
     mintime: 7,
     count: (pRandom() & 64) + 1,
   };
-  addThinker(flash);
+  addThinker(flash, gi);
 }
 
 // ===========================================================
@@ -161,7 +160,7 @@ export interface StrobeFlashThinker extends Thinker {
   count: number;
 }
 
-function T_StrobeFlash(t: Thinker): void {
+function T_StrobeFlash(t: Thinker, _gi: GameInstance): void {
   const flash = t as StrobeFlashThinker;
   if (--flash.count > 0) return;
 
@@ -174,7 +173,7 @@ function T_StrobeFlash(t: Thinker): void {
   }
 }
 
-function spawnStrobeFlash(sector: Sector, map: GameMap, fastOrSlow: number, inSync: boolean): void {
+function spawnStrobeFlash(sector: Sector, map: GameMap, fastOrSlow: number, inSync: boolean, gi: GameInstance): void {
   const maxlight = sector.lightLevel;
   let minlight = findMinSurroundingLight(sector, sector.lightLevel, map);
 
@@ -194,7 +193,7 @@ function spawnStrobeFlash(sector: Sector, map: GameMap, fastOrSlow: number, inSy
     brighttime: STROBEBRIGHT,
     count: inSync ? 1 : (pRandom() & 7) + 1,
   };
-  addThinker(flash);
+  addThinker(flash, gi);
 }
 
 // ===========================================================
@@ -209,7 +208,7 @@ export interface GlowThinker extends Thinker {
   direction: number; // -1 = dimming, 1 = brightening
 }
 
-function T_Glow(t: Thinker): void {
+function T_Glow(t: Thinker, _gi: GameInstance): void {
   const g = t as GlowThinker;
 
   switch (g.direction) {
@@ -233,7 +232,7 @@ function T_Glow(t: Thinker): void {
   }
 }
 
-function spawnGlowingLight(sector: Sector, map: GameMap): void {
+function spawnGlowingLight(sector: Sector, map: GameMap, gi: GameInstance): void {
   const maxlight = sector.lightLevel;
   const minlight = findMinSurroundingLight(sector, sector.lightLevel, map);
 
@@ -247,7 +246,7 @@ function spawnGlowingLight(sector: Sector, map: GameMap): void {
     minlight,
     direction: -1,
   };
-  addThinker(g);
+  addThinker(g, gi);
 }
 
 // ===========================================================
@@ -256,7 +255,7 @@ function spawnGlowingLight(sector: Sector, map: GameMap): void {
 // Called at level load. Scans all sectors for light specials
 // and spawns the appropriate thinkers.
 
-export function spawnSectorLights(map: GameMap): void {
+export function spawnSectorLights(map: GameMap, gi: GameInstance): void {
   let count = 0;
   for (const sector of map.sectors) {
     if (!sector.special) continue;
@@ -264,50 +263,50 @@ export function spawnSectorLights(map: GameMap): void {
     switch (sector.special) {
       case 1:
         // FLICKERING LIGHTS
-        spawnLightFlash(sector, map);
+        spawnLightFlash(sector, map, gi);
         count++;
         break;
 
       case 2:
         // STROBE FAST
-        spawnStrobeFlash(sector, map, FASTDARK, false);
+        spawnStrobeFlash(sector, map, FASTDARK, false, gi);
         count++;
         break;
 
       case 3:
         // STROBE SLOW
-        spawnStrobeFlash(sector, map, SLOWDARK, false);
+        spawnStrobeFlash(sector, map, SLOWDARK, false, gi);
         count++;
         break;
 
       case 4:
         // STROBE FAST / DEATH SLIME
-        spawnStrobeFlash(sector, map, FASTDARK, false);
+        spawnStrobeFlash(sector, map, FASTDARK, false, gi);
         sector.special = 4; // restore for damage logic
         count++;
         break;
 
       case 8:
         // GLOWING LIGHT
-        spawnGlowingLight(sector, map);
+        spawnGlowingLight(sector, map, gi);
         count++;
         break;
 
       case 12:
         // SYNC STROBE SLOW
-        spawnStrobeFlash(sector, map, SLOWDARK, true);
+        spawnStrobeFlash(sector, map, SLOWDARK, true, gi);
         count++;
         break;
 
       case 13:
         // SYNC STROBE FAST
-        spawnStrobeFlash(sector, map, FASTDARK, true);
+        spawnStrobeFlash(sector, map, FASTDARK, true, gi);
         count++;
         break;
 
       case 17:
         // FIRE FLICKER
-        spawnFireFlicker(sector, map);
+        spawnFireFlicker(sector, map, gi);
         count++;
         break;
     }
@@ -380,12 +379,12 @@ export function evTurnTagLightsOff(tag: number, map: GameMap): void {
  * EV_StartLightStrobing — spawn strobe flash in tagged sectors.
  * Triggered by linedef special 17.
  */
-export function evStartLightStrobing(tag: number, map: GameMap): void {
+export function evStartLightStrobing(tag: number, map: GameMap, gi: GameInstance): void {
   for (const sector of map.sectors) {
     if (sector.tag !== tag) continue;
     // Don't spawn if sector already has a special thinker
     // (we skip this check as original uses specialdata, we don't track that for lights)
-    spawnStrobeFlash(sector, map, SLOWDARK, false);
+    spawnStrobeFlash(sector, map, SLOWDARK, false, gi);
   }
 }
 
@@ -393,23 +392,23 @@ export function evStartLightStrobing(tag: number, map: GameMap): void {
 // Save/Load helpers for light thinkers
 // ===========================================================
 
-export function restoreFireFlicker(sector: Sector, maxlight: number, minlight: number, count: number): void {
+export function restoreFireFlicker(sector: Sector, maxlight: number, minlight: number, count: number, gi: GameInstance): void {
   const flick: FireFlickerThinker = { action: T_FireFlicker, removed: false, sector, maxlight, minlight, count };
-  addThinker(flick);
+  addThinker(flick, gi);
 }
 
-export function restoreLightFlash(sector: Sector, maxlight: number, minlight: number, count: number): void {
+export function restoreLightFlash(sector: Sector, maxlight: number, minlight: number, count: number, gi: GameInstance): void {
   const flash: LightFlashThinker = { action: T_LightFlash, removed: false, sector, maxlight, minlight, maxtime: 64, mintime: 7, count };
-  addThinker(flash);
+  addThinker(flash, gi);
 }
 
-export function restoreStrobeFlash(sector: Sector, maxlight: number, minlight: number, darktime: number, brighttime: number, count: number): void {
+export function restoreStrobeFlash(sector: Sector, maxlight: number, minlight: number, darktime: number, brighttime: number, count: number, gi: GameInstance): void {
   const flash: StrobeFlashThinker = { action: T_StrobeFlash, removed: false, sector, maxlight, minlight, darktime, brighttime, count };
-  addThinker(flash);
+  addThinker(flash, gi);
 }
 
-export function restoreGlow(sector: Sector, maxlight: number, minlight: number, direction: number): void {
+export function restoreGlow(sector: Sector, maxlight: number, minlight: number, direction: number, gi: GameInstance): void {
   const g: GlowThinker = { action: T_Glow, removed: false, sector, maxlight, minlight, direction };
-  addThinker(g);
+  addThinker(g, gi);
 }
 

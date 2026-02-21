@@ -3,9 +3,10 @@
 // Reference: p_spec.c (flat/texture anims), info.c (sprite states)
 // ============================================================
 
-import { levelTime } from './thinkers';
+import { getLevelTime } from './thinkers';
 import { FRACUNIT } from './math';
 import type { SideDef, LineDef } from './map-types';
+import { GameInstance } from './game-instance';
 
 // ===========================================================
 // 1) Flat / Wall Texture Animations (P_UpdateSpecials)
@@ -53,22 +54,12 @@ const ANIMDEFS: AnimDef[] = [
 ];
 
 /** Resolved animation: indices into flatList or texture array */
-interface AnimSequence {
+export interface AnimSequence {
   isTexture: boolean;
   basePic: number;          // index of first frame
   numFrames: number;        // total frames in sequence
   speed: number;
 }
-
-let animSequences: AnimSequence[] = [];
-
-// Translation tables: original picnum → current animated picnum
-// Indexed by original flat/texture index, value is the current display index
-let flatTranslation: number[] = [];
-let textureTranslation: number[] = [];
-
-// Scrolling wall lines (linedef special 48)
-let scrollLines: SideDef[] = [];
 
 /**
  * Initialize animation sequences.
@@ -78,15 +69,16 @@ export function initAnimations(
   flatNumForName: (name: string) => number,
   textureNumForName: (name: string) => number,
   flatCount: number,
-  textureCount: number
+  textureCount: number,
+  gi: GameInstance
 ): void {
-  animSequences = [];
+  gi.animSequences = [];
 
   // Build identity translation tables
-  flatTranslation = [];
-  for (let i = 0; i < flatCount; i++) flatTranslation[i] = i;
-  textureTranslation = [];
-  for (let i = 0; i < textureCount; i++) textureTranslation[i] = i;
+  gi.flatTranslation = [];
+  for (let i = 0; i < flatCount; i++) gi.flatTranslation[i] = i;
+  gi.textureTranslation = [];
+  for (let i = 0; i < textureCount; i++) gi.textureTranslation[i] = i;
 
   for (const def of ANIMDEFS) {
     const lookup = def.isTexture ? textureNumForName : flatNumForName;
@@ -94,7 +86,7 @@ export function initAnimations(
     const lastPic = lookup(def.lastName);
     if (firstPic < 0 || lastPic < 0 || lastPic < firstPic) continue;
 
-    animSequences.push({
+    gi.animSequences.push({
       isTexture: def.isTexture,
       basePic: firstPic,
       numFrames: lastPic - firstPic + 1,
@@ -102,24 +94,24 @@ export function initAnimations(
     });
   }
 
-  console.log(`[anims] ${animSequences.length} animation sequences initialized`);
+  console.log(`[anims] ${gi.animSequences.length} animation sequences initialized`);
 }
 
 /**
  * Update animation translations each tick (called from game loop).
  * Mirrors P_UpdateSpecials from p_spec.c.
  */
-export function updateAnimations(): void {
-  for (const anim of animSequences) {
-    const frameIdx = Math.floor(levelTime / anim.speed) % anim.numFrames;
+export function updateAnimations(gi: GameInstance): void {
+  for (const anim of gi.animSequences) {
+    const frameIdx = Math.floor(getLevelTime(gi) / anim.speed) % anim.numFrames;
     const currentPic = anim.basePic + frameIdx;
-    const table = anim.isTexture ? textureTranslation : flatTranslation;
+    const table = anim.isTexture ? gi.textureTranslation : gi.flatTranslation;
     // Update ALL frames in this sequence to point to the current frame
     for (let i = 0; i < anim.numFrames; i++) {
       table[anim.basePic + i] = currentPic;
     }
   }
-  updateScrollLines();
+  updateScrollLines(gi);
 }
 
 /**
@@ -127,34 +119,35 @@ export function updateAnimations(): void {
  * Collects all linedefs with special 48 (Scroll Texture Left).
  * Call after map is loaded.
  */
-export function initScrollLines(linedefs: LineDef[], sidedefs: SideDef[]): void {
-  scrollLines = [];
+export function initScrollLines(linedefs: LineDef[], sidedefs: SideDef[], gi: GameInstance): void {
+  gi.scrollLines = [];
   for (const line of linedefs) {
     if (line.special === 48 && line.sidenum[0] >= 0) {
       const side = sidedefs[line.sidenum[0]];
-      if (side) scrollLines.push(side);
+      if (side) gi.scrollLines.push(side);
     }
   }
-  if (scrollLines.length > 0) {
-    console.log(`[anims] ${scrollLines.length} scrolling wall lines`);
+  if (gi.scrollLines.length > 0) {
+    console.log(`[anims] ${gi.scrollLines.length} scrolling wall lines`);
   }
 }
 
 /** Get the current animated flat index for an original flat picnum */
-export function getAnimatedFlat(picnum: number): number {
-  return flatTranslation[picnum] ?? picnum;
+export function getAnimatedFlat(picnum: number, gi: GameInstance): number {
+  return gi.flatTranslation[picnum] ?? picnum;
 }
 
 /** Get the current animated texture index for an original texture picnum */
-export function getAnimatedTexture(picnum: number): number {
-  return textureTranslation[picnum] ?? picnum;
+export function getAnimatedTexture(picnum: number, gi: GameInstance): number {
+  return gi.textureTranslation[picnum] ?? picnum;
 }
 
 /**
  * Update scrolling line textures each tick.
  * Original DOOM: sides[line->sidenum[0]].textureoffset += FRACUNIT;
  */
-function updateScrollLines(): void {
+function updateScrollLines(gi: GameInstance): void {
+  const scrollLines = gi.scrollLines;
   for (let i = 0; i < scrollLines.length; i++) {
     scrollLines[i].textureOffset += FRACUNIT;
   }
@@ -1201,10 +1194,10 @@ export function initThingAnimations(things: { type: number }[]): void {
  * Action callback registry. AI functions register here so animations
  * can call them by name without circular imports.
  */
-const actionCallbacks: Record<string, (thingIndex: number) => void> = {};
+const actionCallbacks: Record<string, (thingIndex: number, gi: GameInstance) => void> = {};
 
 /** Register an action callback by name (called from enemy.ts on init) */
-export function registerActionCallback(name: string, fn: (thingIndex: number) => void): void {
+export function registerActionCallback(name: string, fn: (thingIndex: number, gi: GameInstance) => void): void {
   actionCallbacks[name] = fn;
 }
 
@@ -1213,7 +1206,7 @@ export function registerActionCallback(name: string, fn: (thingIndex: number) =>
  * Handles monster lifecycle: pain returns to alive/chasing, death reaches terminal.
  * Calls action callbacks on state entry.
  */
-export function updateThingAnimations(): void {
+export function updateThingAnimations(gi: GameInstance): void {
   for (const [idx, anim] of thingAnimStates) {
     // Terminal state (tics = -1) — don't advance, but call action for A_Look
     if (anim.tics === -1) {
@@ -1222,7 +1215,7 @@ export function updateThingAnimations(): void {
       if (def) {
         const state = def.states[anim.stateIdx];
         if (state.action && actionCallbacks[state.action]) {
-          actionCallbacks[state.action](idx);
+          actionCallbacks[state.action](idx, gi);
         }
       }
       continue;
@@ -1268,7 +1261,7 @@ export function updateThingAnimations(): void {
 
       // Call action callback on state entry
       if (nextState.action && actionCallbacks[nextState.action]) {
-        actionCallbacks[nextState.action](idx);
+        actionCallbacks[nextState.action](idx, gi);
       }
     }
   }
@@ -1391,7 +1384,7 @@ export function setThingAnimStates(states: Map<number, ThingAnimState>): void {
  * Switch a monster's animation to a specific state index.
  * Used by AI to transition to seeState, meleeState, missileState, spawnState.
  */
-export function setMonsterState(thingIndex: number, thingType: number, stateIdx: number, lifecycle: MobjLifecycle): void {
+export function setMonsterState(thingIndex: number, thingType: number, stateIdx: number, lifecycle: MobjLifecycle, gi?: GameInstance): void {
   const def = THING_ANIM_DEFS[thingType];
   if (!def || stateIdx >= def.states.length) return;
 
@@ -1421,8 +1414,8 @@ export function setMonsterState(thingIndex: number, thingType: number, stateIdx:
 
   // Call action on state entry
   const state = def.states[stateIdx];
-  if (state.action && actionCallbacks[state.action]) {
-    actionCallbacks[state.action](thingIndex);
+  if (state.action && actionCallbacks[state.action] && gi) {
+    actionCallbacks[state.action](thingIndex, gi);
   }
 }
 

@@ -20,7 +20,7 @@ import { getMapObjectByThingIndex } from '../../../game/mobj';
 import { getActiveVfx, getVfxSprite, type VfxEffect } from '../../../game/vfx';
 import { getDroppedItems, type DroppedItem } from '../../../game/mobj';
 import { getActiveProjectiles, getProjectileSprite, type Projectile } from '../../../game/projectiles';
-import { removedThings } from '../../../game/pickups';
+import { getRemovedThings } from '../../../game/pickups';
 import { shouldSpawnThing } from '../../../game/skill';
 import { THING_INFO } from './sprites';
 import type { Sector, MapThing } from '../../map';
@@ -46,13 +46,13 @@ export class SpriteRenderer {
     ctx.subsectorThings.clear();
     for (let i = 0; i < ctx.map.things.length; i++) {
       const thing = ctx.map.things[i];
-      if (removedThings.has(i)) continue;
-      if (!shouldSpawnThing(thing.options)) continue;
+      if (getRemovedThings(ctx.gi).has(i)) continue;
+      if (!shouldSpawnThing(thing.options, ctx.gi)) continue;
       const info = THING_INFO[thing.type];
       if (!info) continue;
 
       // Use runtime position from MapObjState if available (monsters move!)
-      const mobj = getMapObjectByThingIndex(i);
+      const mobj = getMapObjectByThingIndex(i, ctx.gi);
       if (mobj && mobj.removed) continue;
       const x = mobj ? mobj.x : (thing.x << FRACBITS);
       const y = mobj ? mobj.y : (thing.y << FRACBITS);
@@ -68,7 +68,7 @@ export class SpriteRenderer {
   private buildVfxSubsectorMap(ctx: RenderContext): void {
     ctx.subsectorVfx.clear();
     if (!ctx.spriteData) return;
-    const effects = getActiveVfx();
+    const effects = getActiveVfx(ctx.gi);
     for (const e of effects) {
       const ss = ctx.map.pointInSubsector(e.x, e.y);
       const ssIdx = ctx.map.subsectors.indexOf(ss);
@@ -81,7 +81,7 @@ export class SpriteRenderer {
   private buildDropSubsectorMap(ctx: RenderContext): void {
     ctx.subsectorDrops.clear();
     if (!ctx.spriteData) return;
-    const items = getDroppedItems();
+    const items = getDroppedItems(ctx.gi);
     for (const item of items) {
       const ss = ctx.map.pointInSubsector(item.x, item.y);
       const ssIdx = ctx.map.subsectors.indexOf(ss);
@@ -94,7 +94,7 @@ export class SpriteRenderer {
   private buildProjectileSubsectorMap(ctx: RenderContext): void {
     ctx.subsectorProjectiles.clear();
     if (!ctx.spriteData) return;
-    const projectiles = getActiveProjectiles();
+    const projectiles = getActiveProjectiles(ctx.gi);
     for (const p of projectiles) {
       if (p.removed) continue;
       const ss = ctx.map.pointInSubsector(p.x, p.y);
@@ -143,7 +143,7 @@ export class SpriteRenderer {
     sector: Sector,
     thingIdx: number,
   ): void {
-    const mobj = getMapObjectByThingIndex(thingIdx);
+    const mobj = getMapObjectByThingIndex(thingIdx, ctx.gi);
     const tx = mobj ? mobj.x : (thing.x << FRACBITS);
     const ty = mobj ? mobj.y : (thing.y << FRACBITS);
 

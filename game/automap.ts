@@ -9,6 +9,7 @@ import type { GameMap, LineDef, Vertex } from './map-types';
 import { ML_TWOSIDED, ML_SECRET, ML_DONTDRAW, ML_MAPPED } from './map-types';
 import { getMapObjects, type MapObjState } from './mobj';
 import { MF_COUNTKILL } from './mobjinfo';
+import { GameInstance } from './game-instance';
 
 // ---- Screen buffer injected by platform layer ----
 let SCREENWIDTH = 320;
@@ -65,8 +66,7 @@ export const enum AutomapMode {
 }
 
 // ---- Module state ----
-let mode: AutomapMode = AutomapMode.OFF;
-let map: GameMap | null = null;
+// mode and revealLevel are stored in GameInstance (gi.automapMode, gi.automapRevealLevel)
 
 // View state (used for fullscreen mode)
 let viewX = 0;   // center of automap in map coords (fixed_t)
@@ -77,9 +77,6 @@ let followMode = true;
 // Minimap scale (computed once on AM_Start, always follows player)
 let miniScale = 0.08;
 
-// Cheat reveal level: 0=normal, 1=all lines, 2=all lines+things
-let revealLevel = 0;
-
 // ---- Viewport for current draw (set before drawing) ----
 let vpX = 0, vpY = 0, vpW = SCREENWIDTH, vpH = SCREENHEIGHT;
 /** When true, line/dot drawing blends instead of overwriting */
@@ -87,59 +84,58 @@ let blendMode = false;
 
 // ---- Public API ----
 
-export function isAutomapActive(): boolean {
-  return mode !== AutomapMode.OFF;
+export function isAutomapActive(gi: GameInstance): boolean {
+  return gi.automapMode !== AutomapMode.OFF;
 }
 
-export function isAutomapFullscreen(): boolean {
-  return mode === AutomapMode.FULLSCREEN;
+export function isAutomapFullscreen(gi: GameInstance): boolean {
+  return gi.automapMode === AutomapMode.FULLSCREEN;
 }
 
-export function getAutomapMode(): AutomapMode {
-  return mode;
+export function getAutomapMode(gi: GameInstance): AutomapMode {
+  return gi.automapMode as AutomapMode;
 }
 
-export function AM_Start(m: GameMap): void {
-  map = m;
-  revealLevel = 0;
+export function AM_Start(_m: GameMap, gi: GameInstance): void {
+  gi.automapRevealLevel = 0;
   followMode = true;
-  mode = AutomapMode.OFF;
-  computeScales();
+  gi.automapMode = AutomapMode.OFF;
+  computeScales(gi);
 }
 
-export function AM_Stop(): void {
-  mode = AutomapMode.OFF;
-  map = null;
+export function AM_Stop(gi: GameInstance): void {
+  gi.automapMode = AutomapMode.OFF;
 }
 
 /** Cycle automap mode: OFF → FULLSCREEN → MINIMAP → OFF */
-export function AM_Toggle(): void {
-  switch (mode) {
+export function AM_Toggle(gi: GameInstance): void {
+  switch (gi.automapMode) {
     case AutomapMode.OFF:
-      mode = AutomapMode.FULLSCREEN;
-      if (map) computeScales();
+      gi.automapMode = AutomapMode.FULLSCREEN;
+      if (gi.currentMap) computeScales(gi);
       break;
     case AutomapMode.FULLSCREEN:
-      mode = AutomapMode.MINIMAP;
+      gi.automapMode = AutomapMode.MINIMAP;
       break;
     case AutomapMode.MINIMAP:
-      mode = AutomapMode.OFF;
+      gi.automapMode = AutomapMode.OFF;
       break;
   }
 }
 
 /** Cycle IDDT cheat reveal level */
-export function AM_CycleReveal(): void {
-  revealLevel = (revealLevel + 1) % 3;
+export function AM_CycleReveal(gi: GameInstance): void {
+  gi.automapRevealLevel = (gi.automapRevealLevel + 1) % 3;
 }
 
 /**
  * Handle a keydown for the automap. Returns true if consumed.
  */
-export function AM_Responder(code: string): boolean {
+export function AM_Responder(code: string, gi: GameInstance): boolean {
+  const mode = gi.automapMode;
   if (mode === AutomapMode.OFF) {
     if (code === 'Tab') {
-      AM_Toggle();
+      AM_Toggle(gi);
       return true;
     }
     return false;
@@ -148,7 +144,7 @@ export function AM_Responder(code: string): boolean {
   // Minimap mode: only TAB to cycle further
   if (mode === AutomapMode.MINIMAP) {
     if (code === 'Tab') {
-      AM_Toggle();
+      AM_Toggle(gi);
       return true;
     }
     return false;
@@ -157,7 +153,7 @@ export function AM_Responder(code: string): boolean {
   // Fullscreen mode: full controls
   switch (code) {
     case 'Tab':
-      AM_Toggle();
+      AM_Toggle(gi);
       return true;
 
     case 'Equal':
@@ -197,20 +193,21 @@ export function AM_Responder(code: string): boolean {
  */
 export function AM_Drawer(
   playerX: number, playerY: number, playerAngle: number,
+  gi: GameInstance,
 ): void {
-  if (mode === AutomapMode.OFF || !map) return;
+  if (gi.automapMode === AutomapMode.OFF || !gi.currentMap) return;
 
-  if (mode === AutomapMode.FULLSCREEN) {
-    drawFullscreen(playerX, playerY, playerAngle);
+  if (gi.automapMode === AutomapMode.FULLSCREEN) {
+    drawFullscreen(playerX, playerY, playerAngle, gi);
   } else {
-    drawMinimap(playerX, playerY, playerAngle);
+    drawMinimap(playerX, playerY, playerAngle, gi);
   }
 }
 
 // ---- Fullscreen drawing ----
 
 function drawFullscreen(
-  playerX: number, playerY: number, playerAngle: number,
+  playerX: number, playerY: number, playerAngle: number, gi: GameInstance,
 ): void {
   // Set viewport to full screen
   vpX = 0; vpY = 0; vpW = SCREENWIDTH; vpH = SCREENHEIGHT;
@@ -224,15 +221,15 @@ function drawFullscreen(
   // Clear to black background
   rgbaBuffer.fill(BGCOLOR);
 
-  drawLines(viewX, viewY, scale);
-  drawThings(viewX, viewY, scale);
+  drawLines(viewX, viewY, scale, gi);
+  drawThings(viewX, viewY, scale, gi);
   drawPlayerArrow(playerX, playerY, playerAngle, viewX, viewY, scale, ARROW_SIZE);
 }
 
 // ---- Minimap drawing ----
 
 function drawMinimap(
-  playerX: number, playerY: number, playerAngle: number,
+  playerX: number, playerY: number, playerAngle: number, gi: GameInstance,
 ): void {
   const mw = Math.round(SCREENWIDTH * MINI_FRAC_W);
   const mh = Math.round(SCREENHEIGHT * MINI_FRAC_H);
@@ -262,8 +259,8 @@ function drawMinimap(
   drawVLine(mx + mw - 1, my, mh, MINI_BORDER);
 
   // Always centered on player for minimap
-  drawLines(playerX, playerY, miniScale);
-  drawThings(playerX, playerY, miniScale);
+  drawLines(playerX, playerY, miniScale, gi);
+  drawThings(playerX, playerY, miniScale, gi);
   drawPlayerArrow(playerX, playerY, playerAngle, playerX, playerY, miniScale, MINI_ARROW_SIZE);
 
   blendMode = false;
@@ -271,11 +268,12 @@ function drawMinimap(
 
 // ---- Shared drawing routines (use current viewport vpX/vpY/vpW/vpH) ----
 
-function drawLines(cx: number, cy: number, s: number): void {
+function drawLines(cx: number, cy: number, s: number, gi: GameInstance): void {
+  const map = gi.currentMap;
   if (!map) return;
   const verts = map.vertices;
   for (const line of map.linedefs) {
-    const color = getLineColor(line);
+    const color = getLineColor(line, gi);
     if (color === 0) continue;
     const v1 = verts[line.v1];
     const v2 = verts[line.v2];
@@ -287,9 +285,9 @@ function drawLines(cx: number, cy: number, s: number): void {
   }
 }
 
-function drawThings(cx: number, cy: number, s: number): void {
-  if (revealLevel < 2) return;
-  const things = getMapObjects();
+function drawThings(cx: number, cy: number, s: number, gi: GameInstance): void {
+  if (gi.automapRevealLevel < 2) return;
+  const things = getMapObjects(gi);
   for (const mobj of things) {
     if (mobj.health <= 0) continue;
     const sx = toScreenX(mobj.x, cx, s);
@@ -330,7 +328,8 @@ function toScreenY(my: number, cy: number, s: number): number {
 
 // ---- Scale computation ----
 
-function computeScales(): void {
+function computeScales(gi: GameInstance): void {
+  const map = gi.currentMap;
   if (!map || map.vertices.length === 0) return;
 
   let minX = Infinity, maxX = -Infinity;
@@ -367,7 +366,8 @@ function computeScales(): void {
 
 // ---- Line color ----
 
-function getLineColor(line: LineDef): number {
+function getLineColor(line: LineDef, gi: GameInstance): number {
+  const revealLevel = gi.automapRevealLevel;
   if (line.flags & ML_DONTDRAW) {
     return revealLevel >= 1 ? TSWALLCOLOR : 0;
   }

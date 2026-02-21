@@ -17,9 +17,10 @@ import {
   initPlayerWeapons, movePsprites, fireWeapon, getPspriteInfo,
   weaponinfo, dropWeapon, bringUpWeapon, createPspDef,
 } from './weapons';
-import { levelTime } from './thinkers';
+import { getLevelTime } from './thinkers';
 import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
+import { GameInstance } from './game-instance';
 
 const USERANGE = 64 << FRACBITS; // 64 map units — how far the player can reach
 
@@ -104,14 +105,16 @@ export class Player {
   attackdown: boolean = false;
   refire: number = 0;
 
+  gi: GameInstance;
   private map: GameMap;
   private usePressed: boolean = false;  // debounce for Use action
   private prevx: number = 0;           // previous position for line crossing
   private prevy: number = 0;
   private stuckTicks: number = 0;      // consecutive ticks of failed movement
 
-  constructor(map: GameMap) {
+  constructor(map: GameMap, gi: GameInstance) {
     this.map = map;
+    this.gi = gi;
   }
 
   /** Update the map reference (on level change without recreating Player) */
@@ -454,7 +457,7 @@ export class Player {
     this.calcHeight();
 
     // Check for item pickups (P_TouchSpecialThing)
-    checkPickups(this, this.map.things);
+    checkPickups(this, this.map.things, this.gi);
 
     // Tick weapon state machine
     movePsprites(this);
@@ -513,7 +516,7 @@ export class Player {
       case 5:
         // HELLSLIME DAMAGE — 10 every 32 ticks
         if (!this.powers[PowerType.ironfeet]) {
-          if (!(levelTime & 0x1f)) {
+          if (!(getLevelTime(this.gi) & 0x1f)) {
             this.takeDamage(10);
           }
         }
@@ -522,7 +525,7 @@ export class Player {
       case 7:
         // NUKAGE DAMAGE — 5 every 32 ticks
         if (!this.powers[PowerType.ironfeet]) {
-          if (!(levelTime & 0x1f)) {
+          if (!(getLevelTime(this.gi) & 0x1f)) {
             this.takeDamage(5);
           }
         }
@@ -533,7 +536,7 @@ export class Player {
         // SUPER HELLSLIME / STROBE HURT — 20 every 32 ticks
         // Radiation suit has small chance of failing (P_Random() < 5)
         if (!this.powers[PowerType.ironfeet] || Math.random() < 5 / 256) {
-          if (!(levelTime & 0x1f)) {
+          if (!(getLevelTime(this.gi) & 0x1f)) {
             this.takeDamage(20);
           }
         }
@@ -546,7 +549,7 @@ export class Player {
 
       case 11:
         // EXIT SUPER DAMAGE (E1M8 finale) — 20 every 32 ticks, ignores cheats
-        if (!(levelTime & 0x1f)) {
+        if (!(getLevelTime(this.gi) & 0x1f)) {
           this.takeDamage(20);
         }
         break;
@@ -575,7 +578,7 @@ export class Player {
     }
 
     // Bob oscillation using finesine (DOOM: FINEANGLES/20 * leveltime)
-    const angle = (((FINEANGLES / 20) * levelTime) | 0) & FINEMASK;
+    const angle = (((FINEANGLES / 20) * getLevelTime(this.gi)) | 0) & FINEMASK;
     const bobOffset = fixedMul(this.bob >> 1, finesine[angle]);
 
     // Move viewheight toward VIEWHEIGHT (smooth transition on spawn)
@@ -635,7 +638,7 @@ export class Player {
     }
 
     // Skill damage multiplier (Baby = 50%)
-    damage = Math.round(damage * getDamageMultiplier());
+    damage = Math.round(damage * getDamageMultiplier(this.gi));
 
     // Armor absorption (matches DOOM: type 1 = 1/3, type 2 = 1/2)
     if (this.armortype > 0) {
@@ -961,7 +964,7 @@ export class Player {
     // ---- Thing-thing collision (PIT_CheckThing) ----
     // Block movement if the player's bounding box overlaps any MF_SOLID thing
     if (!isBlocked) {
-      for (const obj of getMapObjects()) {
+      for (const obj of getMapObjects(this.gi)) {
         if (obj.removed) continue;
         if (!(obj.flags & MF_SOLID)) continue;
 
@@ -1165,7 +1168,7 @@ export class Player {
     }
 
     if (bestLine) {
-      useSpecialLine(bestLine, this);
+      useSpecialLine(bestLine, this, this.gi);
     }
   }
 
@@ -1206,7 +1209,7 @@ export class Player {
       if (oldSide !== newSide) {
         // Pass oldSide — the side the player crossed FROM
         // (matches DOOM's P_CrossSpecialLine convention)
-        crossSpecialLine(ld, oldSide, this);
+        crossSpecialLine(ld, oldSide, this, this.gi);
       }
     }
   }

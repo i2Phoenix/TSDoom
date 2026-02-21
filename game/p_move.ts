@@ -7,7 +7,7 @@
 import { FRACBITS, FRACUNIT, fixedMul } from './math';
 import { ML_TWOSIDED, ML_BLOCKING, type GameMap, type LineDef } from './map-types';
 import { MapObjState, getMapObjects, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
-import { getWorld } from './world';
+import { GameInstance } from './game-instance';
 import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT } from './mobjinfo';
 import { P_Random } from './random';
 import { P_CheckSight } from './sight';
@@ -44,14 +44,7 @@ const diags: number[] = [
   7, // DI_SOUTHEAST: +x, -y
 ];
 
-// ---- P_TryMove state ----
-let tmFloorZ = 0;
-let tmCeilingZ = 0;
-let tmDropoffZ = 0;   // lowest floor touched by bboxes
-let floatok = false;   // true if move would be ok if FLOAT
-
-// Special lines crossed during movement (for door/lift activation)
-const spechit: LineDef[] = [];
+// ---- P_TryMove state (delegated to GameInstance.move) ----
 
 /**
  * P_TryMove — attempt to move actor to (newx, newy).
@@ -63,9 +56,11 @@ export function P_TryMove(
   newx: number,
   newy: number,
   map: GameMap,
+  gi: GameInstance,
 ): boolean {
-  floatok = false;
-  spechit.length = 0;
+  const mc = gi.move;
+  mc.floatok = false;
+  mc.spechit.length = 0;
 
   // Check line collisions (PIT_CheckLine equivalent)
   const bbox = {
@@ -80,9 +75,9 @@ export function P_TryMove(
   const sec = ss.sector;
   if (!sec) return false;
 
-  tmFloorZ = sec.floorHeight;
-  tmCeilingZ = sec.ceilingHeight;
-  tmDropoffZ = sec.floorHeight;
+  mc.tmFloorZ = sec.floorHeight;
+  mc.tmCeilingZ = sec.ceilingHeight;
+  mc.tmDropoffZ = sec.floorHeight;
 
   // Check linedefs via blockmap (only lines in relevant 128×128 blocks)
   let lineBlocked = false;
@@ -121,9 +116,9 @@ export function P_TryMove(
     const lowFloor = Math.min(front.floorHeight, back.floorHeight);
 
     // Update floor/ceiling tracking
-    if (openTop < tmCeilingZ) tmCeilingZ = openTop;
-    if (openBottom > tmFloorZ) tmFloorZ = openBottom;
-    if (lowFloor < tmDropoffZ) tmDropoffZ = lowFloor;
+    if (openTop < mc.tmCeilingZ) mc.tmCeilingZ = openTop;
+    if (openBottom > mc.tmFloorZ) mc.tmFloorZ = openBottom;
+    if (lowFloor < mc.tmDropoffZ) mc.tmDropoffZ = lowFloor;
 
     // Check if opening is large enough
     if (openTop - openBottom < actor.height) {
@@ -145,15 +140,15 @@ export function P_TryMove(
 
     // Track special lines for door/lift activation
     if (ld.special) {
-      spechit.push(ld);
+      mc.spechit.push(ld);
     }
     return true; // continue
-  });
+  }, gi);
 
   if (lineBlocked) return false;
 
   // Check thing-thing collisions
-  const objects = getMapObjects();
+  const objects = getMapObjects(gi);
   for (let i = 0; i < objects.length; i++) {
     const other = objects[i];
     if (other === actor) continue;
@@ -174,22 +169,22 @@ export function P_TryMove(
 
   // Dropoff check: don't walk off tall edges (unless MF_FLOAT or MF_DROPOFF)
   if (!(actor.flags & MF_FLOAT) && !(actor.flags & MF_DROPOFF)) {
-    if (tmFloorZ - tmDropoffZ > MAXSTEPHEIGHT) {
+    if (mc.tmFloorZ - mc.tmDropoffZ > MAXSTEPHEIGHT) {
       return false;
     }
   }
 
   // Gravity check: can the actor reach the floor?
-  if (!(actor.flags & MF_FLOAT) && tmFloorZ - actor.z > MAXSTEPHEIGHT) {
+  if (!(actor.flags & MF_FLOAT) && mc.tmFloorZ - actor.z > MAXSTEPHEIGHT) {
     return false;
   }
 
   // Flying: check if movement would be ok height-wise
   if (actor.flags & MF_FLOAT) {
-    if (actor.z < tmFloorZ) {
-      floatok = true;
-    } else if (actor.z + actor.height > tmCeilingZ) {
-      floatok = true;
+    if (actor.z < mc.tmFloorZ) {
+      mc.floatok = true;
+    } else if (actor.z + actor.height > mc.tmCeilingZ) {
+      mc.floatok = true;
     }
   }
 
@@ -200,10 +195,10 @@ export function P_TryMove(
  * P_Move — move the actor one step in its movedir direction.
  * Returns true if the move was successful.
  */
-export function P_Move(actor: MapObjState): boolean {
+export function P_Move(actor: MapObjState, gi: GameInstance): boolean {
   if (actor.movedir === DI_NODIR) return false;
 
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return false;
 
   // Save old position for line-crossing detection
@@ -214,18 +209,19 @@ export function P_Move(actor: MapObjState): boolean {
   const tryx = actor.x + fixedMul(speed * FRACUNIT, xspeed[actor.movedir]);
   const tryy = actor.y + fixedMul(speed * FRACUNIT, yspeed[actor.movedir]);
 
-  if (!P_TryMove(actor, tryx, tryy, map)) {
+  if (!P_TryMove(actor, tryx, tryy, map, gi)) {
+    const mc = gi.move;
     // Can't move directly — try activating any special lines we touched
-    if (spechit.length > 0) {
+    if (mc.spechit.length > 0) {
       // Monsters try to activate special lines they bumped into (doors mostly)
-      for (let i = spechit.length - 1; i >= 0; i--) {
-        monsterUseSpecialLine(spechit[i]);
+      for (let i = mc.spechit.length - 1; i >= 0; i--) {
+        monsterUseSpecialLine(mc.spechit[i], gi);
       }
     }
 
     // If floating and the destination height was ok, adjust vertically
-    if ((actor.flags & MF_FLOAT) && floatok) {
-      if (actor.z < tmFloorZ) {
+    if ((actor.flags & MF_FLOAT) && mc.floatok) {
+      if (actor.z < mc.tmFloorZ) {
         actor.z += FLOATSPEED;
       } else {
         actor.z -= FLOATSPEED;
@@ -237,12 +233,13 @@ export function P_Move(actor: MapObjState): boolean {
   }
 
   // Move successful
+  const mc = gi.move;
   actor.x = tryx;
   actor.y = tryy;
 
   // Update floor/ceiling
-  actor.floorz = tmFloorZ;
-  actor.ceilingz = tmCeilingZ;
+  actor.floorz = mc.tmFloorZ;
+  actor.ceilingz = mc.tmCeilingZ;
 
   // Non-floating: always snap to floor (handles both step-up and step-down)
   if (!(actor.flags & MF_FLOAT)) {
@@ -263,7 +260,7 @@ export function P_Move(actor: MapObjState): boolean {
   }
 
   // Check if monster crossed a teleport line (walk triggers)
-  checkMonsterLineCrossings(actor, oldX, oldY, map);
+  checkMonsterLineCrossings(actor, oldX, oldY, map, gi);
 
   return true;
 }
@@ -274,7 +271,7 @@ export function P_Move(actor: MapObjState): boolean {
  * Reference: P_CrossSpecialLine in p_spec.c
  */
 function checkMonsterLineCrossings(
-  actor: MapObjState, oldX: number, oldY: number, map: GameMap
+  actor: MapObjState, oldX: number, oldY: number, map: GameMap, gi: GameInstance,
 ): void {
   if (actor.x === oldX && actor.y === oldY) return;
 
@@ -305,7 +302,7 @@ function checkMonsterLineCrossings(
     const newSide = newCross <= 0 ? 1 : 0;
 
     if (oldSide !== newSide) {
-      crossSpecialLine(ld, newSide, actor);
+      crossSpecialLine(ld, newSide, actor, gi);
     }
   }
 }
@@ -314,9 +311,9 @@ function checkMonsterLineCrossings(
  * P_TryWalk — attempt to walk in the given direction.
  * If successful, sets movecount to a random value (for patrol wandering).
  */
-function P_TryWalk(actor: MapObjState): boolean {
-  if (!P_Move(actor)) return false;
-  actor.movecount = P_Random() & 15;
+function P_TryWalk(actor: MapObjState, gi: GameInstance): boolean {
+  if (!P_Move(actor, gi)) return false;
+  actor.movecount = P_Random(gi) & 15;
   return true;
 }
 
@@ -325,7 +322,7 @@ function P_TryWalk(actor: MapObjState): boolean {
  * This is the core pathfinding algorithm from DOOM — it tries to move
  * diagonally toward the target, then cardinal directions, with randomization.
  */
-export function P_NewChaseDir(actor: MapObjState): void {
+export function P_NewChaseDir(actor: MapObjState, gi: GameInstance): void {
   if (!actor.target) return;
 
   const olddir = actor.movedir;
@@ -358,11 +355,11 @@ export function P_NewChaseDir(actor: MapObjState): void {
   if (d1 !== DI_NODIR && d2 !== DI_NODIR) {
     const diagIdx = ((deltay < 0) ? 2 : 0) + ((deltax > 0) ? 1 : 0);
     actor.movedir = diags[diagIdx];
-    if (actor.movedir !== turnaround && P_TryWalk(actor)) return;
+    if (actor.movedir !== turnaround && P_TryWalk(actor, gi)) return;
   }
 
   // Try direct directions, with randomization for variety
-  if (P_Random() > 200 || Math.abs(deltay) > Math.abs(deltax)) {
+  if (P_Random(gi) > 200 || Math.abs(deltay) > Math.abs(deltax)) {
     // Swap preference
     const temp = d1;
     d1 = d2;
@@ -371,33 +368,33 @@ export function P_NewChaseDir(actor: MapObjState): void {
 
   if (d1 !== DI_NODIR && d1 !== turnaround) {
     actor.movedir = d1;
-    if (P_TryWalk(actor)) return;
+    if (P_TryWalk(actor, gi)) return;
   }
 
   if (d2 !== DI_NODIR && d2 !== turnaround) {
     actor.movedir = d2;
-    if (P_TryWalk(actor)) return;
+    if (P_TryWalk(actor, gi)) return;
   }
 
   // Try the old direction
   if (olddir !== DI_NODIR) {
     actor.movedir = olddir;
-    if (P_TryWalk(actor)) return;
+    if (P_TryWalk(actor, gi)) return;
   }
 
   // Randomly determine search direction
-  if (P_Random() & 1) {
+  if (P_Random(gi) & 1) {
     for (tdir = DI_EAST; tdir <= DI_SOUTHEAST; tdir++) {
       if (tdir !== turnaround) {
         actor.movedir = tdir;
-        if (P_TryWalk(actor)) return;
+        if (P_TryWalk(actor, gi)) return;
       }
     }
   } else {
     for (tdir = DI_SOUTHEAST; tdir >= DI_EAST; tdir--) {
       if (tdir !== turnaround) {
         actor.movedir = tdir;
-        if (P_TryWalk(actor)) return;
+        if (P_TryWalk(actor, gi)) return;
       }
     }
   }
@@ -405,7 +402,7 @@ export function P_NewChaseDir(actor: MapObjState): void {
   // As a last resort, try turnaround
   if (turnaround !== DI_NODIR) {
     actor.movedir = turnaround;
-    if (P_TryWalk(actor)) return;
+    if (P_TryWalk(actor, gi)) return;
   }
 
   // Completely stuck
@@ -417,7 +414,7 @@ export function P_NewChaseDir(actor: MapObjState): void {
  * P_CheckMeleeRange — is the actor close enough to melee attack?
  * Distance must be < MELEERANGE (64 units) + target.radius.
  */
-export function P_CheckMeleeRange(actor: MapObjState): boolean {
+export function P_CheckMeleeRange(actor: MapObjState, gi: GameInstance): boolean {
   if (!actor.target) return false;
   const target = actor.target;
 
@@ -427,22 +424,22 @@ export function P_CheckMeleeRange(actor: MapObjState): boolean {
   }
 
   // Must have line of sight
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return false;
 
-  return P_CheckSight(actor, target, map);
+  return P_CheckSight(actor, target, map, gi);
 }
 
 /**
  * P_CheckMissileRange — should the actor fire a ranged attack?
  * Returns false if too close (use melee), too far, or random check fails.
  */
-export function P_CheckMissileRange(actor: MapObjState): boolean {
+export function P_CheckMissileRange(actor: MapObjState, gi: GameInstance): boolean {
   if (!actor.target) return false;
-  const map = getWorld().map;
+  const map = gi.currentMap;
   if (!map) return false;
 
-  if (!P_CheckSight(actor, actor.target, map)) return false;
+  if (!P_CheckSight(actor, actor.target, map, gi)) return false;
 
   // If MF_JUSTHIT, attack now! (infighting response)
   if (actor.flags & MF_JUSTHIT) {
@@ -487,7 +484,7 @@ export function P_CheckMissileRange(actor: MapObjState): boolean {
   if (mt === MT.MT_CYBORG && dist > 160) dist = 160;
 
   // Random chance based on distance — higher dist = less likely to fire
-  if (P_Random() < dist) return false;
+  if (P_Random(gi) < dist) return false;
 
   return true;
 }

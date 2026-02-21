@@ -8,6 +8,7 @@ import { FRACBITS, FRACUNIT } from './math';
 import type { GameMap } from './map-types';
 import { P_Random } from './random';
 import { FX_DynLight } from './effects';
+import { GameInstance } from './game-instance';
 
 // ---- Frame data from info.c ----
 // Frame number with bit 15 set = fullbright
@@ -68,14 +69,13 @@ export interface VfxEffect {
   totalTics: number; // total tics elapsed
 }
 
-// ---- Active effects list ----
-const activeEffects: VfxEffect[] = [];
+// ---- Active effects list (delegated to GameInstance) ----
 
 /** Spawn a bullet puff at a wall hit position */
-export function spawnPuff(x: number, y: number, z: number, melee: boolean): void {
+export function spawnPuff(x: number, y: number, z: number, melee: boolean, gi: GameInstance): void {
   const frames = melee ? PUFF_MELEE_FRAMES : PUFF_FRAMES;
   // Vertical jitter like original: z += (P_Random()-P_Random())<<10
-  const jitterZ = z + ((P_Random() - P_Random()) << 10);
+  const jitterZ = z + ((P_Random(gi) - P_Random(gi)) << 10);
 
   console.log(`[vfx] spawnPuff at (${x >> FRACBITS}, ${y >> FRACBITS}, ${jitterZ >> FRACBITS}) melee=${melee}`);
 
@@ -84,11 +84,11 @@ export function spawnPuff(x: number, y: number, z: number, melee: boolean): void
     z: jitterZ + FRACUNIT, // puff rises (momz = FRACUNIT)
     frames,
     frameIndex: 0,
-    ticsLeft: (frames[0].tics - (P_Random() & 3)) || 1,
+    ticsLeft: (frames[0].tics - (P_Random(gi) & 3)) || 1,
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
 
   // Small flash at bullet impact point
   if (!melee) {
@@ -97,19 +97,19 @@ export function spawnPuff(x: number, y: number, z: number, melee: boolean): void
 }
 
 /** Spawn blood splatter at a thing hit position */
-export function spawnBlood(x: number, y: number, z: number, _damage: number): void {
-  const jitterZ = z + ((P_Random() - P_Random()) << 10);
+export function spawnBlood(x: number, y: number, z: number, _damage: number, gi: GameInstance): void {
+  const jitterZ = z + ((P_Random(gi) - P_Random(gi)) << 10);
   console.log(`[vfx] spawnBlood at (${x >> FRACBITS}, ${y >> FRACBITS}, ${jitterZ >> FRACBITS})`);
   const effect: VfxEffect = {
     x, y,
     z: jitterZ,
     frames: BLOOD_FRAMES,
     frameIndex: 0,
-    ticsLeft: (BLOOD_FRAMES[0].tics - (P_Random() & 3)) || 1,
+    ticsLeft: (BLOOD_FRAMES[0].tics - (P_Random(gi) & 3)) || 1,
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
 }
 
 /**
@@ -118,7 +118,8 @@ export function spawnBlood(x: number, y: number, z: number, _damage: number): vo
  */
 export function spawnBarrelExplosion(
   x: number, y: number, z: number,
-  explodeCallback: () => void
+  explodeCallback: () => void,
+  gi: GameInstance,
 ): void {
   console.log(`[vfx] spawnBarrelExplosion at (${x >> FRACBITS}, ${y >> FRACBITS}, ${z >> FRACBITS})`);
   const effect: VfxEffect = {
@@ -131,11 +132,12 @@ export function spawnBarrelExplosion(
     explodeCallback,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
 }
 
 /** Tick all active effects — call once per game tic */
-export function updateVfx(): void {
+export function updateVfx(gi: GameInstance): void {
+  const activeEffects = gi.activeEffects;
   for (let i = activeEffects.length - 1; i >= 0; i--) {
     const e = activeEffects[i];
     e.totalTics++;
@@ -172,13 +174,13 @@ export function updateVfx(): void {
 }
 
 /** Get all active VFX effects (for the renderer) */
-export function getActiveVfx(): ReadonlyArray<VfxEffect> {
-  return activeEffects;
+export function getActiveVfx(gi: GameInstance): ReadonlyArray<VfxEffect> {
+  return gi.activeEffects;
 }
 
 /** Clear all effects (on level change) */
-export function clearVfx(): void {
-  activeEffects.length = 0;
+export function clearVfx(gi: GameInstance): void {
+  gi.activeEffects.length = 0;
 }
 
 /** Get the current sprite/frame for a VFX effect */
@@ -198,7 +200,7 @@ const ROCKET_EXPLODE_FRAMES: VfxFrame[] = [
 ];
 
 /** Spawn rocket explosion VFX */
-export function spawnRocketExplosion(x: number, y: number, z: number): void {
+export function spawnRocketExplosion(x: number, y: number, z: number, gi: GameInstance): void {
   const effect: VfxEffect = {
     x, y, z,
     frames: ROCKET_EXPLODE_FRAMES,
@@ -207,7 +209,7 @@ export function spawnRocketExplosion(x: number, y: number, z: number): void {
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
   FX_DynLight(x, y, z, 160 * FRACUNIT, 255, 180, 60, 0.5, 8);
 }
 
@@ -221,7 +223,7 @@ const PLASMA_HIT_FRAMES: VfxFrame[] = [
 ];
 
 /** Spawn plasma impact VFX */
-export function spawnPlasmaHit(x: number, y: number, z: number): void {
+export function spawnPlasmaHit(x: number, y: number, z: number, gi: GameInstance): void {
   const effect: VfxEffect = {
     x, y, z,
     frames: PLASMA_HIT_FRAMES,
@@ -230,7 +232,7 @@ export function spawnPlasmaHit(x: number, y: number, z: number): void {
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
   FX_DynLight(x, y, z, 96 * FRACUNIT, 80, 80, 255, 0.4, 5);
 }
 
@@ -245,7 +247,7 @@ const BFG_HIT_FRAMES: VfxFrame[] = [
 ];
 
 /** Spawn BFG impact VFX */
-export function spawnBfgHit(x: number, y: number, z: number): void {
+export function spawnBfgHit(x: number, y: number, z: number, gi: GameInstance): void {
   const effect: VfxEffect = {
     x, y, z,
     frames: BFG_HIT_FRAMES,
@@ -254,7 +256,7 @@ export function spawnBfgHit(x: number, y: number, z: number): void {
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
   FX_DynLight(x, y, z, 192 * FRACUNIT, 80, 255, 80, 0.7, 12);
 }
 
@@ -273,7 +275,7 @@ const TFOG_FRAMES: VfxFrame[] = [
 ];
 
 /** Spawn teleport fog VFX (green flash) at a position */
-export function spawnTeleportFog(x: number, y: number, z: number): void {
+export function spawnTeleportFog(x: number, y: number, z: number, gi: GameInstance): void {
   const effect: VfxEffect = {
     x, y, z,
     frames: TFOG_FRAMES,
@@ -282,7 +284,7 @@ export function spawnTeleportFog(x: number, y: number, z: number): void {
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
   // Green-tinted dynamic light for teleport flash
   FX_DynLight(x, y, z, 128 * FRACUNIT, 50, 255, 50, 0.6, 10);
 }
@@ -325,7 +327,7 @@ const VILE_FIRE_FRAMES: VfxFrame[] = [
 ];
 
 /** Spawn Arch-vile fire VFX at a position (MT_FIRE visual) */
-export function spawnVileFire(x: number, y: number, z: number): void {
+export function spawnVileFire(x: number, y: number, z: number, gi: GameInstance): void {
   const effect: VfxEffect = {
     x, y, z,
     frames: VILE_FIRE_FRAMES,
@@ -334,7 +336,7 @@ export function spawnVileFire(x: number, y: number, z: number): void {
     done: false,
     totalTics: 0,
   };
-  activeEffects.push(effect);
+  gi.activeEffects.push(effect);
   // Flickering orange/yellow fire light
   FX_DynLight(x, y, z, 128 * FRACUNIT, 255, 128, 32, 0.6, 64);
 }

@@ -3,7 +3,8 @@
 // Reference: g_game.c  G_ExitLevel, G_SecretExitLevel, G_DoCompleted
 // ============================================================
 
-import { GameAction, setGameAction, setSecretExit } from './gamestate';
+import { GameAction } from './gamestate';
+import { GameInstance } from './game-instance';
 
 // ---- Map name parsing ----
 
@@ -99,13 +100,13 @@ export function getNextMap(currentMapName: string, isSecretExit: boolean): strin
 // ---- Exit functions (called from specials.ts) ----
 
 /** G_ExitLevel — normal exit */
-export function G_ExitLevel(): void {
-  setSecretExit(false);
-  setGameAction(GameAction.ga_completed);
+export function G_ExitLevel(gi: GameInstance): void {
+  gi.secretExit = false;
+  gi.gameaction = GameAction.ga_completed;
 }
 
 /** G_SecretExitLevel — secret exit */
-export function G_SecretExitLevel(): void {
-  setSecretExit(true);
-  setGameAction(GameAction.ga_completed);
+export function G_SecretExitLevel(gi: GameInstance): void {
+  gi.secretExit = true;
+  gi.gameaction = GameAction.ga_completed;
 }

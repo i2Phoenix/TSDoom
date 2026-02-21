@@ -6,25 +6,11 @@
 import { FRACBITS } from './math';
 import { NF_SUBSECTOR, ML_TWOSIDED, incValidcount, type GameMap } from './map-types';
 import { MapObjState } from './mobj';
+import { GameInstance } from './game-instance';
+import type { SightContext } from './game-instance';
 
-// Per-call validcount (obtained from shared incValidcount to avoid LineDef.validcount collisions)
-let sightValidcount = 0;
-
-// Module-level state (replaces C static globals)
-let sightzstart = 0;   // eye z of looker
-let topslope = 0;
-let bottomslope = 0;
-
-// strace: line from t1 to t2
-let straceX = 0;
-let straceY = 0;
-let straceDx = 0;
-let straceDy = 0;
-let t2x = 0;
-let t2y = 0;
-
-// Map reference (set per call)
-let sightMap: GameMap;
+// Module-level reference to the sight context (refreshed per P_CheckSight call)
+let sc: SightContext;
 
 /**
  * P_DivlineSide — determine which side of a divline a point is on.
@@ -85,24 +71,24 @@ function P_InterceptVector2(
  * being blocked by one-sided lines or narrowed fully by two-sided openings.
  */
 function P_CrossSubsector(num: number): boolean {
-  const sub = sightMap.subsectors[num];
-  const segs = sightMap.segs;
+  const sub = sc.sightMap!.subsectors[num];
+  const segs = sc.sightMap!.segs;
 
   for (let i = 0; i < sub.numSegs; i++) {
     const seg = segs[sub.firstSeg + i];
     const line = seg.linedef;
 
     // Already checked this line?
-    if (line.validcount === sightValidcount) continue;
-    line.validcount = sightValidcount;
+    if (line.validcount === sc.sightValidcount) continue;
+    line.validcount = sc.sightValidcount;
 
-    const vertices = sightMap.vertices;
+    const vertices = sc.sightMap!.vertices;
     const v1 = vertices[line.v1];
     const v2 = vertices[line.v2];
 
     // Check if the sight trace crosses this line
-    let s1 = P_DivlineSide(v1.x, v1.y, straceX, straceY, straceDx, straceDy);
-    let s2 = P_DivlineSide(v2.x, v2.y, straceX, straceY, straceDx, straceDy);
+    let s1 = P_DivlineSide(v1.x, v1.y, sc.straceX, sc.straceY, sc.straceDx, sc.straceDy);
+    let s2 = P_DivlineSide(v2.x, v2.y, sc.straceX, sc.straceY, sc.straceDx, sc.straceDy);
 
     // Line isn't crossed?
     if (s1 === s2) continue;
@@ -113,8 +99,8 @@ function P_CrossSubsector(num: number): boolean {
     const divlDx = v2.x - v1.x;
     const divlDy = v2.y - v1.y;
 
-    s1 = P_DivlineSide(straceX, straceY, divlX, divlY, divlDx, divlDy);
-    s2 = P_DivlineSide(t2x, t2y, divlX, divlY, divlDx, divlDy);
+    s1 = P_DivlineSide(sc.straceX, sc.straceY, divlX, divlY, divlDx, divlDy);
+    s2 = P_DivlineSide(sc.t2x, sc.t2y, divlX, divlY, divlDx, divlDy);
 
     // Line isn't crossed?
     if (s1 === s2) continue;
@@ -142,7 +128,7 @@ function P_CrossSubsector(num: number): boolean {
 
     // Calculate fraction along the sight trace
     const frac = P_InterceptVector2(
-      straceX, straceY, straceDx, straceDy,
+      sc.straceX, sc.straceY, sc.straceDx, sc.straceDy,
       divlX, divlY, divlDx, divlDy,
     );
 
@@ -150,16 +136,16 @@ function P_CrossSubsector(num: number): boolean {
 
     // Narrow the slope window
     if (front.floorHeight !== back.floorHeight) {
-      const slope = ((openbottom - sightzstart) / frac * (1 << FRACBITS)) | 0;
-      if (slope > bottomslope) bottomslope = slope;
+      const slope = ((openbottom - sc.sightzstart) / frac * (1 << FRACBITS)) | 0;
+      if (slope > sc.bottomslope) sc.bottomslope = slope;
     }
 
     if (front.ceilingHeight !== back.ceilingHeight) {
-      const slope = ((opentop - sightzstart) / frac * (1 << FRACBITS)) | 0;
-      if (slope < topslope) topslope = slope;
+      const slope = ((opentop - sc.sightzstart) / frac * (1 << FRACBITS)) | 0;
+      if (slope < sc.topslope) sc.topslope = slope;
     }
 
-    if (topslope <= bottomslope) return false;
+    if (sc.topslope <= sc.bottomslope) return false;
   }
 
   // Passed the subsector ok
@@ -177,17 +163,17 @@ function P_CrossBSPNode(bspnum: number): boolean {
     return P_CrossSubsector(bspnum & ~NF_SUBSECTOR);
   }
 
-  const bsp = sightMap.nodes[bspnum];
+  const bsp = sc.sightMap!.nodes[bspnum];
 
   // Decide which side the start point is on
-  let side = P_DivlineSide(straceX, straceY, bsp.x, bsp.y, bsp.dx, bsp.dy);
+  let side = P_DivlineSide(sc.straceX, sc.straceY, bsp.x, bsp.y, bsp.dx, bsp.dy);
   if (side === 2) side = 0; // "on" should cross both sides
 
   // Cross the starting side
   if (!P_CrossBSPNode(bsp.children[side])) return false;
 
   // The partition plane is crossed here
-  if (side === P_DivlineSide(t2x, t2y, bsp.x, bsp.y, bsp.dx, bsp.dy)) {
+  if (side === P_DivlineSide(sc.t2x, sc.t2y, bsp.x, bsp.y, bsp.dx, bsp.dy)) {
     // The line doesn't touch the other side
     return true;
   }
@@ -219,6 +205,7 @@ export function P_CheckSight(
   t1: MapObjState,
   t2: MapObjState,
   map: GameMap,
+  gi: GameInstance,
 ): boolean {
   const numSectors = map.sectors.length;
 
@@ -237,20 +224,21 @@ export function P_CheckSight(
   }
 
   // Set up for BSP traversal
-  sightMap = map;
-  sightValidcount = incValidcount();
+  sc = gi.sight;
+  sc.sightMap = map;
+  sc.sightValidcount = incValidcount(gi);
 
   // Eye position: z + 3/4 of height (eyes near top)
-  sightzstart = t1.z + t1.height - (t1.height >> 2);
-  topslope = (t2.z + t2.height) - sightzstart;
-  bottomslope = t2.z - sightzstart;
+  sc.sightzstart = t1.z + t1.height - (t1.height >> 2);
+  sc.topslope = (t2.z + t2.height) - sc.sightzstart;
+  sc.bottomslope = t2.z - sc.sightzstart;
 
-  straceX = t1.x;
-  straceY = t1.y;
-  t2x = t2.x;
-  t2y = t2.y;
-  straceDx = t2.x - t1.x;
-  straceDy = t2.y - t1.y;
+  sc.straceX = t1.x;
+  sc.straceY = t1.y;
+  sc.t2x = t2.x;
+  sc.t2y = t2.y;
+  sc.straceDx = t2.x - t1.x;
+  sc.straceDy = t2.y - t1.y;
 
   // The head node is the last node output
   return P_CrossBSPNode(map.nodes.length - 1);

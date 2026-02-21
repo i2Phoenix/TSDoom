@@ -7,13 +7,8 @@ import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
-import {
-  GameState, GameAction,
-  gamestate, menuactive, usergame,
-  setMenuActive, setGameAction,
-  setPendingSaveSlot,
-  setPendingSkill,
-} from '../../game/gamestate';
+import { GameState, GameAction } from '../../game/gamestate';
+import { GameInstance } from '../../game/game-instance';
 import { setMouseSensitivity } from '../../game/player';
 import { clearInputState } from '../../game/input-system';
 import { SkillLevel, SKILL_NAMES } from '../../game/skill';
@@ -72,6 +67,7 @@ export class MenuSystem {
   private wad: WAD;
   private palData: PaletteData;
   private texData: TextureData;
+  private gi: GameInstance;
 
   // Patch cache: lump name -> Patch
   private patchCache: Map<string, Patch> = new Map();
@@ -125,10 +121,11 @@ export class MenuSystem {
   private sfxVolumeLevel = getSfxVolume();      // 0-10 (0%..100%)
   private musicVolumeLevel = getMusicVolume();   // 0-10 (0%..100%)
 
-  constructor(wad: WAD, palData: PaletteData, texData: TextureData) {
+  constructor(wad: WAD, palData: PaletteData, texData: TextureData, gi: GameInstance) {
     this.wad = wad;
     this.palData = palData;
     this.texData = texData;
+    this.gi = gi;
     this.loadGraphics();
     this.buildMenus();
     this.currentMenu = this.mainDef;
@@ -297,7 +294,7 @@ export class MenuSystem {
   /** M_NewGame — request new game via deferred action */
   private doNewGame(): void {
     this.clearMenus();
-    setGameAction(GameAction.ga_newgame);
+    this.gi.gameaction = GameAction.ga_newgame;
   }
 
   /** M_ChooseSkill — select skill and start new game.
@@ -310,14 +307,14 @@ export class MenuSystem {
         + 'press y or n.',
         (ch: string) => {
           if (ch.toLowerCase() === 'y') {
-            setPendingSkill(skill);
+            this.gi.pendingSkill = skill;
             this.doNewGame();
           }
         }
       );
       return;
     }
-    setPendingSkill(skill);
+    this.gi.pendingSkill = skill;
     this.doNewGame();
   }
 
@@ -326,11 +323,11 @@ export class MenuSystem {
    * Original DOOM: checks !usergame and gamestate != GS_LEVEL
    */
   private doSaveGameMenu(): void {
-    if (!usergame()) {
+    if (!this.gi.usergame) {
       this.startMessage("you can't save if you aren't playing!\n\npress a key.");
       return;
     }
-    if (gamestate() !== GameState.GS_LEVEL) {
+    if (this.gi.gamestate !== GameState.GS_LEVEL) {
       return;
     }
     this.setupNextMenu(this.saveDef);
@@ -344,9 +341,9 @@ export class MenuSystem {
 
   /** M_LoadSelect — load from a specific slot via deferred action */
   private doLoadGame(slot: number): void {
-    setPendingSaveSlot(slot);
+    this.gi.pendingSaveSlot = slot;
     this.clearMenus();
-    setGameAction(GameAction.ga_loadgame);
+    this.gi.gameaction = GameAction.ga_loadgame;
   }
 
   // ── Read This! help screens (M_ReadThis / M_ReadThis2) ─────
@@ -359,7 +356,7 @@ export class MenuSystem {
 
   /** Open the help screen from outside (F1 key) */
   openHelpScreen(): void {
-    setMenuActive(true);
+    this.gi.menuactive = true;
     this.showingHelp = true;
     this.helpPage = 0;
   }
@@ -438,8 +435,8 @@ export class MenuSystem {
 
   /** M_StartControlPanel — open the menu */
   startControlPanel(): void {
-    if (menuactive()) return;
-    setMenuActive(true);
+    if (this.gi.menuactive) return;
+    this.gi.menuactive = true;
     clearInputState();
     this.currentMenu = this.mainDef;
     this.itemOn = this.currentMenu.lastOn;
@@ -455,7 +452,7 @@ export class MenuSystem {
 
   /** M_ClearMenus — close all menus */
   clearMenus(): void {
-    setMenuActive(false);
+    this.gi.menuactive = false;
     this.clearMessage();
   }
 
@@ -584,9 +581,9 @@ export class MenuSystem {
     }
 
     // If menu is not active, check for menu-opening keys
-    if (!menuactive()) {
+    if (!this.gi.menuactive) {
       // On title screen, any key opens the menu
-      if (gamestate() === GameState.GS_DEMOSCREEN) {
+      if (this.gi.gamestate === GameState.GS_DEMOSCREEN) {
         if (code !== 'F5' && code !== 'F11' && code !== 'F12') {
           this.startControlPanel();
           return true;
@@ -594,7 +591,7 @@ export class MenuSystem {
         return false;
       }
       // In-game: ESC opens menu
-      if (gamestate() === GameState.GS_LEVEL) {
+      if (this.gi.gamestate === GameState.GS_LEVEL) {
         if (code === 'Escape') {
           this.startControlPanel();
           return true;
@@ -748,7 +745,7 @@ export class MenuSystem {
     }
 
     // If no game is running, draw TITLEPIC as background
-    if (gamestate() !== GameState.GS_LEVEL || !usergame()) {
+    if (this.gi.gamestate !== GameState.GS_LEVEL || !this.gi.usergame) {
       if (this.titlePic) {
         this.drawPatchFullScreen(this.titlePic);
       } else {
@@ -794,7 +791,7 @@ export class MenuSystem {
     if (!this.messageString) return;
 
     // Draw TITLEPIC or game scene behind (main.ts handles game render)
-    if (gamestate() !== GameState.GS_LEVEL || !usergame()) {
+    if (this.gi.gamestate !== GameState.GS_LEVEL || !this.gi.usergame) {
       if (this.titlePic) {
         this.drawPatchFullScreen(this.titlePic);
       } else {

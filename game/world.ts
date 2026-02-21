@@ -1,47 +1,39 @@
 // ============================================================
-// WorldContext — shared game world state
-// Single source of truth for map, player, and map objects.
-// Replaces per-module cached refs (currentMap, playerRef, etc.)
+// WorldContext — global GameInstance access
+// Single source of truth for all mutable game state.
 // ============================================================
 
 import type { GameMap } from './map-types';
 import type { Player } from './player';
+import { GameInstance } from './game-instance';
 
-/**
- * Shared context holding the current level's core state.
- * Created once per level load, accessed by all game/ modules.
- */
-export interface WorldContext {
-  /** Current loaded map (BSP, linedefs, sectors, etc.) */
-  map: GameMap;
-  /** The live player instance */
-  player: Player;
+export type { WorldContext } from './game-instance';
+
+// ---- Global GameInstance ----
+
+let _gi: GameInstance | null = null;
+
+/** Initialize the global GameInstance (call once at startup). */
+export function initGI(): GameInstance {
+  _gi = new GameInstance();
+  return _gi;
 }
 
-let _world: WorldContext | null = null;
+// ---- World initialization ----
 
 /**
  * Initialize the world context for a new level.
- * Must be called before any game logic that uses getWorld().
+ * Must be called before any game logic that accesses gi.world.
  */
-export function initWorld(map: GameMap, player: Player): void {
-  _world = { map, player };
-}
-
-/**
- * Get the current world context.
- * Crashes loudly if called before initWorld() — this is intentional
- * to make init-order bugs immediately visible.
- */
-export function getWorld(): WorldContext {
-  if (!_world) throw new Error('getWorld() called before initWorld() — init-order bug');
-  return _world;
+export function initWorld(map: GameMap, player: Player, gi: GameInstance): void {
+  gi.world = { map, player };
+  gi.currentMap = map;
 }
 
 /**
  * Update the player reference (e.g., on level restart when Player is recreated).
  */
-export function setWorldPlayer(player: Player): void {
-  if (!_world) throw new Error('setWorldPlayer() called before initWorld()');
-  _world.player = player;
+export function setWorldPlayer(player: Player, gi: GameInstance): void {
+  if (!gi.world) throw new Error('setWorldPlayer() called before initWorld()');
+  gi.world.player = player;
 }

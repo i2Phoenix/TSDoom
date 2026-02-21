@@ -7,9 +7,9 @@
 
 import { FRACBITS, FRACUNIT } from './math';
 import type { MapThing, GameMap } from './map-types';
-import { getWorld } from './world';
-import { removedThings } from './pickups';
-import { getGameSkill, SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
+import { GameInstance } from './game-instance';
+import { getRemovedThings } from './pickups';
+import { SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
 import { P_Random } from './random';
 import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
@@ -28,7 +28,6 @@ import {
 
 // Re-export flags for backward compatibility with combat.ts, etc.
 export { MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD, MF_COUNTKILL } from './mobjinfo';
-import { addTotalKill, addPlayerKill } from './level-stats';
 
 // ---- Combat info for thing types ----
 export interface ThingCombatInfo {
@@ -129,39 +128,33 @@ export interface DroppedItem {
   thingType: number; // thing type for sprite lookup and pickup
 }
 
-const droppedItems: DroppedItem[] = [];
-
 /** Get all dropped items (for renderer and pickup system) */
-export function getDroppedItems(): ReadonlyArray<DroppedItem> {
-  return droppedItems;
+export function getDroppedItems(gi: GameInstance): ReadonlyArray<DroppedItem> {
+  return gi.droppedItems;
 }
 
 /** Remove a dropped item by index (when picked up) */
-export function removeDroppedItem(index: number): void {
-  droppedItems.splice(index, 1);
+export function removeDroppedItem(index: number, gi: GameInstance): void {
+  gi.droppedItems.splice(index, 1);
 }
 
 /** Clear dropped items (level change) */
-export function clearDroppedItems(): void {
-  droppedItems.length = 0;
+export function clearDroppedItems(gi: GameInstance): void {
+  gi.droppedItems.length = 0;
 }
 
-// ---- Module state ----
-let mapObjects: MapObjState[] = [];
-/** Track mobj indices that are in dying state (for updateMonsterDeaths) */
-const dyingMonsters: Set<number> = new Set();
-
 /** Initialize runtime state for all shootable things on the map */
-export function initMapObjects(): void {
-  const gameMap = getWorld().map;
-  mapObjects = [];
+export function initMapObjects(gi: GameInstance): void {
+  const gameMap = gi.world!.map;
+  gi.mapObjects = [];
+  gi.nextMobjId = -1;
 
   const things = gameMap.things;
   for (let i = 0; i < things.length; i++) {
     const thing = things[i];
 
     // Difficulty filter: skip things not present on current skill
-    if (!shouldSpawnThing(thing.options)) continue;
+    if (!shouldSpawnThing(thing.options, gi)) continue;
 
     // Try mobjinfo first (preferred), then legacy THING_COMBAT_INFO
     const mt = getMTForDoomedNum(thing.type);
@@ -214,7 +207,7 @@ export function initMapObjects(): void {
       movecount: 0,
       target: null,
       threshold: 0,
-      reactiontime: (getGameSkill() === SkillLevel.sk_nightmare) ? 0 : (mInfo ? mInfo.reactiontime : 8),
+      reactiontime: (gi.gameskill === SkillLevel.sk_nightmare) ? 0 : (mInfo ? mInfo.reactiontime : 8),
       lastlook: 0,
       momx: 0,
       momy: 0,
@@ -229,34 +222,28 @@ export function initMapObjects(): void {
       spawnAngle: bamAngle,
       respawnTimer: 0,
     };
-    mapObjects.push(obj);
+    gi.mapObjects.push(obj);
 
     // Count monsters for intermission stats
     if (fl & MF_COUNTKILL) {
-      addTotalKill();
+      gi.stats.totalKills++;
     }
   }
-  dyingMonsters.clear();
-  droppedItems.length = 0;
-  buildThingIndexMap();
+  gi.dyingMonsters.clear();
+  gi.droppedItems.length = 0;
+  buildThingIndexMap(gi);
 }
 
 /** Get all live map objects */
-export function getMapObjects(): MapObjState[] {
-  return mapObjects;
+export function getMapObjects(gi: GameInstance): MapObjState[] {
+  return gi.mapObjects;
 }
 
-/** Fast lookup: map thing index → MapObjState */
-const thingIndexMap = new Map<number, MapObjState>();
-
-/** Counter for dynamically spawned things (negative to avoid collision with map things) */
-let dynamicThingCounter = -1;
-
 /** Build the thing index lookup map (called after init or load) */
-function buildThingIndexMap(): void {
-  thingIndexMap.clear();
-  for (const obj of mapObjects) {
-    thingIndexMap.set(obj.thingIndex, obj);
+function buildThingIndexMap(gi: GameInstance): void {
+  gi.thingIndexMap.clear();
+  for (const obj of gi.mapObjects) {
+    gi.thingIndexMap.set(obj.thingIndex, obj);
   }
 }
 
@@ -270,6 +257,7 @@ export function spawnLostSoul(
   x: number, y: number, z: number,
   target: MapObjState,
   angle: number,
+  gi: GameInstance,
 ): void {
   const mt = getMTForDoomedNum(3006); // Lost Soul
   if (mt === undefined) return;
@@ -278,20 +266,20 @@ export function spawnLostSoul(
 
   // Cap lost souls at 21 (original DOOM limit)
   let skullCount = 0;
-  for (const obj of mapObjects) {
+  for (const obj of gi.mapObjects) {
     if (!obj.removed && obj.type === 3006) skullCount++;
   }
   if (skullCount >= 21) return;
 
   // Get floor/ceiling from world
-  const map = getWorld().map;
+  const map = gi.world?.map;
   if (!map) return;
   const ss = map.pointInSubsector(x, y);
   const floorZ = ss.sector ? ss.sector.floorHeight : 0;
   const ceilZ = ss.sector ? ss.sector.ceilingHeight : 0;
 
   const skull: MapObjState = {
-    thingIndex: dynamicThingCounter--,
+    thingIndex: gi.nextMobjId--,
     x, y, z,
     health: mInfo.spawnhealth,
     spawnHealth: mInfo.spawnhealth,
@@ -337,36 +325,31 @@ export function spawnLostSoul(
   skull.momy = Math.round((dy / FRACUNIT) / dist * (SKULLSPEED / FRACUNIT)) * FRACUNIT;
   skull.momz = Math.round((dz / FRACUNIT) / dist * (SKULLSPEED / FRACUNIT)) * FRACUNIT;
 
-  mapObjects.push(skull);
-  thingIndexMap.set(skull.thingIndex, skull);
+  gi.mapObjects.push(skull);
+  gi.thingIndexMap.set(skull.thingIndex, skull);
 }
 
 /** Get a MapObjState by its map thing index (O(1) via Map) */
-export function getMapObjectByThingIndex(thingIndex: number): MapObjState | undefined {
-  return thingIndexMap.get(thingIndex);
+export function getMapObjectByThingIndex(thingIndex: number, gi: GameInstance): MapObjState | undefined {
+  return gi.thingIndexMap.get(thingIndex);
 }
 
 /** Replace map objects array (for save/load) */
-export function setMapObjects(objs: MapObjState[]): void {
-  mapObjects = objs;
-  dyingMonsters.clear();
-  buildThingIndexMap();
+export function setMapObjects(objs: MapObjState[], gi: GameInstance): void {
+  gi.mapObjects = objs;
+  gi.dyingMonsters.clear();
+  buildThingIndexMap(gi);
 }
 
 /** Replace dropped items (for save/load) */
-export function setDroppedItems(items: DroppedItem[]): void {
-  droppedItems.length = 0;
-  droppedItems.push(...items);
+export function setDroppedItems(items: DroppedItem[], gi: GameInstance): void {
+  gi.droppedItems.length = 0;
+  gi.droppedItems.push(...items);
 }
 
 /** Get dying monsters set (for save) */
-export function getDyingMonsters(): Set<number> {
-  return dyingMonsters;
-}
-
-/** Get the current map reference (delegates to WorldContext) */
-export function getCurrentMap(): GameMap | null {
-  return getWorld().map;
+export function getDyingMonsters(gi: GameInstance): Set<number> {
+  return gi.dyingMonsters;
 }
 
 /** Check if a thing type is a barrel */
@@ -382,7 +365,8 @@ export function isBarrel(type: number): boolean {
 export function damageMobj(
   target: MapObjState,
   damage: number,
-  source?: MapObjState | null
+  source?: MapObjState | null,
+  gi?: GameInstance,
 ): boolean {
   if (!(target.flags & MF_SHOOTABLE)) return false;
   if (target.health <= 0) return false;
@@ -390,7 +374,7 @@ export function damageMobj(
   target.health -= damage;
 
   if (target.health <= 0) {
-    killMobj(target);
+    killMobj(target, gi!);
     return true;
   }
 
@@ -398,7 +382,7 @@ export function damageMobj(
   if (!isBarrel(target.type)) {
     const animDef = getThingAnimDef(target.type);
     if (animDef && animDef.painChance !== undefined && animDef.painState !== undefined) {
-      if (P_Random() < animDef.painChance) {
+      if (P_Random(gi!) < animDef.painChance) {
         setMonsterPain(target.thingIndex, target.type);
         // Play pain sound
         if (animDef.painSound !== undefined) {
@@ -429,14 +413,14 @@ export function damageMobj(
  * - Barrels: instant removal (explosion handled by VFX/combat).
  * - Monsters: start death animation, stay on map as corpse.
  */
-function killMobj(target: MapObjState): void {
+function killMobj(target: MapObjState, gi: GameInstance): void {
   target.flags &= ~(MF_SHOOTABLE | MF_SOLID);
   target.flags |= MF_CORPSE;  // Mark as corpse for Arch-vile resurrection
 
   if (isBarrel(target.type)) {
     // Barrels: instant removal, explosion VFX spawned by combat.ts
     target.removed = true;
-    removedThings.add(target.thingIndex);
+    getRemovedThings(gi).add(target.thingIndex);
     // Remove static barrel light
     FX_RemoveDynLight(target.x, target.y);
     return;
@@ -446,11 +430,11 @@ function killMobj(target: MapObjState): void {
   // Determine overkill: health dropped below negative of spawn health
   const overkill = target.health < -target.spawnHealth;
   setMonsterDeath(target.thingIndex, target.type, overkill);
-  dyingMonsters.add(mapObjects.indexOf(target));
+  gi.dyingMonsters.add(gi.mapObjects.indexOf(target));
 
   // Count the kill for intermission stats
   if (target.flags & MF_COUNTKILL) {
-    addPlayerKill();
+    gi.stats.playerKills++;
   }
 
   // Play death sound
@@ -460,32 +444,32 @@ function killMobj(target: MapObjState): void {
       // XDeath = universal gib/slop sound
       FX_Sound({ x: target.x, y: target.y }, Sfx.slop);
     } else if (animDef.deathSound && animDef.deathSound.length > 0) {
-      const sfx = animDef.deathSound[P_Random() % animDef.deathSound.length];
+      const sfx = animDef.deathSound[P_Random(gi) % animDef.deathSound.length];
       FX_Sound({ x: target.x, y: target.y }, sfx);
     }
   }
 
   // Check boss death triggers (tag 666/667)
-  A_BossDeath(target);
+  A_BossDeath(target, gi);
 }
 
 /**
  * Called each tick from the game loop.
  * Checks dying monsters for completed death animations and spawns drops.
  */
-export function updateMonsterDeaths(): void {
-  for (const idx of dyingMonsters) {
-    const obj = mapObjects[idx];
+export function updateMonsterDeaths(gi: GameInstance): void {
+  for (const idx of gi.dyingMonsters) {
+    const obj = gi.mapObjects[idx];
     if (!obj || obj.deathHandled) continue;
 
     if (isMonsterDead(obj.thingIndex)) {
       obj.deathHandled = true;
-      dyingMonsters.delete(idx);
+      gi.dyingMonsters.delete(idx);
 
       // Spawn dropped item
       const animDef = getThingAnimDef(obj.type);
       if (animDef?.dropItem) {
-        droppedItems.push({
+        gi.droppedItems.push({
           x: obj.x,
           y: obj.y,
           z: obj.z,
@@ -502,11 +486,11 @@ export function updateMonsterDeaths(): void {
  * In original DOOM, P_MobjThinker does this for every mobj.
  * Objects sitting on the floor follow it when it moves.
  */
-export function updateMobjFloorZ(): void {
-  const currentMap = getWorld().map;
+export function updateMobjFloorZ(gi: GameInstance): void {
+  const currentMap = gi.world?.map;
   if (!currentMap) return;
 
-  for (const obj of mapObjects) {
+  for (const obj of gi.mapObjects) {
     if (obj.removed) continue;
 
     // Look up current sector at object position
@@ -545,12 +529,12 @@ const RESPAWN_TICS = 420;  // 12 * 35 = 420 tics
  * Reference: P_RespawnSpecials (p_mobj.c)
  * Called each tick from the game loop, only when isRespawnMonsters() is true.
  */
-export function tickMonsterRespawn(): void {
-  if (!isRespawnMonsters()) return;
-  const currentMap = getWorld().map;
+export function tickMonsterRespawn(gi: GameInstance): void {
+  if (!isRespawnMonsters(gi)) return;
+  const currentMap = gi.world?.map;
   if (!currentMap) return;
 
-  for (const obj of mapObjects) {
+  for (const obj of gi.mapObjects) {
     if (obj.removed) continue;
 
     // Only respawn dead monsters (MF_COUNTKILL was set at spawn)
@@ -607,7 +591,7 @@ export function tickMonsterRespawn(): void {
     }
 
     // Spawn telefog VFX at respawn position (matching P_SpawnMobj(MT_TFOG) in original)
-    spawnTeleportFog(obj.x, obj.y, obj.z);
+    spawnTeleportFog(obj.x, obj.y, obj.z, gi);
     FX_Sound({ x: obj.x, y: obj.y }, Sfx.telept);
   }
 }

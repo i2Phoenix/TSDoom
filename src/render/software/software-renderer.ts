@@ -9,6 +9,7 @@ import type { TextureData } from '../../textures';
 import type { PaletteData } from '../../palette';
 import type { WAD } from '../../wad';
 import type { WeaponPlayer } from '../../../game/weapons';
+import type { GameInstance } from '../../../game/game-instance';
 import { RenderPipeline } from './render-pipeline';
 import {
   SCREENWIDTH,
@@ -48,8 +49,8 @@ export class SoftwareRenderer implements Renderer {
     this.pipeline.view.setPosition(this.pipeline.ctx, x, y, z, angle);
   }
 
-  renderFrame(): void {
-    this.pipeline.renderFrame();
+  renderFrame(gi: GameInstance): void {
+    this.pipeline.renderFrame(gi);
     this.pipeline.resolve();
   }
 

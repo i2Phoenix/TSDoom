@@ -14,6 +14,7 @@ import type { PaletteData } from '../../palette';
 import type { WAD } from '../../wad';
 import type { SpriteData } from './sprites';
 import { SCREENWIDTH, SCREENHEIGHT } from './draw';
+import type { GameInstance } from '../../../game/game-instance';
 import type { VfxEffect } from '../../../game/vfx';
 import type { DroppedItem } from '../../../game/mobj';
 import type { Projectile } from '../../../game/projectiles';
@@ -192,6 +193,7 @@ export class RenderContext {
   curLineWallLightLevel = 0;
 
   // ---- Data references (bound per level) ----
+  gi!: GameInstance;
   map!: GameMap;
   texData!: TextureData;
   palData!: PaletteData;

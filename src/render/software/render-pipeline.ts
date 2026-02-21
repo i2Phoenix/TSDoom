@@ -21,6 +21,7 @@ import {
   SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, zBuffer, Z_DEPTH_MASK,
   clearScreen, dc,
 } from './draw';
+import type { GameInstance } from '../../../game/game-instance';
 
 // ---- Fuzz effect (classic DOOM R_DrawFuzzColumn) ----
 const FUZZOFFSET = [
@@ -80,8 +81,9 @@ export class RenderPipeline {
 
   // ---- Per-frame rendering ----
 
-  renderFrame(): void {
+  renderFrame(gi: GameInstance): void {
     const ctx = this.ctx;
+    ctx.gi = gi;
 
     // Pass 1: Clear
     clearScreen();

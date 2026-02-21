@@ -30,7 +30,8 @@ import { StatusBar } from "./hud/statusbar";
 import { MenuSystem, RESOLUTIONS } from "./menu/menu";
 import { runThinkers, tickLevelTime, clearThinkers } from "../game/thinkers";
 import { initSpecials, initSwitchList } from "../game/specials";
-import { initWorld } from "../game/world";
+import { initWorld, initGI } from "../game/world";
+import { GameInstance } from "../game/game-instance";
 import {
   initAnimations,
   initScrollLines,
@@ -66,22 +67,18 @@ import {
 } from "./render/software/wipe";
 import { spawnSectorLights, saveSectorState } from "../game/lights";
 import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "../game/settings";
-import {
-  GameState, GameAction,
-  gamestate, menuactive, usergame, wipegamestate,
-  setGameAction, setWipeGameState, forceWipe,
-  setPendingSaveSlot,
-} from "../game/gamestate";
+import { GameState, GameAction } from "../game/gamestate";
 import { Intermission } from "./game/intermission";
 import { Finale, getFinaleConfig } from "./game/finale";
 import {
-  G_Ticker, initGameFlow, setFlowPlayer, setFlowMap,
+  G_Ticker, initGameFlow,
   musicForMap, countMapItems, countMapSecrets,
   quickSave, quickLoad,
 } from "../game/gameflow";
 import type { GameFlowCallbacks } from "../game/gameflow";
 
 // ---- Module refs ----
+let gi: GameInstance;
 let wad: WAD;
 let palData: PaletteData;
 let texDataRef: TextureData;
@@ -144,7 +141,7 @@ function changeResolution(w: number, h: number): void {
   imageBuffer = new Uint32Array(imageData.data.buffer);
   AM_SetScreenBuffer(rgbaBuffer, SCREENWIDTH, SCREENHEIGHT);
   fitCanvasToViewport();
-  if (usergame()) {
+  if (gi.usergame) {
     (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
   }
 }
@@ -158,48 +155,49 @@ function initMapFresh(mapName: string): void {
   (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
 
   if (!player) {
-    player = new Player(mapRef);
+    player = new Player(mapRef, gi);
   } else {
     player.setMap(mapRef);
   }
 
-  initWorld(mapRef, player);
+  initWorld(mapRef, player, gi);
   (getRenderer() as SoftwareRenderer).setWeaponPlayer(player);
 
-  clearThinkers();
-  clearRemovedThings();
-  clearDroppedItems();
-  clearVfx();
-  clearProjectiles();
-  initSpecials();
+  clearThinkers(gi);
+  clearRemovedThings(gi);
+  clearDroppedItems(gi);
+  clearVfx(gi);
+  clearProjectiles(gi);
+  initSpecials(gi);
   initSwitchList(
     (name) => texDataRef.textureNumForName(name),
     (idx) => texDataRef.textures[idx]?.height ?? 0,
   );
-  saveSectorState(mapRef);
-  spawnSectorLights(mapRef);
+  saveSectorState(mapRef, gi);
+  spawnSectorLights(mapRef, gi);
 
   initAnimations(
     (name: string) => texDataRef.flatNumForName(name),
     (name: string) => texDataRef.textureNumForName(name),
     texDataRef.flatList.length,
-    texDataRef.textures.length
+    texDataRef.textures.length,
+    gi
   );
   initThingAnimations(mapRef.things);
-  initScrollLines(mapRef.linedefs, mapRef.sidedefs);
+  initScrollLines(mapRef.linedefs, mapRef.sidedefs, gi);
 
-  initMapObjects();
-  initBossBrain();
-  initEnemyAI();
+  initMapObjects(gi);
+  initBossBrain(gi);
+  initEnemyAI(gi);
   initAICallbacks();
   resetPaletteFlash(palData);
   getRenderer().clearLights();
   getRenderer().spawnStaticLights(mapRef.things, (x, y) => mapRef.pointInSubsector(x, y));
-  AM_Start(mapRef);
+  AM_Start(mapRef, gi);
 
   // Count items and secrets for intermission stats
-  countMapItems(mapRef);
-  countMapSecrets(mapRef);
+  countMapItems(mapRef, gi);
+  countMapSecrets(mapRef, gi);
 
   // Sound: stop all sounds and re-init for new level
   S_Start();
@@ -210,14 +208,11 @@ function initMapFresh(mapName: string): void {
     S_ChangeMusic(mus, true);
   }
 
-  // Update gameflow references
-  setFlowMap(mapRef);
-  setFlowPlayer(player);
 }
 
 function ensureInput(): void {
   if (!inputInitialized) {
-    initBrowserInput(canvas, menuactive);
+    initBrowserInput(canvas, () => gi.menuactive);
     inputInitialized = true;
   }
 }
@@ -298,6 +293,9 @@ async function main() {
     S_Init(wad, Math.round(getSfxVolume() * 1.5), Math.round(getMusicVolume() * 1.5));
     initClientEffects();
 
+    // Initialize the global GameInstance (must be before any game/ module access)
+    gi = initGI();
+
     // Initialize game flow system (delegates G_Ticker actions to platform callbacks)
     initGameFlow(flowCallbacks);
 
@@ -338,7 +336,7 @@ async function main() {
 
 
     // Create menu system
-    menu = new MenuSystem(wad, palData, texDataRef);
+    menu = new MenuSystem(wad, palData, texDataRef, gi);
     menu.setCurrentResolution(SCREENWIDTH, SCREENHEIGHT);
     menu.setCallbacks({
       onChangeResolution: (w, h) => {
@@ -346,12 +344,12 @@ async function main() {
         menu.setCurrentResolution(w, h);
       },
       onSaveGame: (slot: number) => {
-        setPendingSaveSlot(slot);
-        setGameAction(GameAction.ga_savegame);
+        gi.pendingSaveSlot = slot;
+        gi.gameaction = GameAction.ga_savegame;
       },
       onLoadGame: (slot: number) => {
-        setPendingSaveSlot(slot);
-        setGameAction(GameAction.ga_loadgame);
+        gi.pendingSaveSlot = slot;
+        gi.gameaction = GameAction.ga_loadgame;
       },
       onQuitGame: () => {
         // Try to close the tab; works when page was opened via JS.
@@ -392,19 +390,19 @@ async function main() {
           e.preventDefault();
           e.stopPropagation();
           // If menu opened, exit pointer lock
-          if (menuactive() && document.pointerLockElement) {
+          if (gi.menuactive && document.pointerLockElement) {
             document.exitPointerLock();
           }
           return;
         }
 
         // Game input (only when playing and no menu)
-        if (gamestate() === GameState.GS_LEVEL && usergame() && !menuactive()) {
+        if (gi.gamestate === GameState.GS_LEVEL && gi.usergame && !gi.menuactive) {
           // Feed cheat key buffer (DOOM: ST_Responder)
-          feedCheatKey(e.key, player);
+          feedCheatKey(e.key, player, gi);
 
           // Automap responder (TAB toggle + zoom/pan when active)
-          if (AM_Responder(e.code)) {
+          if (AM_Responder(e.code, gi)) {
             e.preventDefault();
             return;
           }
@@ -436,18 +434,18 @@ async function main() {
           // F6 — quicksave
           if (e.code === "F6") {
             e.preventDefault();
-            quickSave();
+            quickSave(gi);
           }
 
           // F9 — quickload
           if (e.code === "F9") {
             e.preventDefault();
-            quickLoad();
+            quickLoad(gi);
           }
         }
 
         // WI_Responder — any key press during intermission accelerates
-        if (gamestate() === GameState.GS_INTERMISSION && intermission && !menuactive()) {
+        if (gi.gamestate === GameState.GS_INTERMISSION && intermission && !gi.menuactive) {
           if (e.code === "Space" || e.code === "Enter" || e.code === "ControlLeft" || e.code === "ControlRight") {
             e.preventDefault();
             intermission.pressAccelerate();
@@ -455,7 +453,7 @@ async function main() {
         }
 
         // F_Responder — any key press during finale
-        if (gamestate() === GameState.GS_FINALE && finale && !menuactive()) {
+        if (gi.gamestate === GameState.GS_FINALE && finale && !gi.menuactive) {
           e.preventDefault();
           finale.pressKey();
         }
@@ -473,10 +471,10 @@ async function main() {
         menu.tick();
 
         // G_Ticker — process deferred actions (ga_newgame, ga_loadgame, ga_savegame)
-        G_Ticker();
+        G_Ticker(gi);
 
         // P_Ticker — game logic (only in GS_LEVEL, paused when menu is open)
-        if (gamestate() === GameState.GS_LEVEL && usergame() && !menuactive()) {
+        if (gi.gamestate === GameState.GS_LEVEL && gi.usergame && !gi.menuactive) {
           // Respawn check (player pressed Use while dead)
           // Full level reset — reload map from scratch (restores all sector
           // heights, doors, lifts, pickups, monsters to initial state)
@@ -484,22 +482,22 @@ async function main() {
             initMapFresh(mapRef.name);
             player.spawn();
 
-            forceWipe(); // trigger wipe transition
+            gi.wipegamestate = -1 as unknown as GameState; // trigger wipe transition
           }
 
           if (!isWipeActive()) {
             player.tick();
-            updatePlayerMobj(mapRef);
-            runThinkers();
-            tickLevelTime();
-            updateAnimations();
-            updateThingAnimations();
-            tickBossBrain();
-            updateMonsterDeaths();
-            updateMobjFloorZ();
-            tickMonsterRespawn();
-            updateVfx();
-            updateProjectiles();
+            updatePlayerMobj(mapRef, gi);
+            runThinkers(gi);
+            tickLevelTime(gi);
+            updateAnimations(gi);
+            updateThingAnimations(gi);
+            tickBossBrain(gi);
+            updateMonsterDeaths(gi);
+            updateMobjFloorZ(gi);
+            tickMonsterRespawn(gi);
+            updateVfx(gi);
+            updateProjectiles(gi);
             getRenderer().updateLights();
             statusBar.tickMessage(player);
 
@@ -514,7 +512,7 @@ async function main() {
         profilerTickEnd();
 
         // WI_Ticker — intermission screen logic
-        if (gamestate() === GameState.GS_INTERMISSION && intermission) {
+        if (gi.gamestate === GameState.GS_INTERMISSION && intermission) {
           if (!isWipeActive()) {
             intermission.tick();
           } else {
@@ -523,7 +521,7 @@ async function main() {
         }
 
         // F_Ticker — finale screen logic
-        if (gamestate() === GameState.GS_FINALE && finale) {
+        if (gi.gamestate === GameState.GS_FINALE && finale) {
           if (!isWipeActive()) {
             finale.tick();
           } else {
@@ -536,46 +534,46 @@ async function main() {
       () => {
         profilerFrameStart();
         // Wipe trigger: if gamestate changed since last draw, start wipe
-        if (gamestate() !== wipegamestate() && !isWipeActive()) {
+        if (gi.gamestate !== gi.wipegamestate && !isWipeActive()) {
           wipeStartCapture();
 
           // Render the new state for the wipe end frame (full pipeline)
-          if (gamestate() === GameState.GS_LEVEL && usergame()) {
+          if (gi.gamestate === GameState.GS_LEVEL && gi.usergame) {
             getRenderer().setView(player.x, player.y, player.viewz, player.angle);
-            getRenderer().renderFrame();
+            getRenderer().renderFrame(gi);
             getRenderer().setWeaponInvisible(player.powers[2] > 0);
             getRenderer().drawWeaponOverlay();
             statusBar.draw(player);
             applyScreenTint();
             getRenderer().setLightView(player.x, player.y, player.viewz);
             runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
-          } else if (gamestate() === GameState.GS_INTERMISSION && intermission) {
+          } else if (gi.gamestate === GameState.GS_INTERMISSION && intermission) {
             intermission.draw();
-          } else if (gamestate() === GameState.GS_FINALE && finale) {
+          } else if (gi.gamestate === GameState.GS_FINALE && finale) {
             finale.draw();
           } else {
             menu.drawTitleScreen();
           }
 
           wipeEndCapture();
-          setWipeGameState(gamestate());
+          gi.wipegamestate = gi.gamestate;
         }
 
         if (isWipeActive()) {
           // Wipe in progress — menu can be drawn on top (like DOOM)
-          if (menuactive()) menu.draw();
+          if (gi.menuactive) menu.draw();
         } else {
           // Normal rendering based on gamestate
-          switch (gamestate()) {
+          switch (gi.gamestate) {
             case GameState.GS_LEVEL:
-              if (usergame()) {
+              if (gi.usergame) {
                 profilerBegin('view');
                 getRenderer().setView(player.x, player.y, player.viewz, player.angle);
                 updatePaletteFlash(player, palData);
                 profilerEnd('view');
 
                 profilerBegin('render');
-                getRenderer().renderFrame();
+                getRenderer().renderFrame(gi);
                 profilerEnd('render');
 
                 profilerBegin('psprites');
@@ -597,8 +595,8 @@ async function main() {
                 profilerEnd('postprocess');
 
                 // Automap overlay (draws on top of everything)
-                if (isAutomapActive()) {
-                  AM_Drawer(player.x, player.y, player.angle);
+                if (isAutomapActive(gi)) {
+                  AM_Drawer(player.x, player.y, player.angle, gi);
                 }
               }
               break;
@@ -621,7 +619,7 @@ async function main() {
           }
 
           // M_Drawer — menu overlay on top of everything
-          if (menuactive()) {
+          if (gi.menuactive) {
             menu.draw();
           }
         }

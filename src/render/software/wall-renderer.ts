@@ -105,7 +105,7 @@ export class WallRenderer implements SegCollector {
 
     if (!backsector) {
       // One-sided line
-      midtexture = getAnimatedTexture(sidedef.midTexture);
+      midtexture = getAnimatedTexture(sidedef.midTexture, ctx.gi);
       const tex = ctx.texData.textures[midtexture];
       const texH = tex ? tex.height << FRACBITS : 0;
 
@@ -124,7 +124,7 @@ export class WallRenderer implements SegCollector {
       if (isSkyFront && isSkyBack) worldtop = worldhigh;
 
       if (worldhigh < worldtop) {
-        toptexture = getAnimatedTexture(sidedef.topTexture);
+        toptexture = getAnimatedTexture(sidedef.topTexture, ctx.gi);
         if (seg.linedef.flags & 8) { // ML_DONTPEGTOP
           rw_toptexturemid = worldtop;
         } else {
@@ -135,7 +135,7 @@ export class WallRenderer implements SegCollector {
       }
 
       if (worldlow > worldbottom) {
-        bottomtexture = getAnimatedTexture(sidedef.bottomTexture);
+        bottomtexture = getAnimatedTexture(sidedef.bottomTexture, ctx.gi);
         if (seg.linedef.flags & 16) { // ML_DONTPEGBOTTOM
           rw_bottomtexturemid = worldtop;
         } else {
@@ -272,7 +272,7 @@ export class WallRenderer implements SegCollector {
       const backsector = seg.backsector;
       if (!backsector) continue;
 
-      const texnum = getAnimatedTexture(seg.sidedef.midTexture);
+      const texnum = getAnimatedTexture(seg.sidedef.midTexture, ctx.gi);
       const tex = ctx.texData.textures[texnum];
       if (!tex) continue;
 
