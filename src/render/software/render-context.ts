@@ -202,11 +202,16 @@ export class RenderContext {
   spriteData: SpriteData | null = null;
   skytexture = 0;
 
-  // ---- Subsector → thing maps (rebuilt each frame) ----
-  subsectorThings: Map<number, ThingEntry[]> = new Map();
-  subsectorVfx: Map<number, VfxEffect[]> = new Map();
-  subsectorDrops: Map<number, DroppedItem[]> = new Map();
-  subsectorProjectiles: Map<number, Projectile[]> = new Map();
+  // ---- Sector → thing maps (rebuilt each frame) ----
+  // Keyed by Sector object (not subsector index) to match original DOOM:
+  // when ANY subsector of a sector is visited, ALL things in that sector are projected.
+  sectorThings: Map<Sector, ThingEntry[]> = new Map();
+  sectorVfx: Map<Sector, VfxEffect[]> = new Map();
+  sectorDrops: Map<Sector, DroppedItem[]> = new Map();
+  sectorProjectiles: Map<Sector, Projectile[]> = new Map();
+
+  // Track visited sectors per frame to avoid projecting same sector's sprites twice
+  visitedSectors: Set<Sector> = new Set();
 
   // ---- Fuzz ----
   fuzzpos = 0;
@@ -311,6 +316,7 @@ export class RenderContext {
     ];
     this.curFloorplane = null;
     this.curCeilingplane = null;
+    this.visitedSectors.clear();
 
     this.debugCounters.subsectors = 0;
     this.debugCounters.addLineCalls = 0;

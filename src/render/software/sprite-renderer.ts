@@ -33,17 +33,19 @@ import { LIGHTLEVELS, MAXLIGHTSCALE, LIGHTSCALESHIFT } from './render-context';
  * and final sorted drawing.
  */
 export class SpriteRenderer {
-  // ---- Subsector map builders ----
+  // ---- Sector-based sprite map builders ----
+  // Matching original DOOM: when ANY subsector of a sector is visited,
+  // ALL things in that sector are projected (R_AddSprites uses sector->thinglist).
 
   buildSubsectorMaps(ctx: RenderContext): void {
-    this.buildThingSubsectorMap(ctx);
-    this.buildVfxSubsectorMap(ctx);
-    this.buildDropSubsectorMap(ctx);
-    this.buildProjectileSubsectorMap(ctx);
+    this.buildThingSectorMap(ctx);
+    this.buildVfxSectorMap(ctx);
+    this.buildDropSectorMap(ctx);
+    this.buildProjectileSectorMap(ctx);
   }
 
-  private buildThingSubsectorMap(ctx: RenderContext): void {
-    ctx.subsectorThings.clear();
+  private buildThingSectorMap(ctx: RenderContext): void {
+    ctx.sectorThings.clear();
     for (let i = 0; i < ctx.map.things.length; i++) {
       const thing = ctx.map.things[i];
       if (getRemovedThings(ctx.gi).has(i)) continue;
@@ -57,60 +59,68 @@ export class SpriteRenderer {
       const x = mobj ? mobj.x : (thing.x << FRACBITS);
       const y = mobj ? mobj.y : (thing.y << FRACBITS);
       const ss = ctx.map.pointInSubsector(x, y);
-      const ssIdx = ctx.map.subsectors.indexOf(ss);
-      if (ssIdx < 0) continue;
-      let arr = ctx.subsectorThings.get(ssIdx);
-      if (!arr) { arr = []; ctx.subsectorThings.set(ssIdx, arr); }
+      const sector = ss.sector;
+      if (!sector) continue;
+      let arr = ctx.sectorThings.get(sector);
+      if (!arr) { arr = []; ctx.sectorThings.set(sector, arr); }
       arr.push({ thing, info, thingIdx: i });
     }
   }
 
-  private buildVfxSubsectorMap(ctx: RenderContext): void {
-    ctx.subsectorVfx.clear();
+  private buildVfxSectorMap(ctx: RenderContext): void {
+    ctx.sectorVfx.clear();
     if (!ctx.spriteData) return;
     const effects = getActiveVfx(ctx.gi);
     for (const e of effects) {
       const ss = ctx.map.pointInSubsector(e.x, e.y);
-      const ssIdx = ctx.map.subsectors.indexOf(ss);
-      if (ssIdx < 0) continue;
-      if (!ctx.subsectorVfx.has(ssIdx)) ctx.subsectorVfx.set(ssIdx, []);
-      ctx.subsectorVfx.get(ssIdx)!.push(e);
+      const sector = ss.sector;
+      if (!sector) continue;
+      if (!ctx.sectorVfx.has(sector)) ctx.sectorVfx.set(sector, []);
+      ctx.sectorVfx.get(sector)!.push(e);
     }
   }
 
-  private buildDropSubsectorMap(ctx: RenderContext): void {
-    ctx.subsectorDrops.clear();
+  private buildDropSectorMap(ctx: RenderContext): void {
+    ctx.sectorDrops.clear();
     if (!ctx.spriteData) return;
     const items = getDroppedItems(ctx.gi);
     for (const item of items) {
       const ss = ctx.map.pointInSubsector(item.x, item.y);
-      const ssIdx = ctx.map.subsectors.indexOf(ss);
-      if (ssIdx < 0) continue;
-      if (!ctx.subsectorDrops.has(ssIdx)) ctx.subsectorDrops.set(ssIdx, []);
-      ctx.subsectorDrops.get(ssIdx)!.push(item);
+      const sector = ss.sector;
+      if (!sector) continue;
+      if (!ctx.sectorDrops.has(sector)) ctx.sectorDrops.set(sector, []);
+      ctx.sectorDrops.get(sector)!.push(item);
     }
   }
 
-  private buildProjectileSubsectorMap(ctx: RenderContext): void {
-    ctx.subsectorProjectiles.clear();
+  private buildProjectileSectorMap(ctx: RenderContext): void {
+    ctx.sectorProjectiles.clear();
     if (!ctx.spriteData) return;
     const projectiles = getActiveProjectiles(ctx.gi);
     for (const p of projectiles) {
       if (p.removed) continue;
       const ss = ctx.map.pointInSubsector(p.x, p.y);
-      const ssIdx = ctx.map.subsectors.indexOf(ss);
-      if (ssIdx < 0) continue;
-      if (!ctx.subsectorProjectiles.has(ssIdx)) ctx.subsectorProjectiles.set(ssIdx, []);
-      ctx.subsectorProjectiles.get(ssIdx)!.push(p);
+      const sector = ss.sector;
+      if (!sector) continue;
+      if (!ctx.sectorProjectiles.has(sector)) ctx.sectorProjectiles.set(sector, []);
+      ctx.sectorProjectiles.get(sector)!.push(p);
     }
   }
 
   // ---- Projection (called during BSP traversal) ----
 
-  /** Project all sprites in a subsector and add to vissprites. */
-  projectSubsector(ctx: RenderContext, ssIdx: number, sector: Sector): void {
+  /**
+   * Project all sprites in the sector of the visited subsector.
+   * Matching original DOOM R_AddSprites: uses sector->validcount to
+   * ensure each sector's sprites are only projected once per frame.
+   */
+  projectSubsector(ctx: RenderContext, _ssIdx: number, sector: Sector): void {
+    // Skip if this sector's sprites were already projected this frame
+    if (ctx.visitedSectors.has(sector)) return;
+    ctx.visitedSectors.add(sector);
+
     // Map things
-    const things = ctx.subsectorThings.get(ssIdx);
+    const things = ctx.sectorThings.get(sector);
     if (things && ctx.spriteData) {
       for (const { thing, info, thingIdx } of things) {
         this.projectThing(ctx, thing, info, sector, thingIdx);
@@ -118,19 +128,19 @@ export class SpriteRenderer {
     }
 
     // VFX
-    const vfx = ctx.subsectorVfx.get(ssIdx);
+    const vfx = ctx.sectorVfx.get(sector);
     if (vfx) {
       for (const e of vfx) this.projectVfx(ctx, e, sector);
     }
 
     // Dropped items
-    const drops = ctx.subsectorDrops.get(ssIdx);
+    const drops = ctx.sectorDrops.get(sector);
     if (drops) {
       for (const d of drops) this.projectDrop(ctx, d, sector);
     }
 
     // Projectiles
-    const projectiles = ctx.subsectorProjectiles.get(ssIdx);
+    const projectiles = ctx.sectorProjectiles.get(sector);
     if (projectiles) {
       for (const p of projectiles) this.projectProjectile(ctx, p, sector);
     }

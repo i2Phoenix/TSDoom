@@ -185,7 +185,7 @@ export class PlaneRenderer {
         }
         ctx.planeRowValid[y] = 1;
         ctx.planeRowDistance[y] = distance;
-        ctx.planeRowFloorScale[y] = fixedDiv(ctx.projection, distance);
+        ctx.planeRowFloorScale[y] = fixedDiv(ctx.projection, distance) & Z_DEPTH_MASK;
         let zIdx = (distance >>> LIGHTZSHIFT) | 0;
         if (zIdx >= MAXLIGHTZ) zIdx = MAXLIGHTZ - 1;
         ctx.planeRowColormapIdx[y] = ctx.zlight[lightnum]?.[zIdx] ?? 0;
