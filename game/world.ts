@@ -4,7 +4,7 @@
 // Replaces per-module cached refs (currentMap, playerRef, etc.)
 // ============================================================
 
-import type { GameMap } from '../src/map';
+import type { GameMap } from './map-types';
 import type { Player } from './player';
 
 /**
@@ -34,12 +34,14 @@ export function initWorld(map: GameMap, player: Player): void {
  * to make init-order bugs immediately visible.
  */
 export function getWorld(): WorldContext {
-  return _world!;
+  if (!_world) throw new Error('getWorld() called before initWorld() — init-order bug');
+  return _world;
 }
 
 /**
  * Update the player reference (e.g., on level restart when Player is recreated).
  */
 export function setWorldPlayer(player: Player): void {
-  _world!.player = player;
+  if (!_world) throw new Error('setWorldPlayer() called before initWorld()');
+  _world.player = player;
 }

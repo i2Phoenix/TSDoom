@@ -5,7 +5,7 @@
 // ============================================================
 
 import { FRACBITS, FRACUNIT } from './math';
-import { GameMap } from '../src/map';
+import type { GameMap } from './map-types';
 import { P_Random } from './random';
 import { FX_DynLight } from './effects';
 

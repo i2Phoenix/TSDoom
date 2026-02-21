@@ -89,6 +89,15 @@ export function I_ResumeAudioContext(): void {
   }
 }
 
+/**
+ * Suspend AudioContext to save resources when the tab is hidden.
+ */
+export function I_SuspendAudioContext(): void {
+  if (audioCtx && audioCtx.state === 'running') {
+    audioCtx.suspend();
+  }
+}
+
 // ============================================================
 // WAD Sound Lump Decoding
 // ============================================================

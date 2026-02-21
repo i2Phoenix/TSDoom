@@ -9,6 +9,7 @@ import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
 import { FX_Sound, FX_Music } from '../../game/effects';
 import { Sfx, Music } from '../../game/sounds';
+import type { WBStartStruct } from '../../game/gameflow';
 
 // ---- Constants (from wi_stuff.c) ----
 
@@ -33,48 +34,17 @@ enum IntState {
   NoState,
 }
 
-// Data passed to intermission
-export interface WBStartStruct {
-  epsd: number;       // episode (0-based)
-  last: number;       // last completed map (0-based)
-  next: number;       // next map (0-based)
-  maxkills: number;
-  maxitems: number;
-  maxsecret: number;
-  skills: number;     // player kills
-  sitems: number;     // player items
-  ssecret: number;    // player secrets
-  stime: number;      // level time in tics
-  partime: number;    // par time in tics
-  isCommercial: boolean;
-  lastMapName: string;
-  nextMapName: string;
-}
+// WBStartStruct imported from game/gameflow.ts — re-export for consumers
+export type { WBStartStruct } from '../../game/gameflow';
 
-// ---- Level Stats Tracking (exported for other modules to increment) ----
-
-export let totalKills = 0;
-export let totalItems = 0;
-export let totalSecrets = 0;
-export let playerKills = 0;
-export let playerItems = 0;
-export let playerSecrets = 0;
-
-export function resetLevelStats(): void {
-  totalKills = 0;
-  totalItems = 0;
-  totalSecrets = 0;
-  playerKills = 0;
-  playerItems = 0;
-  playerSecrets = 0;
-}
-
-export function addTotalKill(): void { totalKills++; }
-export function addTotalItem(): void { totalItems++; }
-export function addTotalSecret(): void { totalSecrets++; }
-export function addPlayerKill(): void { playerKills++; }
-export function addPlayerItem(): void { playerItems++; }
-export function addPlayerSecret(): void { playerSecrets++; }
+// ---- Level Stats (re-exported from game/level-stats.ts) ----
+export {
+  totalKills, totalItems, totalSecrets,
+  playerKills, playerItems, playerSecrets,
+  resetLevelStats,
+  addTotalKill, addTotalItem, addTotalSecret,
+  addPlayerKill, addPlayerItem, addPlayerSecret,
+} from '../../game/level-stats';
 
 // ---- Par Times (in tics) ----
 // Episode par times from wi_stuff.c (Doom I only, episodes 0-2)

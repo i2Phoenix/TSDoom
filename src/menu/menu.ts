@@ -326,11 +326,11 @@ export class MenuSystem {
    * Original DOOM: checks !usergame and gamestate != GS_LEVEL
    */
   private doSaveGameMenu(): void {
-    if (!usergame) {
+    if (!usergame()) {
       this.startMessage("you can't save if you aren't playing!\n\npress a key.");
       return;
     }
-    if (gamestate !== GameState.GS_LEVEL) {
+    if (gamestate() !== GameState.GS_LEVEL) {
       return;
     }
     this.setupNextMenu(this.saveDef);
@@ -438,7 +438,7 @@ export class MenuSystem {
 
   /** M_StartControlPanel — open the menu */
   startControlPanel(): void {
-    if (menuactive) return;
+    if (menuactive()) return;
     setMenuActive(true);
     clearInputState();
     this.currentMenu = this.mainDef;
@@ -584,9 +584,9 @@ export class MenuSystem {
     }
 
     // If menu is not active, check for menu-opening keys
-    if (!menuactive) {
+    if (!menuactive()) {
       // On title screen, any key opens the menu
-      if (gamestate === GameState.GS_DEMOSCREEN) {
+      if (gamestate() === GameState.GS_DEMOSCREEN) {
         if (code !== 'F5' && code !== 'F11' && code !== 'F12') {
           this.startControlPanel();
           return true;
@@ -594,7 +594,7 @@ export class MenuSystem {
         return false;
       }
       // In-game: ESC opens menu
-      if (gamestate === GameState.GS_LEVEL) {
+      if (gamestate() === GameState.GS_LEVEL) {
         if (code === 'Escape') {
           this.startControlPanel();
           return true;
@@ -748,7 +748,7 @@ export class MenuSystem {
     }
 
     // If no game is running, draw TITLEPIC as background
-    if (gamestate !== GameState.GS_LEVEL || !usergame) {
+    if (gamestate() !== GameState.GS_LEVEL || !usergame()) {
       if (this.titlePic) {
         this.drawPatchFullScreen(this.titlePic);
       } else {
@@ -794,7 +794,7 @@ export class MenuSystem {
     if (!this.messageString) return;
 
     // Draw TITLEPIC or game scene behind (main.ts handles game render)
-    if (gamestate !== GameState.GS_LEVEL || !usergame) {
+    if (gamestate() !== GameState.GS_LEVEL || !usergame()) {
       if (this.titlePic) {
         this.drawPatchFullScreen(this.titlePic);
       } else {

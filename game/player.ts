@@ -3,7 +3,7 @@
 // Reference: p_user.c, p_mobj.c — movement, collision
 // ============================================================
 
-import { GameMap, LineDef, ML_BLOCKING, ML_TWOSIDED } from '../src/map';
+import { ML_BLOCKING, ML_TWOSIDED, type GameMap, type LineDef } from './map-types';
 import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEANGLES, FINEMASK, finesine, finecosine, fixedMul, fixedDiv } from './math';
 import { getInput, resetInputAccumulated } from './input-system';
 import { useSpecialLine, crossSpecialLine } from './specials';
@@ -13,9 +13,9 @@ import { getDamageMultiplier } from './skill';
 import { getMapObjects } from './mobj';
 import { MF_SOLID } from './mobjinfo';
 import {
-  WeaponType, AmmoType, WeaponPlayer, PspDef,
+  WeaponType, AmmoType, WeaponPlayer, StateNum, type PspDef,
   initPlayerWeapons, movePsprites, fireWeapon, getPspriteInfo,
-  weaponinfo, dropWeapon, bringUpWeapon,
+  weaponinfo, dropWeapon, bringUpWeapon, createPspDef,
 } from './weapons';
 import { levelTime } from './thinkers';
 import { FX_Sound } from './effects';
@@ -23,7 +23,7 @@ import { Sfx } from './sounds';
 
 const USERANGE = 64 << FRACBITS; // 64 map units — how far the player can reach
 
-const PLAYERHEIGHT = 56 << FRACBITS;  // 56 units — player needs this clearance
+import { PLAYERHEIGHT } from './constants';
 const VIEWHEIGHT = 41 << FRACBITS;
 const MAXBOB = 0x100000;               // 16 fixed-point units — max bob amplitude
 const FORWARDMOVE = 0x19; // 25 — same as original DOOM
@@ -111,6 +111,11 @@ export class Player {
   private stuckTicks: number = 0;      // consecutive ticks of failed movement
 
   constructor(map: GameMap) {
+    this.map = map;
+  }
+
+  /** Update the map reference (on level change without recreating Player) */
+  setMap(map: GameMap): void {
     this.map = map;
   }
 
@@ -214,10 +219,7 @@ export class Player {
     this.pendingweapon = WeaponType.nochange;
     this.attackdown = false;
     this.refire = 0;
-    this.psprites = [
-      { state: null, stateNum: 0 as any, tics: 0, sx: FRACUNIT, sy: 128 * FRACUNIT },
-      { state: null, stateNum: 0 as any, tics: 0, sx: FRACUNIT, sy: 128 * FRACUNIT },
-    ];
+    this.psprites = [createPspDef(), createPspDef()];
     // Bring up current weapon
     bringUpWeapon(this);
 

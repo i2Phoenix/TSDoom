@@ -9,7 +9,7 @@ import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from './draw';
 import { gBuffer, SurfaceType } from './gbuffer';
 import type { GBuffer } from './gbuffer';
 import type { PostProcessPass } from './postprocess';
-import type { MapThing } from '../../map';
+
 
 // View position (set each frame from renderer for distance culling + psprite lighting)
 let _viewx = 0;
@@ -162,7 +162,7 @@ const LIGHT_THINGS: Record<number, { r: number; g: number; b: number; radius: nu
  * Spawn permanent lights from map things (torches, lamps, etc.)
  * Call once after map load.
  */
-export function spawnStaticLights(things: readonly MapThing[], pointInSubsector: (x: number, y: number) => { sector?: { floorHeight: number } | null }): void {
+export function spawnStaticLights(things: readonly { x: number; y: number; type: number }[], pointInSubsector: (x: number, y: number) => { sector?: { floorHeight: number } | null }): void {
   let count = 0;
   for (const thing of things) {
     const def = LIGHT_THINGS[thing.type];

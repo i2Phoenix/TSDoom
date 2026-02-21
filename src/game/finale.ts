@@ -9,6 +9,7 @@ import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
 import { FX_Music } from '../../game/effects';
 import { Music } from '../../game/sounds';
+import type { FinaleConfig } from '../../game/gameflow';
 
 // ---- Constants (from f_finale.c) ----
 
@@ -174,13 +175,8 @@ const C6TEXT =
 
 // ---- Finale configuration lookup ----
 
-export interface FinaleConfig {
-  text: string;
-  flat: string;
-  music: Music;
-  isCommercial: boolean;
-  episode: number;     // 1-based (Doom I) or 0 (Doom II)
-}
+// FinaleConfig imported from game/gameflow.ts — re-export for consumers
+export type { FinaleConfig } from '../../game/gameflow';
 
 /** Get finale config for Doom I by episode (1-based) */
 function getDoom1FinaleConfig(episode: number): FinaleConfig | null {

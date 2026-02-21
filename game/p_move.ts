@@ -5,7 +5,7 @@
 // ============================================================
 
 import { FRACBITS, FRACUNIT, fixedMul } from './math';
-import { GameMap, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../src/map';
+import { ML_TWOSIDED, ML_BLOCKING, type GameMap, type LineDef } from './map-types';
 import { MapObjState, getMapObjects, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
 import { getWorld } from './world';
 import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT } from './mobjinfo';

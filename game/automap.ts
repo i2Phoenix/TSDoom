@@ -5,11 +5,22 @@
 // ============================================================
 
 import { FRACUNIT, FRACBITS } from './math';
-import type { GameMap, LineDef, Vertex } from '../src/map';
-import { ML_TWOSIDED, ML_SECRET, ML_DONTDRAW, ML_MAPPED } from '../src/map';
-import { rgbaBuffer, SCREENWIDTH, SCREENHEIGHT } from '../src/render/software/draw';
+import type { GameMap, LineDef, Vertex } from './map-types';
+import { ML_TWOSIDED, ML_SECRET, ML_DONTDRAW, ML_MAPPED } from './map-types';
 import { getMapObjects, type MapObjState } from './mobj';
 import { MF_COUNTKILL } from './mobjinfo';
+
+// ---- Screen buffer injected by platform layer ----
+let SCREENWIDTH = 320;
+let SCREENHEIGHT = 200;
+let rgbaBuffer: Uint32Array = new Uint32Array(0);
+
+/** Set the screen buffer and dimensions. Called by platform layer on init/resize. */
+export function AM_SetScreenBuffer(buf: Uint32Array, w: number, h: number): void {
+  rgbaBuffer = buf;
+  SCREENWIDTH = w;
+  SCREENHEIGHT = h;
+}
 
 // ---- Colors (0xAABBGGRR — little-endian ABGR for Uint32Array) ----
 const WALLCOLOR   = 0xFF0000FC; // Red — one-sided walls

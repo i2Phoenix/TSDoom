@@ -7,7 +7,7 @@ import {
   FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK, ANG180,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
 } from './math';
-import { GameMap, ML_TWOSIDED } from '../src/map';
+import { ML_TWOSIDED, type GameMap } from './map-types';
 import {
   MapObjState, getMapObjects, damageMobj, isBarrel,
   MF_SHOOTABLE, MF_NOBLOOD,

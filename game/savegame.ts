@@ -3,10 +3,10 @@
 // Reference: p_saveg.c, g_game.c (G_DoSaveGame, G_DoLoadGame)
 // ============================================================
 
-import { GameMap, Sector } from '../src/map';
+import type { GameMap, Sector } from './map-types';
 import { FRACBITS } from './math';
 import { Player, PlayerState } from './player';
-import { WeaponType, StateNum, PspDef, getWeaponState } from './weapons';
+import { WeaponType, StateNum, getWeaponState, createPspDef } from './weapons';
 import { levelTime } from './thinkers';
 import { getThinkersList, setLevelTime, clearThinkers, Thinker } from './thinkers';
 import { removedThings, setRemovedThings } from './pickups';
@@ -339,7 +339,7 @@ export function applyGameState(
   if (p.psprites) {
     // Ensure psprites array has enough slots (on cold load, it may be empty)
     while (player.psprites.length < p.psprites.length) {
-      player.psprites.push({ state: null, stateNum: StateNum.S_NULL as any, tics: 0, sx: 0, sy: 0 });
+      player.psprites.push(createPspDef());
     }
     for (let i = 0; i < p.psprites.length && i < player.psprites.length; i++) {
       player.psprites[i].tics = p.psprites[i].tics;

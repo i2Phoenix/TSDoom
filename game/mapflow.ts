@@ -3,7 +3,7 @@
 // Reference: g_game.c  G_ExitLevel, G_SecretExitLevel, G_DoCompleted
 // ============================================================
 
-import { GameAction, setGameAction, setSecretExit, secretExit } from './gamestate';
+import { GameAction, setGameAction, setSecretExit } from './gamestate';
 
 // ---- Map name parsing ----
 

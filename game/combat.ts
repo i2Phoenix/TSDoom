@@ -9,7 +9,7 @@ import {
   FRACBITS, FRACUNIT, ANGLETOFINESHIFT, FINEMASK,
   finesine, finecosine, fixedMul, fixedDiv, pointToAngle,
 } from './math';
-import { GameMap, ML_TWOSIDED, LineDef } from '../src/map';
+import { ML_TWOSIDED, type GameMap, type LineDef } from './map-types';
 import { FX_DynLight, FX_Sound } from './effects';
 import { getWorld } from './world';
 import { P_Random } from './random';
@@ -23,9 +23,7 @@ import { Player } from './player';
 import { Sfx } from './sounds';
 import { shootSpecialLine } from './specials';
 
-// ---- Constants (from p_local.h) ----
-const MELEERANGE    = 64 * FRACUNIT;
-const MISSILERANGE  = 32 * 64 * FRACUNIT;  // 2048 map units
+import { MELEERANGE, MISSILERANGE } from './constants';
 const PLAYERRADIUS = 16;  // player collision radius in map units
 
 // ---- Module state (mirrors DOOM's globals in p_map.c) ----

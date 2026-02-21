@@ -7,7 +7,8 @@ import { loadWAD, WAD } from "./wad";
 import { initTables } from "../game/math";
 import { PaletteData } from "./palette";
 import { TextureData } from "./textures";
-import { GameMap } from "./map";
+import { GameMapImpl } from "./map";
+import type { GameMap } from "../game/map-types";
 import { SoftwareRenderer } from "./render/software/software-renderer";
 import { setRenderer, getRenderer } from "../game/renderer-global";
 // draw.ts used for SCREENWIDTH/SCREENHEIGHT/rgbaBuffer imports
@@ -49,14 +50,13 @@ import {
 
 import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "../game/enemy";
 import { updateVfx, clearVfx } from "../game/vfx";
-import { feedCheatKey, resetCheatBuffer } from "../game/cheats";
+import { feedCheatKey } from "../game/cheats";
 import { updateProjectiles, clearProjectiles } from "../game/projectiles";
-import { setGameSkill } from "../game/skill";
 import { initBossBrain, tickBossBrain } from "../game/bossbrain";
-import { AM_Start, AM_Stop, AM_Responder, AM_Drawer, isAutomapActive } from "../game/automap";
-import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ResumeSound, S_ChangeMusic } from "./sound/s_sound";
+import { AM_Start, AM_Responder, AM_Drawer, isAutomapActive, AM_SetScreenBuffer } from "../game/automap";
+import { S_Init, S_Start, S_UpdateSounds, S_SetListener, S_ChangeMusic } from "./sound/s_sound";
 import { Music } from "../game/sounds";
-import { I_ResumeAudioContext } from "./sound/i_sound";
+import { I_ResumeAudioContext, I_SuspendAudioContext } from "./sound/i_sound";
 import { initClientEffects } from "./effects-client";
 import {
   wipeStartCapture,
@@ -64,42 +64,22 @@ import {
   isWipeActive,
   wipeTick,
 } from "./render/software/wipe";
-import {
-  spawnSectorLights,
-  saveSectorState,
-  restoreSectorState,
-} from "../game/lights";
-import {
-  captureGameState,
-  applyGameState,
-  saveToSlot,
-  loadFromSlot,
-  GameSaveData,
-} from "../game/savegame";
+import { spawnSectorLights, saveSectorState } from "../game/lights";
 import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "../game/settings";
 import {
-  GameState,
-  GameAction,
-  gamestate,
-  gameaction,
-  menuactive,
-  usergame,
-  wipegamestate,
-  secretExit,
-  setGameState,
-  setGameAction,
-  setMenuActive,
-  setUserGame,
-  setWipeGameState,
-  forceWipe,
-  pendingSaveSlot,
-  pendingWarpMap,
-  pendingSkill,
+  GameState, GameAction,
+  gamestate, menuactive, usergame, wipegamestate,
+  setGameAction, setWipeGameState, forceWipe,
+  setPendingSaveSlot,
 } from "../game/gamestate";
-import { getNextMap, parseMapName } from "../game/mapflow";
-import { Intermission, WBStartStruct, resetLevelStats, totalKills, totalItems, totalSecrets, playerKills, playerItems, playerSecrets, addTotalItem, addTotalSecret } from "./game/intermission";
-import { levelTime } from "../game/thinkers";
-import { Finale, FinaleConfig, getFinaleConfig } from "./game/finale";
+import { Intermission } from "./game/intermission";
+import { Finale, getFinaleConfig } from "./game/finale";
+import {
+  G_Ticker, initGameFlow, setFlowPlayer, setFlowMap,
+  musicForMap, countMapItems, countMapSecrets,
+  quickSave, quickLoad,
+} from "../game/gameflow";
+import type { GameFlowCallbacks } from "../game/gameflow";
 
 // ---- Module refs ----
 let wad: WAD;
@@ -119,7 +99,6 @@ let menu: MenuSystem;
 let inputInitialized = false;
 let intermission: Intermission | null = null;
 let finale: Finale | null = null;
-let pendingNextMap: string = '';
 
 // ============================================================
 // Canvas
@@ -163,8 +142,9 @@ function changeResolution(w: number, h: number): void {
   canvas.height = SCREENHEIGHT;
   imageData = ctx.createImageData(SCREENWIDTH, SCREENHEIGHT);
   imageBuffer = new Uint32Array(imageData.data.buffer);
+  AM_SetScreenBuffer(rgbaBuffer, SCREENWIDTH, SCREENHEIGHT);
   fitCanvasToViewport();
-  if (usergame) {
+  if (usergame()) {
     (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
   }
 }
@@ -174,13 +154,13 @@ function changeResolution(w: number, h: number): void {
 // ============================================================
 
 function initMapFresh(mapName: string): void {
-  mapRef = new GameMap(wad, texDataRef, mapName);
+  mapRef = new GameMapImpl(wad, texDataRef, mapName);
   (getRenderer() as SoftwareRenderer).init(mapRef, texDataRef, palData, wad);
 
   if (!player) {
     player = new Player(mapRef);
   } else {
-    (player as any).map = mapRef;
+    player.setMap(mapRef);
   }
 
   initWorld(mapRef, player);
@@ -229,88 +209,15 @@ function initMapFresh(mapName: string): void {
   if (mus !== Music.None) {
     S_ChangeMusic(mus, true);
   }
-}
 
-/** Count pickup items on the map for intermission totalItems */
-function countMapItems(map: GameMap): void {
-  // In original DOOM, COUNTITEM flag is on things like health bonuses,
-  // armor bonuses, soul spheres, mega spheres, invulnerability, etc.
-  // We approximate by counting all pickup thing types
-  const COUNTABLE_ITEMS: Set<number> = new Set([
-    // Health bonuses/pickups
-    2014, 2011, 2012, 2013,
-    // Armor bonuses/pickups
-    2015, 2018, 2019,
-    // Ammo
-    2007, 2048, 2008, 2049, 2010, 2046, 2047, 17,
-    // Backpack
-    8,
-    // Weapons
-    2001, 82, 2002, 2003, 2004, 2006, 2005,
-    // Powerups
-    2023, 2022, 2024, 2025, 2026, 2045,
-    // Keys (not counted in original DOOM, but some modern ports do)
-  ]);
-  for (const thing of map.things) {
-    if (COUNTABLE_ITEMS.has(thing.type)) {
-      addTotalItem();
-    }
-  }
-}
-
-/** Count secret sectors for intermission totalSecrets */
-function countMapSecrets(map: GameMap): void {
-  for (const sector of map.sectors) {
-    if ((sector.special & 0xFF) === 9) { // sector special 9 = secret
-      addTotalSecret();
-    }
-  }
-}
-
-/** Map level name (e.g. "E1M1", "MAP01") to Music enum.
- *  DOOM 1 maps: e1m1..e3m9 → Music.e1m1..Music.e3m9
- *  DOOM 2 maps: MAP01..MAP32 → uses doom2 music table from S_Start in s_sound.c */
-function musicForMap(mapName: string): Music {
-  const upper = mapName.toUpperCase();
-
-  // DOOM 1 style: ExMy
-  const exmy = upper.match(/^E(\d)M(\d)$/);
-  if (exmy) {
-    const ep = parseInt(exmy[1]);
-    const map = parseInt(exmy[2]);
-    if (ep >= 1 && ep <= 3 && map >= 1 && map <= 9) {
-      // Music enum: e1m1=1, e1m2=2, ..., e1m9=9, e2m1=10, ...
-      return (Music.e1m1 + (ep - 1) * 9 + (map - 1)) as Music;
-    }
-  }
-
-  // DOOM 2 style: MAPxx — music rotation from original s_sound.c S_Start
-  const mapxx = upper.match(/^MAP(\d{2})$/);
-  if (mapxx) {
-    const num = parseInt(mapxx[1]);
-    // DOOM 2 music table (from s_sound.c S_StartSong)
-    // Maps 1-32 use music starting from Music.runnin (which = Music.introa + 1)
-    const doom2Music: Music[] = [
-      Music.runnin, Music.stalks, Music.countd, Music.betwee,
-      Music.doom, Music.the_da, Music.shawn, Music.ddtblu,
-      Music.in_cit, Music.dead, Music.stlks2, Music.theda2,
-      Music.doom2, Music.ddtbl2, Music.runni2, Music.dead2,
-      Music.stlks3, Music.romero, Music.shawn2, Music.messag,
-      Music.count2, Music.ddtbl3, Music.ampie, Music.theda3,
-      Music.adrian, Music.messg2, Music.romer2, Music.tense,
-      Music.shawn3, Music.openin, Music.evil, Music.ultima,
-    ];
-    if (num >= 1 && num <= doom2Music.length) {
-      return doom2Music[num - 1];
-    }
-  }
-
-  return Music.None;
+  // Update gameflow references
+  setFlowMap(mapRef);
+  setFlowPlayer(player);
 }
 
 function ensureInput(): void {
   if (!inputInitialized) {
-    initBrowserInput(canvas, () => menuactive);
+    initBrowserInput(canvas, menuactive);
     inputInitialized = true;
   }
 }
@@ -322,265 +229,38 @@ function ensureStatusBar(): void {
 }
 
 // ============================================================
-// G_Ticker — process deferred game actions (like DOOM's g_game.c)
+// GameFlow callbacks — platform-specific operations for game/gameflow.ts
 // ============================================================
 
-function G_Ticker(): void {
-  // Process gameaction
-  while (gameaction !== GameAction.ga_nothing) {
-    switch (gameaction) {
-      case GameAction.ga_newgame:
-        G_DoNewGame();
-        break;
-      case GameAction.ga_loadgame:
-        G_DoLoadGame();
-        break;
-      case GameAction.ga_savegame:
-        G_DoSaveGame();
-        break;
-      case GameAction.ga_warp:
-        G_DoWarp();
-        break;
-      case GameAction.ga_completed:
-        G_DoCompleted();
-        break;
-      default:
-        setGameAction(GameAction.ga_nothing);
-        break;
+const flowCallbacks: GameFlowCallbacks = {
+  loadMap(name: string): void {
+    initMapFresh(name);
+  },
+  ensureInput(): void {
+    ensureInput();
+  },
+  ensureStatusBar(): void {
+    ensureStatusBar();
+  },
+  checkMapExists(name: string): boolean {
+    return wad.checkNumForName(name) !== -1;
+  },
+  startIntermission(wbs, onFinish): void {
+    if (!intermission) {
+      intermission = new Intermission(wad, palData, texDataRef);
     }
-  }
-}
-
-/** G_DoNewGame — start a fresh game */
-function G_DoNewGame(): void {
-  setGameAction(GameAction.ga_nothing);
-
-  // Apply selected skill level
-  setGameSkill(pendingSkill);
-
-  resetLevelStats();
-  const startMap = wad.checkNumForName("MAP01") !== -1 ? "MAP01" : "E1M1";
-  initMapFresh(startMap);
-  player.spawn();
-  ensureInput();
-  ensureStatusBar();
-
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe(); // force wipe transition even if already GS_LEVEL
-
-  console.log(`[main] New game started (skill ${pendingSkill})`);
-}
-
-/** G_DoWarp — warp to a new level (IDCLEV cheat) */
-function G_DoWarp(): void {
-  setGameAction(GameAction.ga_nothing);
-  const mapName = pendingWarpMap;
-  if (!mapName) return;
-
-  // Validate that the map lump exists in the WAD
-  let resolvedMap = mapName;
-  if (wad.checkNumForName(resolvedMap) === -1) {
-    // Try alternate format: E#M# → MAP##, or MAP## → E#M#
-    const eMatch = resolvedMap.match(/^E(\d)M(\d)$/);
-    const mMatch = resolvedMap.match(/^MAP(\d{2})$/);
-    if (eMatch) {
-      const altMap = `MAP${(parseInt(eMatch[1]) * 10 + parseInt(eMatch[2])).toString().padStart(2, '0')}`;
-      if (wad.checkNumForName(altMap) !== -1) {
-        resolvedMap = altMap;
-      }
-    } else if (mMatch) {
-      const num = parseInt(mMatch[1]);
-      const ep = Math.floor(num / 10);
-      const mp = num % 10;
-      if (ep >= 1 && mp >= 1) {
-        const altMap = `E${ep}M${mp}`;
-        if (wad.checkNumForName(altMap) !== -1) {
-          resolvedMap = altMap;
-        }
-      }
+    intermission.start(wbs, onFinish);
+  },
+  startFinale(config, onFinish): void {
+    if (!finale) {
+      finale = new Finale(wad, palData, texDataRef);
     }
-  }
-
-  if (wad.checkNumForName(resolvedMap) === -1) {
-    console.warn(`[G_DoWarp] Map lump not found: ${mapName}`);
-    if (player) {
-      (player as any).message = 'IMPOSSIBLE SELECTION';
-    }
-    return;
-  }
-
-  resetLevelStats();
-  initMapFresh(resolvedMap);
-  player.spawn();
-  resetCheatBuffer();
-  ensureInput();
-  ensureStatusBar();
-
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
-
-  console.log(`[main] Warped to ${mapName} (IDCLEV)`);
-}
-
-/** G_DoCompleted — transition to the intermission screen after a level exit */
-function G_DoCompleted(): void {
-  setGameAction(GameAction.ga_nothing);
-
-  if (!mapRef) return;
-
-  // Finish the player's current level (clears powerups, keys, flash)
-  player.finishLevel();
-
-  // Determine next map
-  const currentName = mapRef.name;
-  const nextMap = getNextMap(currentName, secretExit);
-  pendingNextMap = nextMap;
-
-  console.log(`[main] Level completed: ${currentName} → ${nextMap}${secretExit ? ' (secret)' : ''}`);
-
-  // Build intermission data struct (from wi_stuff.c WI_Start)
-  const cur = parseMapName(currentName);
-  const nxt = parseMapName(nextMap);
-  const wbs: WBStartStruct = {
-    epsd: cur.isCommercial ? 0 : cur.episode - 1,
-    last: cur.isCommercial ? cur.map - 1 : cur.map - 1,
-    next: nxt.isCommercial ? nxt.map - 1 : nxt.map - 1,
-    maxkills: totalKills || 1,
-    maxitems: totalItems || 1,
-    maxsecret: totalSecrets || 1,
-    skills: playerKills,
-    sitems: playerItems,
-    ssecret: playerSecrets,
-    stime: levelTime,
-    partime: 0, // par times are inside Intermission class
-    isCommercial: cur.isCommercial,
-    lastMapName: currentName,
-    nextMapName: nextMap,
-  };
-
-  // Initialize intermission
-  if (!intermission) {
-    intermission = new Intermission(wad, palData, texDataRef);
-  }
-  intermission.start(wbs, () => {
-    // Called when intermission finishes
-    // Check if we should show a finale text screen
-    const finaleConfig = getFinaleConfig(currentName, cur.isCommercial, secretExit);
-    if (finaleConfig) {
-      F_StartFinale(finaleConfig);
-    } else {
-      G_DoWorldDone();
-    }
-  });
-
-  setGameState(GameState.GS_INTERMISSION);
-  forceWipe();
-}
-
-/** F_StartFinale — start the finale text screen */
-function F_StartFinale(config: FinaleConfig): void {
-  if (!finale) {
-    finale = new Finale(wad, palData, texDataRef);
-  }
-  finale.start(config, () => {
-    // Finale finished — for Doom II, load next map. For Doom I, go to title.
-    if (config.isCommercial) {
-      G_DoWorldDone();
-    } else {
-      // Doom I: after episode finale, return to title screen
-      setGameState(GameState.GS_DEMOSCREEN);
-      setUserGame(false);
-      forceWipe();
-    }
-  });
-
-  setGameState(GameState.GS_FINALE);
-  forceWipe();
-}
-
-/** G_DoWorldDone — actually load the next map after intermission */
-function G_DoWorldDone(): void {
-  resetLevelStats();
-  initMapFresh(pendingNextMap);
-  player.respawnAtStart();
-  resetCheatBuffer();
-  ensureInput();
-  ensureStatusBar();
-
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe();
-}
-
-/** G_DoLoadGame — load from slot */
-function G_DoLoadGame(): void {
-  setGameAction(GameAction.ga_nothing);
-
-  const data = loadFromSlot(pendingSaveSlot);
-  if (!data) {
-    if (player) player.message = "No save in this slot.";
-    return;
-  }
-
-  applyLoadedData(data);
-}
-
-/** G_DoSaveGame — save current state */
-function G_DoSaveGame(): void {
-  setGameAction(GameAction.ga_nothing);
-
-  if (!usergame || !player || !mapRef) {
-    console.warn("[main] Cannot save — not in game");
-    return;
-  }
-
-  const slot = pendingSaveSlot;
-  const slotLabel = slot === -1 ? "Quick" : `Slot ${slot}`;
-  const description = `${mapRef.name} ${slotLabel}`;
-  const data = captureGameState(player, mapRef, description);
-  const ok = saveToSlot(slot, data);
-
-  if (ok) {
-    player.message = slot === -1 ? "Quicksave." : `Game saved to slot ${slot}.`;
-  } else {
-    player.message = "Save failed!";
-  }
-}
-
-/** Apply loaded save data */
-function applyLoadedData(data: GameSaveData): void {
-  initMapFresh(data.mapName);
-  ensureInput();
-  ensureStatusBar();
-
-  applyGameState(data, player, mapRef);
-
-  setGameState(GameState.GS_LEVEL);
-  setUserGame(true);
-  forceWipe(); // force wipe transition even if already GS_LEVEL
-  player.message = "Game loaded.";
-  console.log(`[main] Game loaded: ${data.mapName} (${data.description})`);
-}
-
-
-// ============================================================
-// F6 quicksave / F9 quickload helpers
-// ============================================================
-
-import { setPendingSaveSlot } from "../game/gamestate";
-
-function quickSave(): void {
-  if (!usergame || gamestate !== GameState.GS_LEVEL) return;
-  setPendingSaveSlot(-1);
-  setGameAction(GameAction.ga_savegame);
-}
-
-function quickLoad(): void {
-  setPendingSaveSlot(-1);
-  setGameAction(GameAction.ga_loadgame);
-}
+    finale.start(config, onFinish);
+  },
+  getFinaleConfig(mapName, isCommercial, secret) {
+    return getFinaleConfig(mapName, isCommercial, secret);
+  },
+};
 
 // ============================================================
 // Main
@@ -618,19 +298,38 @@ async function main() {
     S_Init(wad, Math.round(getSfxVolume() * 1.5), Math.round(getMusicVolume() * 1.5));
     initClientEffects();
 
+    // Initialize game flow system (delegates G_Ticker actions to platform callbacks)
+    initGameFlow(flowCallbacks);
+
     // Create and register the software renderer
     const renderer = new SoftwareRenderer();
     setRenderer(renderer);
 
     loadingEl.textContent = "Initializing...";
     createCanvas();
+    AM_SetScreenBuffer(rgbaBuffer, SCREENWIDTH, SCREENHEIGHT);
 
     // Resume AudioContext on first user interaction (browser autoplay policy)
-    const resumeAudio = () => { I_ResumeAudioContext(); };
-    document.addEventListener('click', resumeAudio, { once: false });
-    document.addEventListener('keydown', resumeAudio, { once: false });
-    document.addEventListener('pointerdown', resumeAudio, { once: false });
-    document.addEventListener('touchstart', resumeAudio, { once: false });
+    // Use AbortController to remove all listeners after the first successful resume.
+    const resumeAbort = new AbortController();
+    const resumeAudio = () => {
+      I_ResumeAudioContext();
+      resumeAbort.abort();
+    };
+    const resumeOpts = { signal: resumeAbort.signal } as AddEventListenerOptions;
+    document.addEventListener('click', resumeAudio, resumeOpts);
+    document.addEventListener('keydown', resumeAudio, resumeOpts);
+    document.addEventListener('pointerdown', resumeAudio, resumeOpts);
+    document.addEventListener('touchstart', resumeAudio, resumeOpts);
+
+    // Suspend/resume AudioContext when tab visibility changes (saves battery)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        I_SuspendAudioContext();
+      } else {
+        I_ResumeAudioContext();
+      }
+    });
 
     // Initialize touch controls (if applicable)
     initTouchControls();
@@ -693,14 +392,14 @@ async function main() {
           e.preventDefault();
           e.stopPropagation();
           // If menu opened, exit pointer lock
-          if (menuactive && document.pointerLockElement) {
+          if (menuactive() && document.pointerLockElement) {
             document.exitPointerLock();
           }
           return;
         }
 
         // Game input (only when playing and no menu)
-        if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
+        if (gamestate() === GameState.GS_LEVEL && usergame() && !menuactive()) {
           // Feed cheat key buffer (DOOM: ST_Responder)
           feedCheatKey(e.key, player);
 
@@ -748,7 +447,7 @@ async function main() {
         }
 
         // WI_Responder — any key press during intermission accelerates
-        if (gamestate === GameState.GS_INTERMISSION && intermission && !menuactive) {
+        if (gamestate() === GameState.GS_INTERMISSION && intermission && !menuactive()) {
           if (e.code === "Space" || e.code === "Enter" || e.code === "ControlLeft" || e.code === "ControlRight") {
             e.preventDefault();
             intermission.pressAccelerate();
@@ -756,7 +455,7 @@ async function main() {
         }
 
         // F_Responder — any key press during finale
-        if (gamestate === GameState.GS_FINALE && finale && !menuactive) {
+        if (gamestate() === GameState.GS_FINALE && finale && !menuactive()) {
           e.preventDefault();
           finale.pressKey();
         }
@@ -777,7 +476,7 @@ async function main() {
         G_Ticker();
 
         // P_Ticker — game logic (only in GS_LEVEL, paused when menu is open)
-        if (gamestate === GameState.GS_LEVEL && usergame && !menuactive) {
+        if (gamestate() === GameState.GS_LEVEL && usergame() && !menuactive()) {
           // Respawn check (player pressed Use while dead)
           // Full level reset — reload map from scratch (restores all sector
           // heights, doors, lifts, pickups, monsters to initial state)
@@ -815,7 +514,7 @@ async function main() {
         profilerTickEnd();
 
         // WI_Ticker — intermission screen logic
-        if (gamestate === GameState.GS_INTERMISSION && intermission) {
+        if (gamestate() === GameState.GS_INTERMISSION && intermission) {
           if (!isWipeActive()) {
             intermission.tick();
           } else {
@@ -824,7 +523,7 @@ async function main() {
         }
 
         // F_Ticker — finale screen logic
-        if (gamestate === GameState.GS_FINALE && finale) {
+        if (gamestate() === GameState.GS_FINALE && finale) {
           if (!isWipeActive()) {
             finale.tick();
           } else {
@@ -837,11 +536,11 @@ async function main() {
       () => {
         profilerFrameStart();
         // Wipe trigger: if gamestate changed since last draw, start wipe
-        if (gamestate !== wipegamestate && !isWipeActive()) {
+        if (gamestate() !== wipegamestate() && !isWipeActive()) {
           wipeStartCapture();
 
           // Render the new state for the wipe end frame (full pipeline)
-          if (gamestate === GameState.GS_LEVEL && usergame) {
+          if (gamestate() === GameState.GS_LEVEL && usergame()) {
             getRenderer().setView(player.x, player.y, player.viewz, player.angle);
             getRenderer().renderFrame();
             getRenderer().setWeaponInvisible(player.powers[2] > 0);
@@ -850,26 +549,26 @@ async function main() {
             applyScreenTint();
             getRenderer().setLightView(player.x, player.y, player.viewz);
             runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
-          } else if (gamestate === GameState.GS_INTERMISSION && intermission) {
+          } else if (gamestate() === GameState.GS_INTERMISSION && intermission) {
             intermission.draw();
-          } else if (gamestate === GameState.GS_FINALE && finale) {
+          } else if (gamestate() === GameState.GS_FINALE && finale) {
             finale.draw();
           } else {
             menu.drawTitleScreen();
           }
 
           wipeEndCapture();
-          setWipeGameState(gamestate);
+          setWipeGameState(gamestate());
         }
 
         if (isWipeActive()) {
           // Wipe in progress — menu can be drawn on top (like DOOM)
-          if (menuactive) menu.draw();
+          if (menuactive()) menu.draw();
         } else {
           // Normal rendering based on gamestate
-          switch (gamestate) {
+          switch (gamestate()) {
             case GameState.GS_LEVEL:
-              if (usergame) {
+              if (usergame()) {
                 profilerBegin('view');
                 getRenderer().setView(player.x, player.y, player.viewz, player.angle);
                 updatePaletteFlash(player, palData);
@@ -922,7 +621,7 @@ async function main() {
           }
 
           // M_Drawer — menu overlay on top of everything
-          if (menuactive) {
+          if (menuactive()) {
             menu.draw();
           }
         }

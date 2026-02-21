@@ -1,1408 +1,191 @@
 // ============================================================
-// Sector Specials — Doors, Lifts, Floor Movers
-// Reference: p_doors.c, p_plats.c, p_floor.c, p_spec.c, p_switch.c
+// Sector Specials -- Coordinator / Dispatcher
+// Re-exports all domain modules so external consumers
+// don't need to change their imports.
+// Reference: p_spec.c, p_switch.c, p_telept.c
 // ============================================================
 
-import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_BLOCKING } from '../src/map';
-import { FRACBITS, FRACUNIT, fixedMul, fixedDiv } from './math';
-import { Thinker, addThinker, removeThinker } from './thinkers';
-import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
-import { FX_Sound, SoundOrigin } from './effects';
+import type { LineDef } from './map-types';
+import { FRACBITS } from './math';
+import { FX_Sound } from './effects';
 import { Sfx } from './sounds';
-import { spawnTeleportFog } from './vfx';
+import { G_ExitLevel, G_SecretExitLevel } from './mapflow';
 import { evLightTurnOn, evTurnTagLightsOff, evStartLightStrobing } from './lights';
+import { spawnTeleportFog } from './vfx';
 import type { Player } from './player';
-import type { MapObjState } from './mobj';
-import { getMapObjects, damageMobj } from './mobj';
-import { getWorld } from './world';
 
-const PLAYERHEIGHT = 56 << FRACBITS;  // must match player.ts
+// -- Re-export from sector-utils --
+export {
+  initSpecials,
+  initSwitchList,
+  getSectorSpecialData,
+  getActivePlats,
+  clearSpecialsState,
+  linkSectorSpecial,
+  addActivePlat,
+  changeSwitchTexture,
+} from './sector-utils';
 
+// -- Re-export from doors --
+export {
+  DoorType,
+  type DoorThinker,
+  evDoDoor,
+  evVerticalDoor,
+  evDoLockedDoor,
+  restoreDoorThinker,
+} from './doors';
 
+// -- Re-export from platforms --
+export {
+  PlatType,
+  PlatStatus,
+  type PlatThinker,
+  evDoPlat,
+  evStopPlat,
+  restorePlatThinker,
+} from './platforms';
 
-/** Get a sound origin for the center of a sector.
- *  Uses the sector's first line's midpoint as a rough approximation. */
-function sectorSoundOrg(sec: Sector): SoundOrigin {
-  const lines = sectorLines.get(sec);
-  if (lines && lines.length > 0) {
-    const l = lines[0];
-    const v1 = currentMap.vertices[l.v1];
-    const v2 = currentMap.vertices[l.v2];
-    return { x: (v1.x + v2.x) >> 1, y: (v1.y + v2.y) >> 1 };
-  }
-  return { x: 0, y: 0 };
-}
+// -- Re-export from floors --
+export {
+  FloorType,
+  type FloorThinker,
+  evDoFloor,
+  evBuildStairs,
+  evDoDonut,
+  restoreFloorThinker,
+} from './floors';
 
-// ---- Constants (from p_spec.h / p_local.h) ----
-const VDOORSPEED = FRACUNIT * 2;    // Door speed
-const VDOORWAIT = 150;              // Tics to wait at top
-const PLATSPEED = FRACUNIT;         // Platform speed
-const PLATWAIT = 3;                 // Seconds (×35 for tics)
-const FLOORSPEED = FRACUNIT;        // Floor speed
-const MAXINT = 0x7FFFFFFF;
+// -- Re-export from ceilings --
+export {
+  CeilingType,
+  type CeilingThinker,
+  tickCeilingCounter,
+  evDoCeiling,
+  evCeilingCrushStop,
+} from './ceilings';
 
-// ---- Result enum for T_MovePlane ----
-enum MoveResult {
-  ok,
-  crushed,
-  pastdest,
-}
-
-// ---- Door types ----
-export enum DoorType {
-  normal,       // open, wait, close
-  close30ThenOpen,
-  close,
-  open,         // stay open
-  raiseIn5Mins,
-  blazeRaise,
-  blazeOpen,
-  blazeClose,
-}
-
-// ---- Platform types ----
-export enum PlatType {
-  downWaitUpStay,
-  blazeDWUS,
-  raiseAndChange,
-  raiseToNearestAndChange,
-  perpetualRaise,
-}
-
-export enum PlatStatus {
-  up,
-  down,
-  waiting,
-  in_stasis,
-}
+// -- Import for local use in dispatch functions --
+import { changeSwitchTexture, getCurrentMap, findSectorsFromTag } from './sector-utils';
+import { DoorType, evDoDoor, evVerticalDoor, evDoLockedDoor } from './doors';
+import { PlatType, evDoPlat, evStopPlat } from './platforms';
+import { FloorType, evDoFloor, evBuildStairs, evDoDonut } from './floors';
+import { CeilingType, evDoCeiling, evCeilingCrushStop } from './ceilings';
 
 // ===============================================
-// T_MovePlane — moves floor/ceiling of a sector
-// Reference: p_floor.c T_MovePlane
+// TELEPORTERS -- EV_Teleport
+// Reference: p_telept.c
 // ===============================================
 
-/** Check if the player is standing inside a given sector */
-function playerInSector(sector: Sector): boolean {
-  const playerRef = getWorld().player;
-  if (!playerRef || !currentMap) return false;
-  const ss = currentMap.pointInSubsector(playerRef.x, playerRef.y);
-  return ss.sector === sector;
+/**
+ * Teleportable actor -- either a Player or MapObjState.
+ * We duck-type: if it has `viewheight`, it's a Player.
+ */
+export interface TeleportActor {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+  momx: number;
+  momy: number;
+  momz: number;
+  // Player-specific (optional)
+  viewheight?: number;
+  deltaviewheight?: number;
+  viewz?: number;
+  reactiontime?: number;
 }
 
-/** Apply 10 damage to all monsters standing inside the given sector.
- *  Matches original Doom's PIT_ChangeSector crush logic. */
-function crushMonstersInSector(sector: Sector): void {
-  if (!currentMap) return;
-  for (const obj of getMapObjects()) {
-    if (obj.removed || obj.health <= 0) continue;
-    // Check if this mobj is inside the sector
-    const ss = currentMap.pointInSubsector(obj.x, obj.y);
-    if (ss.sector === sector) {
-      damageMobj(obj, 10);
-    }
-  }
-}
-
-function movePlane(
-  sector: Sector,
-  speed: number,
-  dest: number,
-  crush: boolean,
-  floorOrCeiling: number, // 0=floor, 1=ceiling
-  direction: number       // -1=down, 1=up
-): MoveResult {
-  if (floorOrCeiling === 0) {
-    // FLOOR
-    if (direction === -1) {
-      // Floor moving down
-      if (sector.floorHeight - speed < dest) {
-        sector.floorHeight = dest;
-        return MoveResult.pastdest;
-      } else {
-        sector.floorHeight -= speed;
-      }
-    } else {
-      // Floor moving up
-      if (sector.floorHeight + speed > dest) {
-        sector.floorHeight = dest;
-        return MoveResult.pastdest;
-      } else {
-        // Check if floor would crush player against ceiling
-        const newFloor = sector.floorHeight + speed;
-        if (newFloor + PLAYERHEIGHT > sector.ceilingHeight && playerInSector(sector)) {
-          if (!crush) {
-            sector.floorHeight = sector.ceilingHeight - PLAYERHEIGHT;
-            return MoveResult.crushed;
-          }
-        }
-        sector.floorHeight += speed;
-      }
-    }
-  } else {
-    // CEILING
-    if (direction === -1) {
-      // Ceiling moving down
-      const newCeil = sector.ceilingHeight - speed;
-      if (newCeil < dest) {
-        sector.ceilingHeight = dest;
-        return MoveResult.pastdest;
-      } else {
-        // Check if ceiling would crush player against floor
-        if (newCeil < sector.floorHeight + PLAYERHEIGHT && playerInSector(sector)) {
-          if (!crush) {
-            // Don't move — report crush so door can reverse
-            return MoveResult.crushed;
-          }
-          // Crush mode: move anyway (crushing ceilings)
-        }
-        sector.ceilingHeight -= speed;
-      }
-    } else {
-      // Ceiling moving up
-      if (sector.ceilingHeight + speed > dest) {
-        sector.ceilingHeight = dest;
-        return MoveResult.pastdest;
-      } else {
-        sector.ceilingHeight += speed;
-      }
-    }
-  }
-  return MoveResult.ok;
-}
-
-// ===============================================
-// Sector utility functions
-// Reference: p_spec.c
-// ===============================================
-
-/** Find the sector on the other side of a two-sided line */
-function getNextSector(line: LineDef, sec: Sector, map: GameMap): Sector | null {
-  if (!(line.flags & ML_TWOSIDED)) return null;
-  if (line.frontsector === sec) return line.backsector;
-  return line.frontsector;
-}
-
-/** Find lowest ceiling height in surrounding sectors */
-function findLowestCeilingSurrounding(sec: Sector, map: GameMap): number {
-  let height = MAXINT;
-  const lines = sectorLines.get(sec);
-  if (!lines) return height;
-  for (const line of lines) {
-    const other = getNextSector(line, sec, map);
-    if (!other) continue;
-    if (other.ceilingHeight < height) height = other.ceilingHeight;
-  }
-  return height;
-}
-
-/** Find lowest floor height in surrounding sectors */
-function findLowestFloorSurrounding(sec: Sector, map: GameMap): number {
-  let floor = sec.floorHeight;
-  const lines = sectorLines.get(sec);
-  if (!lines) return floor;
-  for (const line of lines) {
-    const other = getNextSector(line, sec, map);
-    if (!other) continue;
-    if (other.floorHeight < floor) floor = other.floorHeight;
-  }
-  return floor;
-}
-
-/** Find highest floor height in surrounding sectors */
-function findHighestFloorSurrounding(sec: Sector, map: GameMap): number {
-  let floor = -500 * FRACUNIT;
-  const lines = sectorLines.get(sec);
-  if (!lines) return floor;
-  for (const line of lines) {
-    const other = getNextSector(line, sec, map);
-    if (!other) continue;
-    if (other.floorHeight > floor) floor = other.floorHeight;
-  }
-  return floor;
-}
-
-/** Find next highest floor in surrounding sectors above currentheight */
-function findNextHighestFloor(sec: Sector, currentheight: number, map: GameMap): number {
-  const heights: number[] = [];
-  const lines = sectorLines.get(sec);
-  if (!lines) return currentheight;
-  for (const line of lines) {
-    const other = getNextSector(line, sec, map);
-    if (!other) continue;
-    if (other.floorHeight > currentheight) {
-      heights.push(other.floorHeight);
-    }
-  }
-  if (heights.length === 0) return currentheight;
-  return Math.min(...heights);
-}
-
-/** Find sectors by tag */
-function findSectorsFromTag(tag: number, map: GameMap): Sector[] {
-  return map.sectors.filter(s => s.tag === tag);
-}
-
-// ===============================================
-// Sector → Lines mapping (built at init)
-// ===============================================
-const sectorLines: Map<Sector, LineDef[]> = new Map();
-const sectorSpecialData: Map<Sector, Thinker> = new Map();
-
-let currentMap: GameMap;
-
-export function initSpecials(): void {
-  currentMap = getWorld().map;
-  sectorLines.clear();
-  sectorSpecialData.clear();
-
-  // Build sector → lines lookup  
-  for (const line of currentMap.linedefs) {
-    if (line.frontsector) {
-      let arr = sectorLines.get(line.frontsector);
-      if (!arr) { arr = []; sectorLines.set(line.frontsector, arr); }
-      arr.push(line);
-    }
-    if (line.backsector && line.backsector !== line.frontsector) {
-      let arr = sectorLines.get(line.backsector);
-      if (!arr) { arr = []; sectorLines.set(line.backsector, arr); }
-      arr.push(line);
-    }
-  }
-}
-
-// ===============================================
-// DOORS — T_VerticalDoor
-// Reference: p_doors.c
-// ===============================================
-export interface DoorThinker extends Thinker {
-  type: DoorType;
-  sector: Sector;
-  topheight: number;  // ceiling height to rise to
-  speed: number;
-  direction: number;  // 1=up, 0=wait, -1=down
-  topwait: number;    // tics to wait at top
-  topcountdown: number;
-}
-
-function doorTick(t: Thinker): void {
-  const door = t as DoorThinker;
-
-  switch (door.direction) {
-    case 0: // WAITING
-      if (--door.topcountdown <= 0) {
-        switch (door.type) {
-          case DoorType.blazeRaise:
-          case DoorType.normal:
-            door.direction = -1; // time to go back down
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
-            break;
-          case DoorType.close30ThenOpen:
-            door.direction = 1;
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
-            break;
-        }
-      }
-      break;
-
-    case 2: // INITIAL WAIT
-      if (--door.topcountdown <= 0) {
-        if (door.type === DoorType.raiseIn5Mins) {
-          door.direction = 1;
-          door.type = DoorType.normal;
-        }
-      }
-      break;
-
-    case -1: { // DOWN
-      const res = movePlane(door.sector, door.speed,
-        door.sector.floorHeight, false, 1, door.direction);
-      if (res === MoveResult.pastdest) {
-        switch (door.type) {
-          case DoorType.blazeRaise:
-          case DoorType.blazeClose:
-          case DoorType.normal:
-          case DoorType.close:
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.dorcls);
-            sectorSpecialData.delete(door.sector);
-            removeThinker(door);
-            break;
-          case DoorType.close30ThenOpen:
-            door.direction = 0;
-            door.topcountdown = 35 * 30;
-            break;
-        }
-      } else if (res === MoveResult.crushed) {
-        switch (door.type) {
-          case DoorType.blazeClose:
-          case DoorType.close:
-            break; // DO NOT GO BACK UP
-          default:
-            door.direction = 1;
-            FX_Sound(sectorSoundOrg(door.sector), Sfx.doropn);
-            break;
-        }
-      }
-      break;
-    }
-
-    case 1: { // UP
-      const res = movePlane(door.sector, door.speed,
-        door.topheight, false, 1, door.direction);
-      if (res === MoveResult.pastdest) {
-        switch (door.type) {
-          case DoorType.blazeRaise:
-          case DoorType.normal:
-            door.direction = 0; // wait at top
-            door.topcountdown = door.topwait;
-            break;
-          case DoorType.close30ThenOpen:
-          case DoorType.blazeOpen:
-          case DoorType.open:
-            sectorSpecialData.delete(door.sector);
-            removeThinker(door);
-            break;
-        }
-      }
-      break;
-    }
-  }
+function isPlayerActor(actor: TeleportActor): boolean {
+  return 'viewheight' in actor && 'deltaviewheight' in actor;
 }
 
 /**
- * EV_DoDoor — open doors by tag
- * Reference: p_doors.c
+ * EV_Teleport -- teleport an actor to a destination thing.
+ * Finds thing type 14 in sectors matching the line's tag.
+ * Reference: p_telept.c EV_Teleport
  */
-export function evDoDoor(line: LineDef, type: DoorType): boolean {
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
+function evTeleport(line: LineDef, side: number, actor: TeleportActor): boolean {
+  // Don't teleport if you're on the back side of the teleporter line
+  // (prevents teleporting back immediately after arriving)
+  if (side === 1) return false;
+  const currentMap = getCurrentMap();
+  if (!currentMap) return false;
 
-  for (const sec of sectors) {
-    if (sectorSpecialData.has(sec)) continue;
+  const tag = line.tag;
+  if (tag === 0) return false;
 
-    rtn = true;
-    const door: DoorThinker = {
-      action: doorTick,
-      removed: false,
-      type,
-      sector: sec,
-      topheight: 0,
-      speed: VDOORSPEED,
-      direction: 0,
-      topwait: VDOORWAIT,
-      topcountdown: 0,
-    };
+  // Find sectors with this tag
+  const sectors = findSectorsFromTag(tag, currentMap);
+  if (sectors.length === 0) return false;
 
-    switch (type) {
-      case DoorType.blazeClose:
-        door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
-        door.direction = -1;
-        door.speed = VDOORSPEED * 4;
-        break;
-      case DoorType.close:
-        door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
-        door.direction = -1;
-        break;
-      case DoorType.close30ThenOpen:
-        door.topheight = sec.ceilingHeight;
-        door.direction = -1;
-        break;
-      case DoorType.blazeRaise:
-      case DoorType.blazeOpen:
-        door.direction = 1;
-        door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
-        door.speed = VDOORSPEED * 4;
-        break;
-      case DoorType.normal:
-      case DoorType.open:
-        door.direction = 1;
-        door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
-        break;
+  // Find a teleport destination thing (type 14) in one of those sectors
+  for (const thing of currentMap.things) {
+    if (thing.type !== 14) continue; // T_TELEPORTMAN = 14
+
+    // Check if this thing is inside one of the tagged sectors
+    const thingX = thing.x << FRACBITS;
+    const thingY = thing.y << FRACBITS;
+    const ss = currentMap.pointInSubsector(thingX, thingY);
+    if (!ss.sector) continue;
+    if (!sectors.includes(ss.sector)) continue;
+
+    // Found destination! Perform teleport.
+    const oldX = actor.x;
+    const oldY = actor.y;
+    const oldZ = actor.z;
+
+    // Destination angle (MapThing.angle is in degrees)
+    const destAngle = ((thing.angle * 0xFFFFFFFF / 360) >>> 0);
+
+    // Spawn fog at OLD position
+    spawnTeleportFog(oldX, oldY, oldZ);
+    FX_Sound({ x: oldX, y: oldY }, Sfx.telept);
+
+    // Move actor to destination
+    const destZ = ss.sector.floorHeight;
+    actor.x = thingX;
+    actor.y = thingY;
+    actor.z = destZ;
+    actor.angle = destAngle;
+
+    // Zero momentum
+    actor.momx = 0;
+    actor.momy = 0;
+    actor.momz = 0;
+
+    // Player-specific: reset view for smooth transition
+    if (isPlayerActor(actor)) {
+      const VIEWHEIGHT = 41 << FRACBITS;
+      actor.viewheight = VIEWHEIGHT;
+      actor.deltaviewheight = 0;
+      actor.viewz = destZ + VIEWHEIGHT;
+      actor.reactiontime = 18; // freeze controls briefly (18 tics)
     }
 
-    FX_Sound(sectorSoundOrg(sec), door.direction === 1 ? Sfx.doropn : Sfx.dorcls);
-    addThinker(door);
-    sectorSpecialData.set(sec, door);
-  }
-  return rtn;
-}
+    // Spawn fog at NEW position (offset slightly in front based on angle)
+    // Original DOOM spawns fog 20 units in front of destination
+    const fineAngle = (destAngle >>> 19) & 0x1FFF;
+    const TELEPORTOFFSET = 20 << FRACBITS;
+    // Use lookup for cos/sin
+    const fogX = thingX + Math.round(TELEPORTOFFSET * Math.cos(fineAngle * Math.PI * 2 / 8192));
+    const fogY = thingY + Math.round(TELEPORTOFFSET * Math.sin(fineAngle * Math.PI * 2 / 8192));
+    spawnTeleportFog(fogX, fogY, destZ);
+    FX_Sound({ x: fogX, y: fogY }, Sfx.telept);
 
-
-/**
- * EV_VerticalDoor — manual door (no tag, uses back sector)
- * Reference: p_doors.c
- */
-function evVerticalDoor(line: LineDef, player: Player | null): void {
-  // Check for locks (DOOM: p_doors.c EV_VerticalDoor)
-  if (player) {
-    switch (line.special) {
-      case 26: // Blue Lock
-      case 32:
-        if (!player.keys[0] && !player.keys[3]) {
-          player.message = 'You need a blue key to open this door';
-          FX_Sound(null, Sfx.oof);
-          return;
-        }
-        break;
-      case 27: // Yellow Lock
-      case 34:
-        if (!player.keys[1] && !player.keys[4]) {
-          player.message = 'You need a yellow key to open this door';
-          FX_Sound(null, Sfx.oof);
-          return;
-        }
-        break;
-      case 28: // Red Lock
-      case 33:
-        if (!player.keys[2] && !player.keys[5]) {
-          player.message = 'You need a red key to open this door';
-          FX_Sound(null, Sfx.oof);
-          return;
-        }
-        break;
-    }
+    return true;
   }
 
-  // Get the back sector (door sector)
-  const sideIdx = line.sidenum[1];
-  if (sideIdx === -1 || sideIdx === 0xFFFF) return;
-
-  const sec = currentMap.sidedefs[sideIdx]?.sector;
-  if (!sec) return;
-
-  // If the sector already has a thinker, toggle direction
-  if (sectorSpecialData.has(sec)) {
-    const existing = sectorSpecialData.get(sec) as DoorThinker;
-    switch (line.special) {
-      case 1: case 26: case 27: case 28: case 117:
-        if (existing.direction === -1) {
-          existing.direction = 1; // go back up
-        } else {
-          existing.direction = -1; // start going down
-        }
-        return;
-    }
-    return;
-  }
-
-  // Create new door
-  const door: DoorThinker = {
-    action: doorTick,
-    removed: false,
-    type: DoorType.normal,
-    sector: sec,
-    topheight: 0,
-    speed: VDOORSPEED,
-    direction: 1,
-    topwait: VDOORWAIT,
-    topcountdown: 0,
-  };
-
-  switch (line.special) {
-    case 1: case 26: case 27: case 28:
-      door.type = DoorType.normal;
-      break;
-    case 31: case 32: case 33: case 34:
-      door.type = DoorType.open;
-      line.special = 0; // one-shot
-      break;
-    case 117:
-      door.type = DoorType.blazeRaise;
-      door.speed = VDOORSPEED * 4;
-      break;
-    case 118:
-      door.type = DoorType.blazeOpen;
-      line.special = 0;
-      door.speed = VDOORSPEED * 4;
-      break;
-  }
-
-  door.topheight = findLowestCeilingSurrounding(sec, currentMap) - 4 * FRACUNIT;
-
-  FX_Sound(sectorSoundOrg(sec), Sfx.doropn);
-  addThinker(door);
-  sectorSpecialData.set(sec, door);
-}
-
-/**
- * EV_DoLockedDoor — open locked doors by tag (switch/button-triggered)
- * Reference: p_doors.c EV_DoLockedDoor
- * Checks key, sets message if locked, then delegates to evDoDoor.
- */
-function evDoLockedDoor(line: LineDef, type: DoorType, player: Player | null): boolean {
-  if (!player) return false;
-
-  switch (line.special) {
-    case 99:  // Blue Lock
-    case 133:
-      if (!player.keys[0] && !player.keys[3]) {
-        player.message = 'You need a blue key to activate this object';
-        FX_Sound(null, Sfx.oof);
-        return false;
-      }
-      break;
-    case 134: // Red Lock
-    case 135:
-      if (!player.keys[2] && !player.keys[5]) {
-        player.message = 'You need a red key to activate this object';
-        FX_Sound(null, Sfx.oof);
-        return false;
-      }
-      break;
-    case 136: // Yellow Lock
-    case 137:
-      if (!player.keys[1] && !player.keys[4]) {
-        player.message = 'You need a yellow key to activate this object';
-        FX_Sound(null, Sfx.oof);
-        return false;
-      }
-      break;
-  }
-
-  return evDoDoor(line, type);
+  return false;
 }
 
 // ===============================================
-// PLATFORMS — T_PlatRaise
-// Reference: p_plats.c
-// ===============================================
-export interface PlatThinker extends Thinker {
-  type: PlatType;
-  sector: Sector;
-  speed: number;
-  low: number;
-  high: number;
-  wait: number;
-  count: number;
-  status: PlatStatus;
-  oldstatus: PlatStatus;
-  crush: boolean;
-  tag: number;
-}
-
-const activePlats: (PlatThinker | null)[] = new Array(30).fill(null);
-
-function platTick(t: Thinker): void {
-  const plat = t as PlatThinker;
-
-  switch (plat.status) {
-    case PlatStatus.up: {
-      const res = movePlane(plat.sector, plat.speed, plat.high, plat.crush, 0, 1);
-      if (res === MoveResult.crushed && !plat.crush) {
-        plat.count = plat.wait;
-        plat.status = PlatStatus.down;
-      } else if (res === MoveResult.pastdest) {
-        plat.count = plat.wait;
-        plat.status = PlatStatus.waiting;
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
-        switch (plat.type) {
-          case PlatType.blazeDWUS:
-          case PlatType.downWaitUpStay:
-          case PlatType.raiseAndChange:
-          case PlatType.raiseToNearestAndChange:
-            removeActivePlat(plat);
-            break;
-        }
-      }
-      break;
-    }
-
-    case PlatStatus.down: {
-      const res = movePlane(plat.sector, plat.speed, plat.low, false, 0, -1);
-      if (res === MoveResult.pastdest) {
-        plat.count = plat.wait;
-        plat.status = PlatStatus.waiting;
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstop);
-      }
-      break;
-    }
-
-    case PlatStatus.waiting:
-      if (--plat.count <= 0) {
-        if (plat.sector.floorHeight === plat.low) {
-          plat.status = PlatStatus.up;
-        } else {
-          plat.status = PlatStatus.down;
-        }
-        FX_Sound(sectorSoundOrg(plat.sector), Sfx.pstart);
-      }
-      break;
-
-    case PlatStatus.in_stasis:
-      break;
-  }
-}
-
-function removeActivePlat(plat: PlatThinker): void {
-  for (let i = 0; i < activePlats.length; i++) {
-    if (activePlats[i] === plat) {
-      sectorSpecialData.delete(plat.sector);
-      removeThinker(plat);
-      activePlats[i] = null;
-      return;
-    }
-  }
-}
-
-/**
- * EV_StopPlat — stop platforms with matching tag.
- * Reference: p_plats.c EV_StopPlat
- */
-function evStopPlat(line: LineDef): void {
-  for (let i = 0; i < activePlats.length; i++) {
-    const plat = activePlats[i];
-    if (plat && plat.tag === line.tag && plat.status !== PlatStatus.in_stasis) {
-      plat.oldstatus = plat.status;
-      plat.status = PlatStatus.in_stasis;
-    }
-  }
-}
-
-/**
- * EV_DoPlat — activate platforms by tag
- * Reference: p_plats.c
- */
-function evDoPlat(line: LineDef, type: PlatType, amount: number): boolean {
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
-
-  for (const sec of sectors) {
-    if (sectorSpecialData.has(sec)) continue;
-
-    rtn = true;
-    const plat: PlatThinker = {
-      action: platTick,
-      removed: false,
-      type,
-      sector: sec,
-      speed: 0,
-      low: 0,
-      high: 0,
-      wait: 0,
-      count: 0,
-      status: PlatStatus.up,
-      oldstatus: PlatStatus.up,
-      crush: false,
-      tag: line.tag,
-    };
-
-    switch (type) {
-      case PlatType.raiseToNearestAndChange:
-        plat.speed = PLATSPEED / 2;
-        plat.high = findNextHighestFloor(sec, sec.floorHeight, currentMap);
-        plat.wait = 0;
-        plat.status = PlatStatus.up;
-        sec.special = 0;
-        break;
-      case PlatType.raiseAndChange:
-        plat.speed = PLATSPEED / 2;
-        plat.high = sec.floorHeight + amount * FRACUNIT;
-        plat.wait = 0;
-        plat.status = PlatStatus.up;
-        break;
-      case PlatType.downWaitUpStay:
-        plat.speed = PLATSPEED * 4;
-        plat.low = findLowestFloorSurrounding(sec, currentMap);
-        if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
-        plat.high = sec.floorHeight;
-        plat.wait = 35 * PLATWAIT;
-        plat.status = PlatStatus.down;
-        break;
-      case PlatType.blazeDWUS:
-        plat.speed = PLATSPEED * 8;
-        plat.low = findLowestFloorSurrounding(sec, currentMap);
-        if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
-        plat.high = sec.floorHeight;
-        plat.wait = 35 * PLATWAIT;
-        plat.status = PlatStatus.down;
-        break;
-      case PlatType.perpetualRaise:
-        plat.speed = PLATSPEED;
-        plat.low = findLowestFloorSurrounding(sec, currentMap);
-        if (plat.low > sec.floorHeight) plat.low = sec.floorHeight;
-        plat.high = findHighestFloorSurrounding(sec, currentMap);
-        if (plat.high < sec.floorHeight) plat.high = sec.floorHeight;
-        plat.wait = 35 * PLATWAIT;
-        plat.status = Math.random() > 0.5 ? PlatStatus.up : PlatStatus.down;
-        break;
-    }
-
-    FX_Sound(sectorSoundOrg(sec), Sfx.pstart);
-    addThinker(plat);
-    sectorSpecialData.set(sec, plat);
-    addActivePlat(plat);
-  }
-  return rtn;
-}
-
-// ===============================================
-// FLOOR MOVERS — T_MoveFloor
-// Reference: p_floor.c
-// ===============================================
-export enum FloorType {
-  lowerFloor,
-  lowerFloorToLowest,
-  turboLower,
-  raiseFloor,
-  raiseFloorToNearest,
-  raiseFloorCrush,
-  raiseFloorTurbo,
-  raiseFloor24,
-  raiseFloor24AndChange,
-  raiseFloor512,
-  raiseToTexture,
-  lowerAndChange,
-}
-
-export interface FloorThinker extends Thinker {
-  type: FloorType;
-  sector: Sector;
-  speed: number;
-  floordestheight: number;
-  crush: boolean;
-  direction: number;
-}
-
-function floorTick(t: Thinker): void {
-  const floor = t as FloorThinker;
-  const res = movePlane(floor.sector, floor.speed,
-    floor.floordestheight, floor.crush, 0, floor.direction);
-
-  if (res === MoveResult.pastdest) {
-    sectorSpecialData.delete(floor.sector);
-    removeThinker(floor);
-  }
-}
-
-/**
- * P_FindShortestTextureAround — finds the shortest wall texture height
- * on two-sided linedefs touching a sector.
- * Reference: p_floor.c P_FindShortestTextureAround
- */
-function findShortestTextureAround(sec: Sector): number {
-  if (!currentMap) return FRACUNIT; // fallback: 1 unit
-
-  let minSize = 0x7FFFFFFF;
-
-  for (const line of currentMap.linedefs) {
-    // Only check two-sided lines that touch this sector
-    if (!(line.frontsector === sec || line.backsector === sec)) continue;
-    if (!line.backsector || !line.frontsector) continue; // one-sided — skip
-
-    // Check both sides
-    for (const sideIdx of line.sidenum) {
-      if (sideIdx < 0) continue;
-      const side = currentMap.sidedefs[sideIdx];
-      if (!side) continue;
-
-      // Check top, bottom, mid textures — skip index 0 ("no texture")
-      for (const texIdx of [side.topTexture, side.bottomTexture, side.midTexture]) {
-        if (texIdx > 0) {
-          const h = _textureHeight(texIdx);
-          if (h > 0 && h < minSize) {
-            minSize = h;
-          }
-        }
-      }
-    }
-  }
-
-  // Convert to fixed-point, or return FRACUNIT if nothing found
-  return minSize !== 0x7FFFFFFF ? minSize * FRACUNIT : FRACUNIT;
-}
-
-export function evDoFloor(line: LineDef, floortype: FloorType): boolean {
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
-
-  for (const sec of sectors) {
-    if (sectorSpecialData.has(sec)) continue;
-
-    rtn = true;
-    const floor: FloorThinker = {
-      action: floorTick,
-      removed: false,
-      type: floortype,
-      sector: sec,
-      speed: FLOORSPEED,
-      floordestheight: 0,
-      crush: false,
-      direction: 0,
-    };
-
-    switch (floortype) {
-      case FloorType.lowerFloor:
-        floor.direction = -1;
-        floor.floordestheight = findHighestFloorSurrounding(sec, currentMap);
-        break;
-      case FloorType.lowerFloorToLowest:
-        floor.direction = -1;
-        floor.floordestheight = findLowestFloorSurrounding(sec, currentMap);
-        break;
-      case FloorType.turboLower:
-        floor.direction = -1;
-        floor.speed = FLOORSPEED * 4;
-        floor.floordestheight = findHighestFloorSurrounding(sec, currentMap);
-        if (floor.floordestheight !== sec.floorHeight) {
-          floor.floordestheight += 8 * FRACUNIT;
-        }
-        break;
-      case FloorType.raiseFloorCrush:
-        floor.crush = true;
-        floor.direction = 1;
-        floor.floordestheight = findLowestCeilingSurrounding(sec, currentMap);
-        if (floor.floordestheight > sec.ceilingHeight) {
-          floor.floordestheight = sec.ceilingHeight;
-        }
-        floor.floordestheight -= 8 * FRACUNIT;
-        break;
-      case FloorType.raiseFloor:
-        floor.direction = 1;
-        floor.floordestheight = findLowestCeilingSurrounding(sec, currentMap);
-        if (floor.floordestheight > sec.ceilingHeight) {
-          floor.floordestheight = sec.ceilingHeight;
-        }
-        break;
-      case FloorType.raiseFloorTurbo:
-        floor.direction = 1;
-        floor.speed = FLOORSPEED * 4;
-        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, currentMap);
-        break;
-      case FloorType.raiseFloorToNearest:
-        floor.direction = 1;
-        floor.floordestheight = findNextHighestFloor(sec, sec.floorHeight, currentMap);
-        break;
-      case FloorType.raiseFloor24:
-        floor.direction = 1;
-        floor.floordestheight = sec.floorHeight + 24 * FRACUNIT;
-        break;
-      case FloorType.raiseFloor24AndChange:
-        floor.direction = 1;
-        floor.floordestheight = sec.floorHeight + 24 * FRACUNIT;
-        break;
-      case FloorType.raiseToTexture:
-        floor.direction = 1;
-        floor.floordestheight = sec.floorHeight + findShortestTextureAround(sec);
-        break;
-      case FloorType.raiseFloor512:
-        floor.direction = 1;
-        floor.floordestheight = sec.floorHeight + 512 * FRACUNIT;
-        break;
-    }
-
-    addThinker(floor);
-    sectorSpecialData.set(sec, floor);
-  }
-  return rtn;
-}
-
-// ===============================================
-// STAIR BUILDING — EV_BuildStairs
-// Reference: p_floor.c EV_BuildStairs
-// ===============================================
-
-const STAIRSPEED = FLOORSPEED;       // Normal stair speed
-const TURBOSTAIRSPEED = FLOORSPEED * 4; // Turbo stair speed
-
-/**
- * EV_BuildStairs — build stairs from tagged sectors.
- * Finds sectors by tag, then cascades through neighbors with matching
- * floor texture, raising each sector by stepSize more than the previous.
- * Reference: p_floor.c EV_BuildStairs
- */
-function evBuildStairs(line: LineDef, turbo: boolean): boolean {
-  const stepSize = turbo ? (16 << FRACBITS) : (8 << FRACBITS);
-  const speed = turbo ? TURBOSTAIRSPEED : STAIRSPEED;
-
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
-
-  for (const sec of sectors) {
-    if (sectorSpecialData.has(sec)) continue;
-
-    rtn = true;
-    let height = sec.floorHeight + stepSize;
-    const stairFloorPic = sec.floorPic;
-
-    // Create floor mover for the first sector
-    const firstFloor: FloorThinker = {
-      action: floorTick,
-      removed: false,
-      type: FloorType.raiseFloor,
-      sector: sec,
-      speed,
-      floordestheight: height,
-      crush: false,
-      direction: 1,
-    };
-    addThinker(firstFloor);
-    sectorSpecialData.set(sec, firstFloor);
-
-    // Cascade through neighboring sectors with same floor texture
-    let prevSec = sec;
-    let ok = true;
-    while (ok) {
-      ok = false;
-      const lines = sectorLines.get(prevSec);
-      if (!lines) break;
-
-      for (const sline of lines) {
-        // Must be two-sided
-        if (!(sline.flags & ML_TWOSIDED)) continue;
-
-        // Get the sector on the other side
-        const nextSec = sline.frontsector === prevSec
-          ? sline.backsector
-          : (sline.backsector === prevSec ? sline.frontsector : null);
-        if (!nextSec) continue;
-
-        // Must have the same floor texture
-        if (nextSec.floorPic !== stairFloorPic) continue;
-
-        // Already has a thinker — skip
-        if (sectorSpecialData.has(nextSec)) continue;
-
-        // Found next stair sector
-        height += stepSize;
-        const nextFloor: FloorThinker = {
-          action: floorTick,
-          removed: false,
-          type: FloorType.raiseFloor,
-          sector: nextSec,
-          speed,
-          floordestheight: height,
-          crush: false,
-          direction: 1,
-        };
-        addThinker(nextFloor);
-        sectorSpecialData.set(nextSec, nextFloor);
-
-        prevSec = nextSec;
-        ok = true;
-        break; // restart search from the new sector
-      }
-    }
-  }
-
-  return rtn;
-}
-
-// ===============================================
-// CRUSHING CEILINGS — T_MoveCeiling
-// Reference: p_ceilng.c
-// ===============================================
-
-const CEILSPEED = FRACUNIT;       // Normal ceiling speed
-const MAXCEILINGS = 30;
-
-export enum CeilingType {
-  lowerToFloor,
-  raiseToHighest,
-  lowerAndCrush,
-  crushAndRaise,
-  fastCrushAndRaise,
-  silentCrushAndRaise,
-}
-
-export interface CeilingThinker extends Thinker {
-  type: CeilingType;
-  sector: Sector;
-  bottomheight: number;
-  topheight: number;
-  speed: number;
-  crush: boolean;
-  direction: number;    // -1=down, 0=stasis, 1=up
-  olddirection: number; // saved direction when in stasis
-  tag: number;
-}
-
-const activeCeilings: (CeilingThinker | null)[] = new Array(MAXCEILINGS).fill(null);
-
-/** Find highest ceiling height in surrounding sectors */
-function findHighestCeilingSurrounding(sec: Sector, map: GameMap): number {
-  let height = 0;
-  const lines = sectorLines.get(sec);
-  if (!lines) return height;
-  for (const line of lines) {
-    const other = getNextSector(line, sec, map);
-    if (!other) continue;
-    if (other.ceilingHeight > height) height = other.ceilingHeight;
-  }
-  return height;
-}
-
-/** Track tick count for sound timing (ceiling movement sounds every 8 tics) */
-let ceilingTick_counter = 0;
-export function tickCeilingCounter(): void { ceilingTick_counter++; }
-
-function ceilingTick(t: Thinker): void {
-  const ceiling = t as CeilingThinker;
-
-  switch (ceiling.direction) {
-    case 0: // IN STASIS
-      break;
-
-    case 1: { // UP
-      const res = movePlane(ceiling.sector, ceiling.speed,
-        ceiling.topheight, false, 1, ceiling.direction);
-
-      // Play movement sound every 8 tics (not for silent type)
-      if (!(ceilingTick_counter & 7)) {
-        if (ceiling.type !== CeilingType.silentCrushAndRaise) {
-          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
-        }
-      }
-
-      if (res === MoveResult.pastdest) {
-        if (ceiling.type === CeilingType.raiseToHighest) {
-          removeActiveCeiling(ceiling);
-        } else if (ceiling.type === CeilingType.silentCrushAndRaise) {
-          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
-          ceiling.direction = -1;
-        } else if (ceiling.type === CeilingType.fastCrushAndRaise ||
-          ceiling.type === CeilingType.crushAndRaise) {
-          ceiling.direction = -1;
-        }
-      }
-      break;
-    }
-
-    case -1: { // DOWN
-      const res = movePlane(ceiling.sector, ceiling.speed,
-        ceiling.bottomheight, ceiling.crush, 1, ceiling.direction);
-
-      // Play movement sound every 8 tics (not for silent type)
-      if (!(ceilingTick_counter & 7)) {
-        if (ceiling.type !== CeilingType.silentCrushAndRaise) {
-          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.stnmov);
-        }
-      }
-
-      if (res === MoveResult.pastdest) {
-        if (ceiling.type === CeilingType.silentCrushAndRaise) {
-          FX_Sound(sectorSoundOrg(ceiling.sector), Sfx.pstop);
-          ceiling.speed = CEILSPEED;
-          ceiling.direction = 1;
-        } else if (ceiling.type === CeilingType.crushAndRaise) {
-          ceiling.speed = CEILSPEED;
-          ceiling.direction = 1;
-        } else if (ceiling.type === CeilingType.fastCrushAndRaise) {
-          ceiling.direction = 1;
-        } else if (ceiling.type === CeilingType.lowerAndCrush ||
-          ceiling.type === CeilingType.lowerToFloor) {
-          removeActiveCeiling(ceiling);
-        }
-      } else if (res === MoveResult.crushed) {
-        // Slow down when actively crushing something
-        switch (ceiling.type) {
-          case CeilingType.silentCrushAndRaise:
-          case CeilingType.crushAndRaise:
-          case CeilingType.lowerAndCrush:
-            ceiling.speed = CEILSPEED >> 3; // CEILSPEED / 8
-            break;
-          default:
-            break;
-        }
-
-        // Apply crush damage (10 hp per tick, from p_map.c PIT_ChangeSector)
-        const playerRef = getWorld().player;
-        if (playerRef && playerInSector(ceiling.sector)) {
-          playerRef.takeDamage(10);
-        }
-        // Also damage monsters in the sector
-        crushMonstersInSector(ceiling.sector);
-      }
-      break;
-    }
-  }
-}
-
-function addActiveCeiling(ceiling: CeilingThinker): void {
-  for (let i = 0; i < MAXCEILINGS; i++) {
-    if (activeCeilings[i] === null) {
-      activeCeilings[i] = ceiling;
-      return;
-    }
-  }
-}
-
-function removeActiveCeiling(ceiling: CeilingThinker): void {
-  for (let i = 0; i < MAXCEILINGS; i++) {
-    if (activeCeilings[i] === ceiling) {
-      sectorSpecialData.delete(ceiling.sector);
-      removeThinker(ceiling);
-      activeCeilings[i] = null;
-      return;
-    }
-  }
-}
-
-/** Reactivate ceilings that were put in stasis (for same tag) */
-function activateInStasisCeiling(line: LineDef): void {
-  for (let i = 0; i < MAXCEILINGS; i++) {
-    const c = activeCeilings[i];
-    if (c && c.tag === line.tag && c.direction === 0) {
-      c.direction = c.olddirection;
-      // Re-enable the thinker action
-      c.action = ceilingTick;
-    }
-  }
-}
-
-/**
- * EV_DoCeiling — move a ceiling up/down.
- * Reference: p_ceilng.c EV_DoCeiling
- */
-function evDoCeiling(line: LineDef, type: CeilingType): boolean {
-  // Reactivate in-stasis ceilings for crush types
-  switch (type) {
-    case CeilingType.fastCrushAndRaise:
-    case CeilingType.silentCrushAndRaise:
-    case CeilingType.crushAndRaise:
-      activateInStasisCeiling(line);
-      break;
-    default:
-      break;
-  }
-
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
-
-  for (const sec of sectors) {
-    if (sectorSpecialData.has(sec)) continue;
-
-    rtn = true;
-    const ceiling: CeilingThinker = {
-      action: ceilingTick,
-      removed: false,
-      type,
-      sector: sec,
-      bottomheight: 0,
-      topheight: 0,
-      speed: CEILSPEED,
-      crush: false,
-      direction: 0,
-      olddirection: 0,
-      tag: sec.tag,
-    };
-
-    switch (type) {
-      case CeilingType.fastCrushAndRaise:
-        ceiling.crush = true;
-        ceiling.topheight = sec.ceilingHeight;
-        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
-        ceiling.direction = -1;
-        ceiling.speed = CEILSPEED * 2;
-        break;
-      case CeilingType.silentCrushAndRaise:
-      case CeilingType.crushAndRaise:
-        ceiling.crush = true;
-        ceiling.topheight = sec.ceilingHeight;
-        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
-        ceiling.direction = -1;
-        ceiling.speed = CEILSPEED;
-        break;
-      case CeilingType.lowerAndCrush:
-        ceiling.bottomheight = sec.floorHeight + (8 << FRACBITS);
-        ceiling.direction = -1;
-        ceiling.speed = CEILSPEED;
-        break;
-      case CeilingType.lowerToFloor:
-        ceiling.bottomheight = sec.floorHeight;
-        ceiling.direction = -1;
-        ceiling.speed = CEILSPEED;
-        break;
-      case CeilingType.raiseToHighest:
-        ceiling.topheight = findHighestCeilingSurrounding(sec, currentMap);
-        ceiling.direction = 1;
-        ceiling.speed = CEILSPEED;
-        break;
-    }
-
-    addThinker(ceiling);
-    sectorSpecialData.set(sec, ceiling);
-    addActiveCeiling(ceiling);
-  }
-
-  return rtn;
-}
-
-/**
- * EV_CeilingCrushStop — stop a ceiling from crushing.
- * Reference: p_ceilng.c EV_CeilingCrushStop
- */
-function evCeilingCrushStop(line: LineDef): boolean {
-  let rtn = false;
-  for (let i = 0; i < MAXCEILINGS; i++) {
-    const c = activeCeilings[i];
-    if (c && c.tag === line.tag && c.direction !== 0) {
-      c.olddirection = c.direction;
-      c.direction = 0; // in stasis
-      rtn = true;
-    }
-  }
-  return rtn;
-}
-
-// ===============================================
-// Switch texture toggling
-// Reference: p_switch.c
-// ===============================================
-const SWITCH_PAIRS: [string, string][] = [
-  ['SW1BRCOM', 'SW2BRCOM'], ['SW1BRN1', 'SW2BRN1'],
-  ['SW1BRN2', 'SW2BRN2'], ['SW1BRNGN', 'SW2BRNGN'],
-  ['SW1BROWN', 'SW2BROWN'], ['SW1COMM', 'SW2COMM'],
-  ['SW1COMP', 'SW2COMP'], ['SW1DIRT', 'SW2DIRT'],
-  ['SW1EXIT', 'SW2EXIT'], ['SW1GRAY', 'SW2GRAY'],
-  ['SW1GRAY1', 'SW2GRAY1'], ['SW1METAL', 'SW2METAL'],
-  ['SW1PIPE', 'SW2PIPE'], ['SW1SLAD', 'SW2SLAD'],
-  ['SW1STARG', 'SW2STARG'], ['SW1STON1', 'SW2STON1'],
-  ['SW1STON2', 'SW2STON2'], ['SW1STONE', 'SW2STONE'],
-  ['SW1STRTN', 'SW2STRTN'],
-  // Registered episodes 2&3
-  ['SW1BLUE', 'SW2BLUE'], ['SW1CMT', 'SW2CMT'],
-  ['SW1GARG', 'SW2GARG'], ['SW1GSTON', 'SW2GSTON'],
-  ['SW1HOT', 'SW2HOT'], ['SW1LION', 'SW2LION'],
-  ['SW1SATYR', 'SW2SATYR'], ['SW1SKIN', 'SW2SKIN'],
-  ['SW1VINE', 'SW2VINE'], ['SW1WOOD', 'SW2WOOD'],
-  // DOOM II switches
-  ['SW1PANEL', 'SW2PANEL'], ['SW1ROCK', 'SW2ROCK'],
-  ['SW1MET2', 'SW2MET2'], ['SW1WDMET', 'SW2WDMET'],
-  ['SW1BRIK', 'SW2BRIK'], ['SW1MOD1', 'SW2MOD1'],
-  ['SW1ZIM', 'SW2ZIM'], ['SW1STON6', 'SW2STON6'],
-  ['SW1TEK', 'SW2TEK'], ['SW1MARB', 'SW2MARB'],
-  ['SW1SKULL', 'SW2SKULL'],
-];
-
-// Map: texture index → its partner texture index
-const switchMap: Map<number, number> = new Map();
-let switchesInitialized = false;
-
-// Platform-independent texture callbacks (injected at init)
-type TextureNameLookup = (name: string) => number;
-type TextureHeightLookup = (texIdx: number) => number;
-let _textureHeight: TextureHeightLookup = () => FRACUNIT; // fallback
-
-export function initSwitchList(
-  textureNumForName: TextureNameLookup,
-  textureHeight?: TextureHeightLookup,
-): void {
-  if (textureHeight) _textureHeight = textureHeight;
-  switchMap.clear();
-  for (const [name1, name2] of SWITCH_PAIRS) {
-    const idx1 = textureNumForName(name1);
-    const idx2 = textureNumForName(name2);
-    // Skip if either texture is missing (-1) or is the no-texture sentinel (0)
-    if (idx1 > 0 && idx2 > 0) {
-      switchMap.set(idx1, idx2);
-      switchMap.set(idx2, idx1);
-    }
-  }
-  switchesInitialized = true;
-}
-
-function changeSwitchTexture(line: LineDef, useAgain: boolean): void {
-  if (!useAgain) line.special = 0;
-
-  const side = currentMap.sidedefs[line.sidenum[0]];
-  if (!side) return;
-
-  // Check top, mid, bottom textures
-  for (const prop of ['topTexture', 'midTexture', 'bottomTexture'] as const) {
-    const tex = side[prop];
-    if (tex === 0) continue; // 0 = no texture
-    const partner = switchMap.get(tex);
-    if (partner !== undefined) {
-      // Switch sound: swtchn for turning on (SW1→SW2), swtchx for turning off (SW2→SW1)
-      FX_Sound(null, useAgain ? Sfx.swtchn : Sfx.swtchx);
-      (side as any)[prop] = partner;
-      return;
-    }
-  }
-}
-
-// ===============================================
-// EV_DoDonut — Donut sector effect (linedef special 9)
-// Reference: p_spec.c EV_DoDonut
-//
-// The donut geometry is three concentric regions:
-//   outer → ring → hole
-// The hole is the tagged sector. Effect:
-//   1) Raise hole floor to ring's floor height + copy ring's floor texture
-//   2) Lower ring floor to outer sector's floor height
-// ===============================================
-const DONUT_SPEED = FLOORSPEED / 2; // DOOM uses FLOORSPEED/2 for donuts
-function evDoDonut(line: LineDef): boolean {
-  let rtn = false;
-  const sectors = findSectorsFromTag(line.tag, currentMap);
-
-  for (const hole of sectors) {
-    if (sectorSpecialData.has(hole)) continue;
-
-    // Find the ring sector: first two-sided line's other sector
-    const holeLines = sectorLines.get(hole);
-    if (!holeLines) continue;
-
-    let ring: Sector | null = null;
-    for (const hl of holeLines) {
-      ring = getNextSector(hl, hole, currentMap);
-      if (ring) break;
-    }
-    if (!ring) continue;
-    if (sectorSpecialData.has(ring)) continue;
-
-    // Find the outer sector: first two-sided line of the ring that leads
-    // to a sector OTHER than the hole
-    const ringLines = sectorLines.get(ring);
-    if (!ringLines) continue;
-
-    let outer: Sector | null = null;
-    for (const rl of ringLines) {
-      const s = getNextSector(rl, ring, currentMap);
-      if (s && s !== hole) { outer = s; break; }
-    }
-    if (!outer) continue;
-
-    rtn = true;
-
-    // 1) Raise hole floor to ring's floor height, change texture
-    const raiseFloor: FloorThinker = {
-      action: floorTick,
-      removed: false,
-      type: FloorType.raiseFloor,
-      sector: hole,
-      speed: DONUT_SPEED,
-      floordestheight: ring.floorHeight,
-      crush: false,
-      direction: 1,
-    };
-    addThinker(raiseFloor);
-    sectorSpecialData.set(hole, raiseFloor);
-    // Copy ring floor texture to hole
-    hole.floorPic = ring.floorPic;
-
-    // 2) Lower ring floor to outer sector's floor height
-    const lowerFloor: FloorThinker = {
-      action: floorTick,
-      removed: false,
-      type: FloorType.lowerFloor,
-      sector: ring,
-      speed: DONUT_SPEED,
-      floordestheight: outer.floorHeight,
-      crush: false,
-      direction: -1,
-    };
-    addThinker(lowerFloor);
-    sectorSpecialData.set(ring, lowerFloor);
-  }
-
-  return rtn;
-}
-
-// ===============================================
-// P_UseSpecialLine — main dispatch
+// P_UseSpecialLine -- main dispatch
 // Reference: p_switch.c P_UseSpecialLine
 // ===============================================
 export function useSpecialLine(line: LineDef, player: Player | null): boolean {
+  const currentMap = getCurrentMap();
+
   switch (line.special) {
     // MANUALS (doors you press Use on)
     case 1:   // Vertical Door (raise)
@@ -1632,8 +415,8 @@ export function useSpecialLine(line: LineDef, player: Player | null): boolean {
 }
 
 /**
- * P_UseSpecialLine for monsters — only manual doors (special 1).
- * Reference: p_spec.c — monsters can only activate type 1 doors.
+ * P_UseSpecialLine for monsters -- only manual doors (special 1).
+ * Reference: p_spec.c -- monsters can only activate type 1 doors.
  */
 export function monsterUseSpecialLine(line: LineDef): boolean {
   if (line.special === 1) {
@@ -1643,119 +426,15 @@ export function monsterUseSpecialLine(line: LineDef): boolean {
   return false;
 }
 
-// ===============================================
-// TELEPORTERS — EV_Teleport
-// Reference: p_telept.c
-// ===============================================
-
 /**
- * Teleportable actor — either a Player or MapObjState.
- * We duck-type: if it has `viewheight`, it's a Player.
- */
-export interface TeleportActor {
-  x: number;
-  y: number;
-  z: number;
-  angle: number;
-  momx: number;
-  momy: number;
-  momz: number;
-  // Player-specific (optional)
-  viewheight?: number;
-  deltaviewheight?: number;
-  viewz?: number;
-  reactiontime?: number;
-}
-
-function isPlayerActor(actor: TeleportActor): boolean {
-  return 'viewheight' in actor && 'deltaviewheight' in actor;
-}
-
-/**
- * EV_Teleport — teleport an actor to a destination thing.
- * Finds thing type 14 in sectors matching the line's tag.
- * Reference: p_telept.c EV_Teleport
- */
-function evTeleport(line: LineDef, side: number, actor: TeleportActor): boolean {
-  // Don't teleport if you're on the back side of the teleporter line
-  // (prevents teleporting back immediately after arriving)
-  if (side === 1) return false;
-  if (!currentMap) return false;
-
-  const tag = line.tag;
-  if (tag === 0) return false;
-
-  // Find sectors with this tag
-  const sectors = findSectorsFromTag(tag, currentMap);
-  if (sectors.length === 0) return false;
-
-  // Find a teleport destination thing (type 14) in one of those sectors
-  for (const thing of currentMap.things) {
-    if (thing.type !== 14) continue; // T_TELEPORTMAN = 14
-
-    // Check if this thing is inside one of the tagged sectors
-    const thingX = thing.x << FRACBITS;
-    const thingY = thing.y << FRACBITS;
-    const ss = currentMap.pointInSubsector(thingX, thingY);
-    if (!ss.sector) continue;
-    if (!sectors.includes(ss.sector)) continue;
-
-    // Found destination! Perform teleport.
-    const oldX = actor.x;
-    const oldY = actor.y;
-    const oldZ = actor.z;
-
-    // Destination angle (MapThing.angle is in degrees)
-    const destAngle = ((thing.angle * 0xFFFFFFFF / 360) >>> 0);
-
-    // Spawn fog at OLD position
-    spawnTeleportFog(oldX, oldY, oldZ);
-    FX_Sound({ x: oldX, y: oldY }, Sfx.telept);
-
-    // Move actor to destination
-    const destZ = ss.sector.floorHeight;
-    actor.x = thingX;
-    actor.y = thingY;
-    actor.z = destZ;
-    actor.angle = destAngle;
-
-    // Zero momentum
-    actor.momx = 0;
-    actor.momy = 0;
-    actor.momz = 0;
-
-    // Player-specific: reset view for smooth transition
-    if (isPlayerActor(actor)) {
-      const VIEWHEIGHT = 41 << FRACBITS;
-      actor.viewheight = VIEWHEIGHT;
-      actor.deltaviewheight = 0;
-      actor.viewz = destZ + VIEWHEIGHT;
-      actor.reactiontime = 18; // freeze controls briefly (18 tics)
-    }
-
-    // Spawn fog at NEW position (offset slightly in front based on angle)
-    // Original DOOM spawns fog 20 units in front of destination
-    const fineAngle = (destAngle >>> 19) & 0x1FFF;
-    const TELEPORTOFFSET = 20 << FRACBITS;
-    // Use lookup for cos/sin
-    const fogX = thingX + Math.round(TELEPORTOFFSET * Math.cos(fineAngle * Math.PI * 2 / 8192));
-    const fogY = thingY + Math.round(TELEPORTOFFSET * Math.sin(fineAngle * Math.PI * 2 / 8192));
-    spawnTeleportFog(fogX, fogY, destZ);
-    FX_Sound({ x: fogX, y: fogY }, Sfx.telept);
-
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * P_CrossSpecialLine — triggered when player/monster crosses a line 
+ * P_CrossSpecialLine -- triggered when player/monster crosses a line
  * Reference: p_spec.c P_CrossSpecialLine
  */
 export function crossSpecialLine(line: LineDef, side: number = 0, actor?: TeleportActor): void {
+  const currentMap = getCurrentMap();
+
   // Monster filter: in original DOOM (p_spec.c), monsters can only trigger
-  // walk-over doors, lifts/platforms, and teleports — NOT exits, floors, ceilings, etc.
+  // walk-over doors, lifts/platforms, and teleports -- NOT exits, floors, ceilings, etc.
   if (actor && !isPlayerActor(actor)) {
     switch (line.special) {
       // Doors: W1 / WR
@@ -1766,7 +445,7 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       case 87: case 88: case 95:                                       // WR lifts
       // Teleporters
       case 39: case 97: case 125: case 126:
-        break; // allowed — continue to the switch below
+        break; // allowed -- continue to the switch below
       default:
         return; // all other specials are player-only
     }
@@ -1853,7 +532,7 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       G_SecretExitLevel();
       line.special = 0;
       break;
-    case 12: // W1 Light Turn On — brightest near
+    case 12: // W1 Light Turn On -- brightest near
       evLightTurnOn(line.tag, 0, currentMap);
       line.special = 0;
       break;
@@ -1969,14 +648,11 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
       evDoPlat(line, PlatType.raiseToNearestAndChange, 0);
       break;
     case 96: // Raise floor to nearest (retrigger)
-      // Short texture raise — simplify to raise floor
+      // Short texture raise -- simplify to raise floor
       evDoFloor(line, FloorType.raiseFloor24);
       break;
     case 98: // Lower floor turbo (retrigger)
       evDoFloor(line, FloorType.turboLower);
-      break;
-    case 96: // WR Raise Floor To Texture
-      evDoFloor(line, FloorType.raiseToTexture);
       break;
     case 82: // WR Lower Floor To Lowest
       evDoFloor(line, FloorType.lowerFloorToLowest);
@@ -2011,7 +687,7 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
     case 79: // WR Lights Very Dark (35)
       evLightTurnOn(line.tag, 35, currentMap);
       break;
-    case 80: // WR Light Turn On — brightest near
+    case 80: // WR Light Turn On -- brightest near
       evLightTurnOn(line.tag, 0, currentMap);
       break;
     case 81: // WR Light Turn On 255
@@ -2041,14 +717,14 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
         evTeleport(line, side, actor);
       }
       break;
-    case 125: // W1 Teleport — monsters only
+    case 125: // W1 Teleport -- monsters only
       if (actor && !isPlayerActor(actor)) {
         if (evTeleport(line, side, actor)) {
           line.special = 0;
         }
       }
       break;
-    case 126: // WR Teleport — monsters only (retrigger)
+    case 126: // WR Teleport -- monsters only (retrigger)
       if (actor && !isPlayerActor(actor)) {
         evTeleport(line, side, actor);
       }
@@ -2057,7 +733,7 @@ export function crossSpecialLine(line: LineDef, side: number = 0, actor?: Telepo
 }
 
 /**
- * P_ShootSpecialLine — IMPACT SPECIALS
+ * P_ShootSpecialLine -- IMPACT SPECIALS
  * Called when a projectile or bullet hits a linedef with a special.
  * Only 3 cases exist in original DOOM.
  * Reference: p_spec.c P_ShootSpecialLine
@@ -2077,90 +753,4 @@ export function shootSpecialLine(line: LineDef): void {
         changeSwitchTexture(line, false);
       break;
   }
-}
-
-// ===========================================================
-// Save/Load helpers
-// ===========================================================
-
-/** Get the sectorSpecialData map (for save) */
-export function getSectorSpecialData(): Map<Sector, Thinker> {
-  return sectorSpecialData;
-}
-
-/** Get activePlats array (for save) */
-export function getActivePlats(): (PlatThinker | null)[] {
-  return activePlats;
-}
-
-/** Clear sectorSpecialData and activePlats (for load — before restoring) */
-export function clearSpecialsState(): void {
-  sectorSpecialData.clear();
-  activePlats.fill(null);
-}
-
-/** Link a thinker to a sector (for load restore) */
-export function linkSectorSpecial(sector: Sector, thinker: Thinker): void {
-  sectorSpecialData.set(sector, thinker);
-}
-
-/** Add a platform to activePlats (for load restore) */
-export function addActivePlat(plat: PlatThinker): void {
-  for (let i = 0; i < activePlats.length; i++) {
-    if (activePlats[i] === null) {
-      activePlats[i] = plat;
-      return;
-    }
-  }
-}
-
-/**
- * Create and register a DoorThinker from saved data (for load).
- * Returns the thinker so the caller can link it.
- */
-export function restoreDoorThinker(
-  sector: Sector, type: DoorType, topheight: number, speed: number,
-  direction: number, topwait: number, topcountdown: number
-): DoorThinker {
-  const door: DoorThinker = {
-    action: doorTick, removed: false,
-    type, sector, topheight, speed, direction, topwait, topcountdown,
-  };
-  addThinker(door);
-  sectorSpecialData.set(sector, door);
-  return door;
-}
-
-/**
- * Create and register a PlatThinker from saved data (for load).
- */
-export function restorePlatThinker(
-  sector: Sector, type: PlatType, speed: number, low: number, high: number,
-  wait: number, count: number, status: PlatStatus, oldstatus: PlatStatus,
-  crush: boolean, tag: number
-): PlatThinker {
-  const plat: PlatThinker = {
-    action: platTick, removed: false,
-    type, sector, speed, low, high, wait, count, status, oldstatus, crush, tag,
-  };
-  addThinker(plat);
-  sectorSpecialData.set(sector, plat);
-  addActivePlat(plat);
-  return plat;
-}
-
-/**
- * Create and register a FloorThinker from saved data (for load).
- */
-export function restoreFloorThinker(
-  sector: Sector, type: FloorType, speed: number, floordestheight: number,
-  crush: boolean, direction: number
-): FloorThinker {
-  const floor: FloorThinker = {
-    action: floorTick, removed: false,
-    type, sector, speed, floordestheight, crush, direction,
-  };
-  addThinker(floor);
-  sectorSpecialData.set(sector, floor);
-  return floor;
 }

@@ -126,7 +126,7 @@ export class SoftwareRenderer implements Renderer {
     things: readonly { x: number; y: number; type: number }[],
     pointInSubsector: (x: number, y: number) => { sector?: { floorHeight: number } | null },
   ): void {
-    spawnStaticLights_internal(things as any, pointInSubsector);
+    spawnStaticLights_internal(things, pointInSubsector);
   }
 
   setLightView(x: number, y: number, z: number): void {

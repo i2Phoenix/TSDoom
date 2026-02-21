@@ -7,6 +7,20 @@ import { WAD } from './wad';
 import { TextureData } from './textures';
 import { FRACBITS, FRACUNIT } from '../game/math';
 
+// Re-export all types and constants from game/map-types.ts
+// so that src/ modules can continue importing from './map'
+export {
+  ML_BLOCKING, ML_BLOCKMONSTERS, ML_TWOSIDED, ML_DONTPEGTOP,
+  ML_DONTPEGBOTTOM, ML_SECRET, ML_SOUNDBLOCK, ML_DONTDRAW, ML_MAPPED,
+  NF_SUBSECTOR, incValidcount,
+} from '../game/map-types';
+export type {
+  Vertex, Sector, SideDef, LineDef, Seg, SubSector, Node, MapThing, GameMap,
+} from '../game/map-types';
+
+import type { Vertex, Sector, SideDef, LineDef, Seg, SubSector, Node, MapThing, GameMap } from '../game/map-types';
+import { ML_TWOSIDED, NF_SUBSECTOR, incValidcount } from '../game/map-types';
+
 // Map lump ordering (relative to map label)
 const ML_THINGS = 1;
 const ML_LINEDEFS = 2;
@@ -19,120 +33,10 @@ const ML_SECTORS = 8;
 const ML_REJECT = 9;
 const ML_BLOCKMAP = 10;
 
-// Linedef flags
-export const ML_BLOCKING = 1;
-export const ML_BLOCKMONSTERS = 2;
-export const ML_TWOSIDED = 4;
-export const ML_DONTPEGTOP = 8;
-export const ML_DONTPEGBOTTOM = 16;
-export const ML_SECRET = 32;
-export const ML_SOUNDBLOCK = 64;
-export const ML_DONTDRAW = 128;
-export const ML_MAPPED = 256;
-
-export const NF_SUBSECTOR = 0x8000;
-
 // Block size for blockmap (128 map units)
-const MAPBLOCKUNITS = 128;
 const MAPBLOCKSHIFT = FRACBITS + 7; // FRACBITS + log2(128)
 
-// Global validcount for linedef deduplication across block iterations
-let validcount = 0;
-
-/** Increment and return the global validcount (call before each forEachBlockLine batch) */
-export function incValidcount(): number {
-  return ++validcount;
-}
-
-export interface Vertex {
-  x: number; // fixed_t
-  y: number;
-}
-
-export interface Sector {
-  floorHeight: number;   // fixed_t
-  ceilingHeight: number; // fixed_t
-  floorPic: number;      // flat index
-  ceilingPic: number;
-  lightLevel: number;
-  special: number;
-  tag: number;
-  // Runtime
-  floorPicName: string;
-  ceilingPicName: string;
-  // AI sound propagation (Phase 1)
-  soundtarget: unknown | null;  // MapObjState that made noise (set by P_NoiseAlert)
-  soundtraversed: number;       // 0=unvisited, 1-2=visited (for P_RecursiveSound)
-  validcount: number;           // comparison counter (avoid duplicate visits)
-}
-
-export interface SideDef {
-  textureOffset: number;  // fixed_t
-  rowOffset: number;      // fixed_t
-  topTexture: number;     // texture index
-  bottomTexture: number;
-  midTexture: number;
-  sectorIdx: number;
-  sector: Sector;
-  // raw names for debugging
-  topTextureName: string;
-  bottomTextureName: string;
-  midTextureName: string;
-}
-
-export interface LineDef {
-  v1: number; // vertex indices
-  v2: number;
-  flags: number;
-  special: number;
-  tag: number;
-  sidenum: [number, number]; // -1 for one-sided
-  frontsector: Sector | null;
-  backsector: Sector | null;
-  // Precalculated
-  dx: number; // fixed_t
-  dy: number;
-  // BSP traversal dedup (for P_CheckSight, P_PathTraverse)
-  validcount: number;
-}
-
-export interface Seg {
-  v1: Vertex;
-  v2: Vertex;
-  offset: number;  // fixed_t
-  angle: number;   // BAM angle
-  sidedef: SideDef;
-  linedef: LineDef;
-  frontsector: Sector;
-  backsector: Sector | null;
-  /** Precomputed length in map units (not fixed_t) */
-  length: number;
-}
-
-export interface SubSector {
-  numSegs: number;
-  firstSeg: number;
-  sector: Sector | null;
-}
-
-export interface Node {
-  x: number;  // partition line start
-  y: number;
-  dx: number; // partition line direction
-  dy: number;
-  bbox: [[number, number, number, number], [number, number, number, number]]; // [right, left] × [top, bottom, left, right]
-  children: [number, number]; // right, left; if NF_SUBSECTOR, it's a subsector
-}
-
-export interface MapThing {
-  x: number;
-  y: number;
-  angle: number;
-  type: number;
-  options: number;
-}
-
-export class GameMap {
+export class GameMapImpl implements GameMap {
   name: string;
   vertices: Vertex[] = [];
   sectors: Sector[] = [];
@@ -441,33 +345,25 @@ export class GameMap {
   // Reference: p_maputl.c P_BlockLinesIterator
   // ============================================================
 
-  /**
-   * Iterate linedefs in a single blockmap cell (bx, by).
-   * Calls `callback` for each linedef. If callback returns false, iteration stops.
-   * Uses LineDef.validcount for deduplication — call incValidcount() before a batch.
-   */
   blockLinesIterator(
     bx: number, by: number, vc: number,
     callback: (line: LineDef) => boolean,
   ): boolean {
     if (bx < 0 || by < 0 || bx >= this.bmapWidth || by >= this.bmapHeight) {
-      return true; // out of bounds — no lines
+      return true;
     }
 
     let offset = this.blockmap[by * this.bmapWidth + bx];
-    // blockmapLump[offset] is 0 (header sentinel) — skip it
-    // then read linedef indices until -1
     const bml = this.blockmapLump;
     for (let i = offset; ; i++) {
       if (i >= bml.length) break;
       const lineIdx = bml[i];
-      if (lineIdx === -1) break;  // terminator
-      if (lineIdx === 0 && i === offset) continue; // skip header sentinel
+      if (lineIdx === -1) break;
+      if (lineIdx === 0 && i === offset) continue;
 
-      if (lineIdx < 0 || lineIdx >= this.linedefs.length) continue; // safety
+      if (lineIdx < 0 || lineIdx >= this.linedefs.length) continue;
 
       const ld = this.linedefs[lineIdx];
-      // Dedup: skip if already visited in this batch
       if (ld.validcount === vc) continue;
       ld.validcount = vc;
 
@@ -476,21 +372,12 @@ export class GameMap {
     return true;
   }
 
-  /**
-   * Iterate all linedefs touching a bounding box (in fixed_t coordinates).
-   * Converts box to block range and iterates each block.
-   * Uses validcount dedup so each linedef is visited at most once.
-   *
-   * @param top/bottom/left/right — bounding box in fixed_t
-   * @param callback — return false to stop early
-   */
   forEachBlockLine(
     top: number, bottom: number, left: number, right: number,
     callback: (line: LineDef) => boolean,
   ): void {
     const vc = incValidcount();
 
-    // Convert fixed_t world coords to blockmap cell coords
     const bx0 = Math.max(0, (left - this.bmapOrgX) >> MAPBLOCKSHIFT);
     const bx1 = Math.min(this.bmapWidth - 1, (right - this.bmapOrgX) >> MAPBLOCKSHIFT);
     const by0 = Math.max(0, (bottom - this.bmapOrgY) >> MAPBLOCKSHIFT);

@@ -6,7 +6,7 @@
 // ============================================================
 
 import { FRACBITS, FRACUNIT } from './math';
-import { MapThing, GameMap } from '../src/map';
+import type { MapThing, GameMap } from './map-types';
 import { getWorld } from './world';
 import { removedThings } from './pickups';
 import { getGameSkill, SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
@@ -28,7 +28,7 @@ import {
 
 // Re-export flags for backward compatibility with combat.ts, etc.
 export { MF_SHOOTABLE, MF_SOLID, MF_NOBLOOD, MF_COUNTKILL } from './mobjinfo';
-import { addTotalKill, addPlayerKill } from '../src/game/intermission';
+import { addTotalKill, addPlayerKill } from './level-stats';
 
 // ---- Combat info for thing types ----
 export interface ThingCombatInfo {

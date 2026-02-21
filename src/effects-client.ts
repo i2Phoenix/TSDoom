@@ -12,7 +12,7 @@ import type { Sfx, Music } from '../game/sounds';
 
 const clientEffects: EffectHandler = {
   sound(origin: SoundOrigin | null, sfx: Sfx): void {
-    S_StartSound(origin as any, sfx);
+    S_StartSound(origin, sfx);
   },
 
   music(mus: Music, looping: boolean): void {
@@ -35,7 +35,7 @@ const clientEffects: EffectHandler = {
     try {
       const gp = navigator.getGamepads?.()[0];
       if (!gp) return;
-      const actuator = (gp as any).vibrationActuator;
+      const actuator = gp.vibrationActuator;
       if (actuator?.playEffect) {
         actuator.playEffect('dual-rumble', {
           startDelay: 0,

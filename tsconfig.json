@@ -15,5 +15,5 @@
     "sourceMap": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src"]
+  "include": ["src", "game"]
 }

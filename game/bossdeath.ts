@@ -13,7 +13,7 @@ import { getWorld } from './world';
 import { parseMapName } from './mapflow';
 import { G_ExitLevel } from './mapflow';
 import { evDoFloor, evDoDoor, FloorType, DoorType } from './specials';
-import type { LineDef } from '../src/map';
+import type { LineDef } from './map-types';
 
 // ---- DoomEd thing type constants ----
 const DOOMEDNUM_BARON = 3003;  // Baron of Hell (Boss, E1M8)

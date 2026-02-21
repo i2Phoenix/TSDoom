@@ -7,7 +7,7 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, 
 
 // ANG90/2 for gradual turning in A_Chase (original DOOM uses ANG90/2 = 0x20000000)
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
-import { GameMap, Sector, LineDef, ML_TWOSIDED, ML_SOUNDBLOCK } from '../src/map';
+import { ML_TWOSIDED, ML_SOUNDBLOCK, type GameMap, type Sector, type LineDef } from './map-types';
 import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj, spawnLostSoul } from './mobj';
 import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE, MF_SOLID } from './mobjinfo';
 import { P_CheckSight } from './sight';
@@ -24,9 +24,7 @@ import { traceWalls } from './combat';
 import { P_AimLineAttack, P_LineAttack } from './combat';
 import { getWorld } from './world';
 
-// ---- Constants ----
-const MELEERANGE = 64 * FRACUNIT;
-const MISSILERANGE = 32 * 64 * FRACUNIT;  // 2048 map units
+import { MELEERANGE, MISSILERANGE } from './constants';
 
 // ---- Sound propagation (P_RecursiveSound / P_NoiseAlert) ----
 let soundValidcount = 0;

@@ -11,9 +11,10 @@ import { P_Random } from './random';
 
 import {
   P_BulletSlope, P_GunShot, P_AimLineAttack, P_LineAttack,
-  getBulletSlope, MELEERANGE,
+  getBulletSlope,
   linetarget,
 } from './combat';
+import { MELEERANGE } from './constants';
 import { spawnPlayerProjectile, ProjectileType } from './projectiles';
 import { MapObjState, DI_NODIR } from './mobj';
 import { getWorld } from './world';
@@ -816,10 +817,7 @@ export function initPlayerWeapons(wp: WeaponPlayer): void {
   wp.weaponowned[WeaponType.fist] = true;
   wp.weaponowned[WeaponType.pistol] = true;
 
-  wp.psprites = [
-    { state: null, stateNum: StateNum.S_NULL, tics: 0, sx: FRACUNIT, sy: WEAPONTOP },
-    { state: null, stateNum: StateNum.S_NULL, tics: 0, sx: FRACUNIT, sy: WEAPONTOP },
-  ];
+  wp.psprites = [createPspDef(), createPspDef()];
 
   bringUpWeapon(wp);
 }
@@ -843,6 +841,11 @@ export function getPspriteInfo(wp: WeaponPlayer, slot: number): {
 /** Resolve a StateNum to its WeaponState object (for save/load) */
 export function getWeaponState(stnum: StateNum): WeaponState | null {
   return states.get(stnum) ?? null;
+}
+
+/** Create a default PspDef (null state, centered position) */
+export function createPspDef(): PspDef {
+  return { state: null, stateNum: StateNum.S_NULL, tics: 0, sx: FRACUNIT, sy: WEAPONTOP };
 }
 
 export { weaponinfo, PS_WEAPON, PS_FLASH, WEAPONTOP, WEAPONBOTTOM };

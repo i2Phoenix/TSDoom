@@ -4,7 +4,7 @@
 // ============================================================
 
 import { FRACBITS } from './math';
-import { GameMap, NF_SUBSECTOR, ML_TWOSIDED, incValidcount } from '../src/map';
+import { NF_SUBSECTOR, ML_TWOSIDED, incValidcount, type GameMap } from './map-types';
 import { MapObjState } from './mobj';
 
 // Per-call validcount (obtained from shared incValidcount to avoid LineDef.validcount collisions)
