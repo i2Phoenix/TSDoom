@@ -13,6 +13,7 @@ interface Settings {
   dynLights: boolean;
   sfxVolume: number;    // 0-10 (0%=0, 10%=1, ..., 100%=10)
   musicVolume: number;  // 0-10
+  freelook: boolean;
 }
 
 const DEFAULTS: Readonly<Settings> = {
@@ -22,6 +23,7 @@ const DEFAULTS: Readonly<Settings> = {
   dynLights: true,        // dynamic lights enabled by default
   sfxVolume: 8,           // 80%
   musicVolume: 8,         // 80%
+  freelook: false,
 };
 
 /** Current settings (initialized from defaults, overridden by localStorage) */
@@ -50,6 +52,9 @@ export function loadSettings(): void {
     }
     if (typeof saved.musicVolume === 'number') {
       current.musicVolume = Math.max(0, Math.min(10, saved.musicVolume));
+    }
+    if (typeof saved.freelook === 'boolean') {
+      current.freelook = saved.freelook;
     }
   } catch { /* ignore */ }
 }
@@ -100,5 +105,12 @@ export function setSfxVolume(vol: number): void {
 
 export function setMusicVolume(vol: number): void {
   current.musicVolume = Math.max(0, Math.min(10, vol));
+  save();
+}
+
+export function getFreelook(): boolean { return current.freelook; }
+
+export function setFreelook(enabled: boolean): void {
+  current.freelook = enabled;
   save();
 }
