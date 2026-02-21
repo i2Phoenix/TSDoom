@@ -66,7 +66,7 @@ import {
   wipeTick,
 } from "./render/software/wipe";
 import { spawnSectorLights, saveSectorState } from "../game/lights";
-import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume } from "../game/settings";
+import { loadSettings, getResolutionIndex, getSfxVolume, getMusicVolume, getFreelook } from "../game/settings";
 import { GameState, GameAction } from "../game/gamestate";
 import { Intermission } from "./game/intermission";
 import { Finale, getFinaleConfig } from "./game/finale";
@@ -91,6 +91,37 @@ let ctx: CanvasRenderingContext2D;
 let imageData: ImageData;
 let profilerDiv: HTMLDivElement;
 let imageBuffer: Uint32Array;
+
+// ---- Crosshair (drawn when freelook is enabled) ----
+const CROSSHAIR_SIZE = 4;    // arm length in base pixels (scaled with resolution)
+const CROSSHAIR_GAP = 2;     // gap from center in base pixels
+const CROSSHAIR_COLOR = 0xFF00FF00;  // green (ABGR in Uint32Array)
+
+function drawCrosshair(): void {
+  if (!getFreelook()) return;
+  const stHeight = Math.round(32 * SCREENWIDTH / 320);
+  const viewheight = SCREENHEIGHT - stHeight;
+  const cx = SCREENWIDTH >> 1;
+  const cy = viewheight >> 1;
+  const scale = Math.max(1, Math.round(SCREENWIDTH / 320));
+  const size = CROSSHAIR_SIZE * scale;
+  const gap = CROSSHAIR_GAP * scale;
+
+  // Horizontal arms
+  for (let i = gap; i <= size; i++) {
+    const lx = cx - i;
+    const rx = cx + i;
+    if (lx >= 0 && lx < SCREENWIDTH) rgbaBuffer[cy * SCREENWIDTH + lx] = CROSSHAIR_COLOR;
+    if (rx >= 0 && rx < SCREENWIDTH) rgbaBuffer[cy * SCREENWIDTH + rx] = CROSSHAIR_COLOR;
+  }
+  // Vertical arms
+  for (let i = gap; i <= size; i++) {
+    const ty = cy - i;
+    const by = cy + i;
+    if (ty >= 0 && ty < viewheight) rgbaBuffer[ty * SCREENWIDTH + cx] = CROSSHAIR_COLOR;
+    if (by >= 0 && by < viewheight) rgbaBuffer[by * SCREENWIDTH + cx] = CROSSHAIR_COLOR;
+  }
+}
 let fpsDiv: HTMLDivElement;
 let menu: MenuSystem;
 let inputInitialized = false;
@@ -543,6 +574,7 @@ async function main() {
             getRenderer().renderFrame(gi);
             getRenderer().setWeaponInvisible(player.powers[2] > 0);
             getRenderer().drawWeaponOverlay();
+            drawCrosshair();
             statusBar.draw(player);
             applyScreenTint();
             getRenderer().setLightView(player.x, player.y, player.viewz);
@@ -580,6 +612,8 @@ async function main() {
                 getRenderer().setWeaponInvisible(player.powers[2] > 0);
                 getRenderer().drawWeaponOverlay();
                 profilerEnd('psprites');
+
+                drawCrosshair();
 
                 profilerBegin('hud');
                 statusBar.draw(player);
