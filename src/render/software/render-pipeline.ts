@@ -22,6 +22,7 @@ import {
   clearScreen, dc,
 } from './draw';
 import type { GameInstance } from '../../../game/game-instance';
+import { FRACBITS } from '../../../game/math';
 
 // ---- Fuzz effect (classic DOOM R_DrawFuzzColumn) ----
 const FUZZOFFSET = [
@@ -89,6 +90,9 @@ export class RenderPipeline {
     clearScreen();
     gBuffer.clear();
     ctx.resetFrame();
+
+    // Update dc.centery from pitch-adjusted centeryfrac (for wall texture mapping)
+    dc.centery = ctx.centeryfrac >> FRACBITS;
 
     // Build subsector → sprite maps (runtime positions)
     this.sprites.buildSubsectorMaps(ctx);

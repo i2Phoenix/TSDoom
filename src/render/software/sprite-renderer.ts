@@ -319,7 +319,7 @@ export class SpriteRenderer {
         continue;
       }
 
-      const sprtopscreen = ctx.centery - ((fixedMul(vis.texturemid, vis.scale)) >> FRACBITS);
+      const sprtopscreen = (ctx.centeryfrac >> FRACBITS) - ((fixedMul(vis.texturemid, vis.scale)) >> FRACBITS);
       const spryscale = vis.scale;
       const sprBottomScreen = sprtopscreen + ((fixedMul(patch.height << FRACBITS, spryscale)) >> FRACBITS);
 
