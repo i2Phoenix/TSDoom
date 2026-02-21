@@ -3,7 +3,7 @@
 // Extracted from renderer.ts (R_DrawPSprite / R_DrawMaskedColumn)
 // ============================================================
 
-import { FRACBITS } from '../../../game/math';
+import { FRACBITS, FRACUNIT } from '../../../game/math';
 import { getPspriteInfo, type WeaponPlayer } from '../../../game/weapons';
 import type { Patch } from '../../textures';
 import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from './draw';
@@ -55,8 +55,9 @@ export class WeaponOverlay {
       const tx = (info.sx >> FRACBITS) - 160 - patch.leftOffset;
       const x1 = Math.round(ctx.centerx + tx * pspritescale);
 
-      // Y positioning — anchored relative to viewport bottom
-      const pspriteCentery = ctx.viewheight - 84 * pspritescale;
+      // Y positioning — anchored relative to viewport bottom, adjusted for pitch
+      const pitchShearPx = Math.round(ctx.viewpitch * (ctx.viewheight >> 1) / FRACUNIT);
+      const pspriteCentery = ctx.viewheight - 84 * pspritescale + pitchShearPx;
       const sy_px = info.sy >> FRACBITS;
       const texturemid = BASEYCENTER + 0.5 - (sy_px - patch.topOffset);
       const sprtopscreen = pspriteCentery - texturemid * pspritescale;
