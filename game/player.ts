@@ -10,6 +10,7 @@ import { useSpecialLine, crossSpecialLine } from './specials';
 import { checkPickups } from './pickups';
 import { CF_GODMODE, CF_NOCLIP } from './cheats';
 import { getDamageMultiplier } from './skill';
+import { getFreelook } from './settings';
 import { getMapObjects } from './mobj';
 import { MF_SOLID } from './mobjinfo';
 import {
@@ -31,6 +32,7 @@ const FORWARDMOVE = 0x19; // 25 — same as original DOOM
 const SIDEMOVE = 0x18;    // 24
 const ANGLETURN = 640;     // per-tic turning speed
 let MOUSE_SENSITIVITY = 8;
+const PITCH_SENSITIVITY = 600;   // tune to feel similar to horizontal
 
 /** Set mouse sensitivity (0-9 maps to 2-20 internal) */
 export function setMouseSensitivity(level: number): void {
@@ -75,6 +77,7 @@ export class Player {
   y: number = 0;
   z: number = 0;           // floor height
   angle: number = 0;       // BAM angle
+  pitch: number = 0;       // vertical look: fixed-point [-FRACUNIT..+FRACUNIT] = ±45°
   viewz: number = 0;       // eye height
   momx: number = 0;        // momentum
   momy: number = 0;
@@ -263,6 +266,17 @@ export class Player {
     if (input.lookX !== 0) {
       this.angle = (this.angle - (input.lookX * MOUSE_SENSITIVITY << 16)) >>> 0;
     }
+
+    // Vertical look (freelook)
+    if (getFreelook() && input.lookY !== 0) {
+      this.pitch -= input.lookY * PITCH_SENSITIVITY;
+      // Clamp to ±FRACUNIT (±45°)
+      if (this.pitch > FRACUNIT) this.pitch = FRACUNIT;
+      if (this.pitch < -FRACUNIT) this.pitch = -FRACUNIT;
+    } else if (!getFreelook()) {
+      this.pitch = 0;
+    }
+
     // Note: resetInputAccumulated() is called after weapon selection below
     // so weaponSelect survives until it's processed
 
