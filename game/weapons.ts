@@ -340,8 +340,8 @@ function A_Punch(wp: WeaponPlayer): void {
   }
 
   const angle = wp.angle;
-  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, gi);
-  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, getBulletSlope(gi), damage, gi);
+  const slope = P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, gi);
+  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE, slope, damage, gi);
 
   // Sound: hit sound only if we hit something
   if (getLinetarget(gi)) {
@@ -355,8 +355,8 @@ function A_Saw(wp: WeaponPlayer): void {
   const gi = wp.gi;
   const damage = 2 * (P_Random(gi) % 10 + 1);
   const angle = wp.angle;
-  P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, gi);
-  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, getBulletSlope(gi), damage, gi);
+  const slope = P_AimLineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, gi);
+  P_LineAttack(wp.x, wp.y, wp.viewz, angle, MELEERANGE + FRACUNIT, slope, damage, gi);
 
   // Sound: hit or miss
   if (getLinetarget(gi)) {
