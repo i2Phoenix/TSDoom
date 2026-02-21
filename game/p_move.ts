@@ -6,12 +6,14 @@
 
 import { FRACBITS, FRACUNIT, fixedMul } from './math';
 import { ML_TWOSIDED, ML_BLOCKING, type GameMap, type LineDef } from './map-types';
-import { MapObjState, getMapObjects, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
+import { MapObjState, getMapObjects, damageMobj, DI_EAST, DI_NORTHEAST, DI_NORTH, DI_NORTHWEST, DI_WEST, DI_SOUTHWEST, DI_SOUTH, DI_SOUTHEAST, DI_NODIR, NUMDIRS } from './mobj';
 import { GameInstance } from './game-instance';
-import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT } from './mobjinfo';
+import { MT, MF_SOLID, MF_SHOOTABLE, MF_FLOAT, MF_DROPOFF, MF_CORPSE, MF_NOBLOCKMAP, MF_MISSILE, MF_NOGRAVITY, MF_JUSTHIT, MF_SKULLFLY, MF_TELEPORT, MF_INFLOAT } from './mobjinfo';
+import { PlayerState } from './player';
 import { P_Random } from './random';
 import { P_CheckSight } from './sight';
 import { monsterUseSpecialLine, crossSpecialLine } from './specials';
+import { setMonsterState, getThingAnimDef } from './animations';
 
 // ---- Constants ----
 const MAXMOVE = 30 * FRACUNIT;  // max movement per tic
@@ -120,20 +122,8 @@ export function P_TryMove(
     if (openBottom > mc.tmFloorZ) mc.tmFloorZ = openBottom;
     if (lowFloor < mc.tmDropoffZ) mc.tmDropoffZ = lowFloor;
 
-    // Check if opening is large enough
+    // Check if opening is large enough for the actor to fit through
     if (openTop - openBottom < actor.height) {
-      lineBlocked = true;
-      return false;
-    }
-
-    // Step-up too high
-    if (openBottom - actor.z > MAXSTEPHEIGHT) {
-      lineBlocked = true;
-      return false;
-    }
-
-    // Ceiling too low
-    if (openTop - actor.z < actor.height) {
       lineBlocked = true;
       return false;
     }
@@ -163,28 +153,77 @@ export function P_TryMove(
       continue;
     }
 
+    // MF_SKULLFLY: skull slams into thing — deal charge damage
+    // Reference: p_map.c PIT_CheckThing
+    if (actor.flags & MF_SKULLFLY) {
+      const damage = ((P_Random(gi) % 8) + 1) * (actor.info?.damage ?? 3);
+      if (other.flags & MF_SHOOTABLE) {
+        damageMobj(other, damage, actor, gi);
+      }
+      actor.flags &= ~MF_SKULLFLY;
+      actor.momx = actor.momy = actor.momz = 0;
+      const animDef = getThingAnimDef(actor.type);
+      if (animDef) {
+        setMonsterState(actor.thingIndex, actor.type, animDef.spawnState, 'alive', gi);
+      }
+      return false;
+    }
+
     // Blocked by another solid thing
     return false;
   }
 
-  // Dropoff check: don't walk off tall edges (unless MF_FLOAT or MF_DROPOFF)
-  if (!(actor.flags & MF_FLOAT) && !(actor.flags & MF_DROPOFF)) {
-    if (mc.tmFloorZ - mc.tmDropoffZ > MAXSTEPHEIGHT) {
+  // Check collision with player (Player is not in mapObjects)
+  // Reference: p_map.c PIT_CheckThing — player mobj is checked like any other thing
+  const player = gi.world?.player;
+  if (player && player.playerstate === PlayerState.LIVE && player.health > 0) {
+    const PLAYERRADIUS = 16 * FRACUNIT;
+    const blockDist = actor.radius + PLAYERRADIUS;
+    if (Math.abs(newx - player.x) < blockDist &&
+      Math.abs(newy - player.y) < blockDist) {
+      // MF_SKULLFLY: skull slams into player — deal charge damage
+      if (actor.flags & MF_SKULLFLY) {
+        const damage = ((P_Random(gi) % 8) + 1) * (actor.info?.damage ?? 3);
+        player.takeDamage(damage, actor.x, actor.y);
+        actor.flags &= ~MF_SKULLFLY;
+        actor.momx = actor.momy = actor.momz = 0;
+        const animDef = getThingAnimDef(actor.type);
+        if (animDef) {
+          setMonsterState(actor.thingIndex, actor.type, animDef.spawnState, 'alive', gi);
+        }
+        return false;
+      }
+      // Blocked by player
       return false;
     }
   }
 
-  // Gravity check: can the actor reach the floor?
-  if (!(actor.flags & MF_FLOAT) && mc.tmFloorZ - actor.z > MAXSTEPHEIGHT) {
+  // Opening must fit the actor (global check, not per-line)
+  // Reference: p_map.c P_TryMove line 468
+  if (mc.tmCeilingZ - mc.tmFloorZ < actor.height) {
+    return false;  // doesn't fit
+  }
+
+  mc.floatok = true;
+
+  // Ceiling too low at actor's current Z
+  // Reference: p_map.c line 473 — uses MF_TELEPORT, NOT MF_FLOAT
+  if (!(actor.flags & MF_TELEPORT) && mc.tmCeilingZ - actor.z < actor.height) {
     return false;
   }
 
-  // Flying: check if movement would be ok height-wise
-  if (actor.flags & MF_FLOAT) {
-    if (actor.z < mc.tmFloorZ) {
-      mc.floatok = true;
-    } else if (actor.z + actor.height > mc.tmCeilingZ) {
-      mc.floatok = true;
+  // Step-up too high
+  // Reference: p_map.c line 477 — uses MF_TELEPORT, NOT MF_FLOAT
+  // Floating monsters ARE blocked by steps; they use P_Move's float Z adjustment
+  if (!(actor.flags & MF_TELEPORT) && mc.tmFloorZ - actor.z > MAXSTEPHEIGHT) {
+    return false;
+  }
+
+  // Dropoff check: don't walk off tall edges (unless MF_FLOAT or MF_DROPOFF)
+  // Reference: p_map.c line 481
+  if (!(actor.flags & (MF_FLOAT | MF_DROPOFF))) {
+    if (mc.tmFloorZ - mc.tmDropoffZ > MAXSTEPHEIGHT) {
+      return false;
     }
   }
 
@@ -220,19 +259,23 @@ export function P_Move(actor: MapObjState, gi: GameInstance): boolean {
     }
 
     // If floating and the destination height was ok, adjust vertically
+    // Reference: p_enemy.c P_Move — float Z step adjustment
     if ((actor.flags & MF_FLOAT) && mc.floatok) {
       if (actor.z < mc.tmFloorZ) {
         actor.z += FLOATSPEED;
       } else {
         actor.z -= FLOATSPEED;
       }
+      actor.flags |= MF_INFLOAT;  // prevent target-tracking from counteracting
       return true;
     }
 
     return false;
   }
 
-  // Move successful
+  // Move successful — clear MF_INFLOAT (no longer adjusting for step)
+  actor.flags &= ~MF_INFLOAT;
+
   const mc = gi.move;
   actor.x = tryx;
   actor.y = tryy;
@@ -244,19 +287,6 @@ export function P_Move(actor: MapObjState, gi: GameInstance): boolean {
   // Non-floating: always snap to floor (handles both step-up and step-down)
   if (!(actor.flags & MF_FLOAT)) {
     actor.z = actor.floorz;
-  }
-
-  // Float adjust: smoothly move toward target z
-  if ((actor.flags & MF_FLOAT) && actor.target) {
-    const dist = Math.abs(actor.x - actor.target.x) + Math.abs(actor.y - actor.target.y);
-    // delta = target z + half height offset - our z
-    const delta = actor.target.z + (actor.height >> 1) - actor.z;
-
-    if (delta < 0 && dist < -(delta * 3)) {
-      actor.z -= FLOATSPEED;
-    } else if (delta > 0 && dist < (delta * 3)) {
-      actor.z += FLOATSPEED;
-    }
   }
 
   // Check if monster crossed a teleport line (walk triggers)
@@ -531,4 +561,144 @@ function approxDist(dx: number, dy: number): number {
   dy = Math.abs(dy);
   if (dx < dy) return dx + dy - (dx >> 1);
   return dx + dy - (dy >> 1);
+}
+
+/**
+ * updateMobjMomentum — apply momentum to monsters each tick.
+ * In original DOOM, P_MobjThinker calls P_XYMovement for any mobj
+ * with non-zero momentum or MF_SKULLFLY. This is needed for Lost Soul
+ * charge attacks (A_SkullAttack sets momx/momy/momz + MF_SKULLFLY).
+ *
+ * Reference: p_mobj.c P_MobjThinker, P_XYMovement, P_ZMovement
+ */
+export function updateMobjMomentum(gi: GameInstance): void {
+  const map = gi.currentMap;
+  if (!map) return;
+
+  for (const obj of getMapObjects(gi)) {
+    if (obj.removed) continue;
+    if (obj.health <= 0) continue;
+
+    // Skip player things (handled by player.ts)
+    if (obj.mobjType === -1 && obj.type === 1) continue;
+
+    // Check if this object needs XY or Z processing
+    const hasXYMomentum = obj.momx || obj.momy;
+    const needsXY = hasXYMomentum || (obj.flags & MF_SKULLFLY);
+    const needsZ = obj.momz || obj.z !== obj.floorz || (obj.flags & MF_FLOAT);
+    if (!needsXY && !needsZ) continue;
+
+    // P_XYMovement equivalent
+    // Reference: p_mobj.c P_XYMovement
+    if (!obj.momx && !obj.momy) {
+      // Zero XY momentum — if skull was flying, it slammed into something
+      if (obj.flags & MF_SKULLFLY) {
+        obj.flags &= ~MF_SKULLFLY;
+        obj.momx = obj.momy = obj.momz = 0;
+        const animDef = getThingAnimDef(obj.type);
+        if (animDef) {
+          setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive', gi);
+        }
+      }
+    } else {
+      // Clamp momentum to MAXMOVE
+      if (obj.momx > MAXMOVE) obj.momx = MAXMOVE;
+      else if (obj.momx < -MAXMOVE) obj.momx = -MAXMOVE;
+      if (obj.momy > MAXMOVE) obj.momy = MAXMOVE;
+      else if (obj.momy < -MAXMOVE) obj.momy = -MAXMOVE;
+
+      // Subdivision loop — split large moves into smaller steps
+      // Reference: p_mobj.c P_XYMovement do-while loop
+      let xmove = obj.momx;
+      let ymove = obj.momy;
+      const HALFMOVE = MAXMOVE >> 1;
+
+      do {
+        let ptryx: number;
+        let ptryy: number;
+
+        if (xmove > HALFMOVE || ymove > HALFMOVE
+          || xmove < -HALFMOVE || ymove < -HALFMOVE) {
+          ptryx = obj.x + (xmove >> 1);
+          ptryy = obj.y + (ymove >> 1);
+          xmove >>= 1;
+          ymove >>= 1;
+        } else {
+          ptryx = obj.x + xmove;
+          ptryy = obj.y + ymove;
+          xmove = ymove = 0;
+        }
+
+        if (!P_TryMove(obj, ptryx, ptryy, map, gi)) {
+          // Blocked
+          if (obj.flags & MF_SKULLFLY) {
+            obj.flags &= ~MF_SKULLFLY;
+            obj.momx = obj.momy = obj.momz = 0;
+            const animDef = getThingAnimDef(obj.type);
+            if (animDef) {
+              setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive', gi);
+            }
+          }
+          obj.momx = 0;
+          obj.momy = 0;
+          break;
+        } else {
+          // Move succeeded — update position
+          const mc = gi.move;
+          obj.x = ptryx;
+          obj.y = ptryy;
+          obj.floorz = mc.tmFloorZ;
+          obj.ceilingz = mc.tmCeilingZ;
+        }
+      } while (xmove || ymove);
+    }
+
+    // P_ZMovement equivalent
+    // Reference: p_mobj.c P_ZMovement
+    if (obj.momz || obj.z !== obj.floorz || (obj.flags & MF_FLOAT)) {
+      obj.z += obj.momz;
+
+      // Float toward target Z (Cacodemons, Lost Souls, Pain Elementals)
+      // Reference: p_mobj.c P_ZMovement lines 263-279
+      if ((obj.flags & MF_FLOAT) && obj.target
+        && !(obj.flags & MF_SKULLFLY) && !(obj.flags & MF_INFLOAT)) {
+        const dist = approxDist(obj.x - obj.target.x, obj.y - obj.target.y);
+        const delta = (obj.target.z + (obj.height >> 1)) - obj.z;
+        if (delta < 0 && dist < -(delta * 3)) {
+          obj.z -= FLOATSPEED;
+        } else if (delta > 0 && dist < (delta * 3)) {
+          obj.z += FLOATSPEED;
+        }
+      }
+
+      // Floor clamp
+      if (obj.z <= obj.floorz) {
+        if ((obj.flags & MF_SKULLFLY) && obj.momz < 0) {
+          obj.momz = -obj.momz;  // skull bounce off floor
+        }
+        if (obj.momz < 0) obj.momz = 0;
+        obj.z = obj.floorz;
+      }
+      // Ceiling clamp
+      if (obj.z + obj.height > obj.ceilingz) {
+        if (obj.momz > 0) obj.momz = 0;
+        obj.z = obj.ceilingz - obj.height;
+      }
+    }
+
+    // No friction for skull fly or missiles (maintains charge/flight speed)
+    if (obj.flags & (MF_SKULLFLY | MF_MISSILE)) continue;
+
+    // No friction when airborne
+    if (obj.z > obj.floorz) continue;
+
+    // Friction: DOOM constant 0xe800 ≈ 0.90625
+    if (obj.momx || obj.momy) {
+      obj.momx = fixedMul(obj.momx, 0xe800);
+      obj.momy = fixedMul(obj.momy, 0xe800);
+      // Stop when very small (STOPSPEED = 0x1000)
+      if (Math.abs(obj.momx) < 0x1000) obj.momx = 0;
+      if (Math.abs(obj.momy) < 0x1000) obj.momy = 0;
+    }
+  }
 }

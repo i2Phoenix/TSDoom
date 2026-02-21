@@ -9,7 +9,7 @@ import { FRACBITS, FRACUNIT, ANG90, ANG180, ANG270, ANGLETOFINESHIFT, FINEMASK, 
 const ANG90_HALF = (ANG90 >>> 1) >>> 0;
 import { ML_TWOSIDED, ML_SOUNDBLOCK, type GameMap, type Sector, type LineDef } from './map-types';
 import { MapObjState, getMapObjects, getMapObjectByThingIndex, DI_NODIR, damageMobj, spawnLostSoul } from './mobj';
-import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE, MF_SOLID } from './mobjinfo';
+import { MF_SHOOTABLE, MF_AMBUSH, MF_COUNTKILL, MF_JUSTHIT, MF_JUSTATTACKED, MF_FLOAT, MF_NOGRAVITY, MF_SHADOW, MF_CORPSE, MF_SOLID, MF_SKULLFLY } from './mobjinfo';
 import { P_CheckSight } from './sight';
 import { P_Random } from './random';
 import { Player, PowerType } from './player';
@@ -453,6 +453,11 @@ export function initAICallbacks(): void {
   registerActionCallback('A_PainAttack', A_PainAttack_impl);
   registerActionCallback('A_PainDie', A_PainDie_impl);
 
+  // Death/pain sequence actions (sound/flag removal already handled by killMobj/damageMobj)
+  registerActionCallback('A_Pain', A_Pain_impl);
+  registerActionCallback('A_Scream', A_Scream_impl);
+  registerActionCallback('A_Fall', A_Fall_impl);
+
   // Boss Brain / Icon of Sin
   registerBossBrainCallbacks();
 }
@@ -471,6 +476,21 @@ function A_Hoof_impl(thingIndex: number, gi: GameInstance): void {
   if (!actor) return;
   FX_Sound({ x: actor.x, y: actor.y }, Sfx.hoof);
   A_Chase_impl(thingIndex, gi);
+}
+
+// ---- A_Pain — Play pain sound (no-op: already played by damageMobj on pain entry) ----
+function A_Pain_impl(_thingIndex: number, _gi: GameInstance): void {
+  // Pain sound is already played in damageMobj when entering pain state
+}
+
+// ---- A_Scream — Play death sound (no-op: already played by killMobj) ----
+function A_Scream_impl(_thingIndex: number, _gi: GameInstance): void {
+  // Death sound is already played in killMobj
+}
+
+// ---- A_Fall — Remove MF_SOLID so corpse doesn't block (no-op: already done by killMobj) ----
+function A_Fall_impl(_thingIndex: number, _gi: GameInstance): void {
+  // MF_SOLID is already cleared in killMobj
 }
 
 // ---- Attack helper: hitscan toward target ----
@@ -687,27 +707,34 @@ function A_CyberAttack_impl(thingIndex: number, gi: GameInstance): void {
 }
 
 // ---- A_SkullAttack — Lost Soul: charge at player ----
+// Reference: p_enemy.c A_SkullAttack
+const SKULLSPEED = 20 * FRACUNIT;
+
 function A_SkullAttack_impl(thingIndex: number, gi: GameInstance): void {
   const actor = getMapObjectByThingIndex(thingIndex, gi);
   if (!actor || !actor.target) return;
-  const playerRef = gi.world!.player;
-  if (playerRef && playerRef.health <= 0) return;
+
+  const dest = actor.target;
+  actor.flags |= MF_SKULLFLY;
+
+  // Play attack sound (sfx_sklatk)
+  FX_Sound({ x: actor.x, y: actor.y }, Sfx.sklatk);
+
   A_FaceTarget_impl(thingIndex, gi);
 
-  // Set momentum directly toward target (charge attack)
-  const speed = 20 * FRACUNIT;
-  const dx = actor.target.x - actor.x;
-  const dy = actor.target.y - actor.y;
-  const dz = actor.target.z + (actor.target.height >> 1) - actor.z;
-  const dist = Math.max(1, Math.sqrt(
-    (dx / FRACUNIT) * (dx / FRACUNIT) +
-    (dy / FRACUNIT) * (dy / FRACUNIT) +
-    (dz / FRACUNIT) * (dz / FRACUNIT)
-  ));
+  // Horizontal momentum: SKULLSPEED in facing direction (angle-based, matching original)
+  const an = (actor.angle >>> ANGLETOFINESHIFT) & FINEMASK;
+  actor.momx = fixedMul(SKULLSPEED, finecosine(an));
+  actor.momy = fixedMul(SKULLSPEED, finesine[an] || 0);
 
-  actor.momx = Math.round((dx / FRACUNIT) / dist * (speed / FRACUNIT)) * FRACUNIT;
-  actor.momy = Math.round((dy / FRACUNIT) / dist * (speed / FRACUNIT)) * FRACUNIT;
-  actor.momz = Math.round((dz / FRACUNIT) / dist * (speed / FRACUNIT)) * FRACUNIT;
+  // Vertical momentum: proportional to horizontal distance
+  const dx = Math.abs(dest.x - actor.x);
+  const dy = Math.abs(dest.y - actor.y);
+  // P_AproxDistance
+  const adist = dx > dy ? dx + (dy >> 1) : dy + (dx >> 1);
+  let dist = Math.floor(adist / SKULLSPEED);
+  if (dist < 1) dist = 1;
+  actor.momz = Math.floor((dest.z + (dest.height >> 1) - actor.z) / dist);
 }
 
 // ---- A_VileChase — Arch-vile chase (with resurrection ability) ----

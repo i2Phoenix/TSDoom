@@ -78,6 +78,9 @@ export class CompositeInputProvider implements InputProvider {
       lookY: a.lookY + b.lookY,
       // Weapon select: prefer most recent non-idle (-1 = idle)
       weaponSelect: b.weaponSelect !== -1 ? b.weaponSelect : a.weaponSelect,
+      // Analog joystick: take non-zero (touch joystick or gamepad stick)
+      joyMoveX: a.joyMoveX || b.joyMoveX,
+      joyMoveY: a.joyMoveY || b.joyMoveY,
     };
   }
 }

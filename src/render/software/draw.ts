@@ -35,6 +35,21 @@ export function setResolution(width: number, height: number): void {
   zBuffer = new Int32Array(width * height);
 }
 
+// ---- UI rendering dimensions (8:5 centered in widescreen) ----
+// The 3D renderer uses full SCREENWIDTH. All 2D UI (status bar, menu,
+// intermission, finale) uses these to maintain the original 8:5 aspect.
+
+/** UI width: the portion of SCREENWIDTH at 8:5 aspect ratio */
+export function getUIWidth(): number {
+  const base = Math.round(SCREENHEIGHT * 320 / 200);
+  return Math.min(base, SCREENWIDTH); // never wider than actual screen
+}
+
+/** Horizontal offset to center UI within widescreen */
+export function getUIOffsetX(): number {
+  return Math.round((SCREENWIDTH - getUIWidth()) / 2);
+}
+
 // Column drawing parameters (set before calling drawColumn)
 export const dc = {
   colormap: null as Uint32Array | null,  // light-level lookup (palette idx -> RGBA)

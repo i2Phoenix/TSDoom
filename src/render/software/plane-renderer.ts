@@ -158,7 +158,7 @@ export class PlaneRenderer {
       if (globalMaxY >= ctx.viewheight) globalMaxY = ctx.viewheight - 1;
 
       // Pitch shear offset for yslope lookup
-      const pitchShearPx = Math.round(ctx.viewpitch * (ctx.viewheight >> 1) / FRACUNIT);
+      const pitchShearPx = Math.round(ctx.viewpitch * ctx.centery / FRACUNIT);
 
       for (let y = globalMinY; y <= globalMaxY; y++) {
         const dy = y - ctx.centery - pitchShearPx;
@@ -173,7 +173,7 @@ export class PlaneRenderer {
           yslopeVal = ctx.yslope[yslopeIdx] || 0;
         } else {
           // Compute yslope dynamically for rows beyond precomputed table (pitch shear extends view)
-          let dynDy = (((yslopeIdx - ctx.viewheight / 2) * FRACUNIT + (FRACUNIT >> 1)) | 0);
+          let dynDy = (((yslopeIdx - ctx.centery) * FRACUNIT + (FRACUNIT >> 1)) | 0);
           dynDy = Math.abs(dynDy);
           if (dynDy < 1) dynDy = 1;
           yslopeVal = fixedDiv((ctx.viewwidth / 2) * FRACUNIT, dynDy);
@@ -236,7 +236,7 @@ export class PlaneRenderer {
     const skyTex = ctx.texData.textures[ctx.skytexture];
     const lookup = ctx.palData.getColormapLookup(0);
     // Pitch offset: sky scrolls vertically with freelook
-    const pitchShearPx = Math.round(ctx.viewpitch * (ctx.viewheight >> 1) / FRACUNIT);
+    const pitchShearPx = Math.round(ctx.viewpitch * ctx.centery / FRACUNIT);
 
     for (let x = vp.minx; x <= vp.maxx; x++) {
       const t = vp.top[x];

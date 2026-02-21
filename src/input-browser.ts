@@ -78,6 +78,8 @@ const browserKeyboardMouseProvider: InputProvider = {
     state.lookX = 0;
     state.lookY = 0;
     state.weaponSelect = -1;
+    state.joyMoveX = 0;
+    state.joyMoveY = 0;
   },
 };
 
@@ -90,6 +92,12 @@ export function isPointerLocked(): boolean {
 export function accumulateTouchLook(dx: number, dy: number): void {
   state.lookX += dx;
   state.lookY += dy;
+}
+
+/** Set analog joystick axes (persistent until changed, not accumulated). */
+export function setJoystickAxes(x: number, y: number): void {
+  state.joyMoveX = x;
+  state.joyMoveY = y;
 }
 
 /**

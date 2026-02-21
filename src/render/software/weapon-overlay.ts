@@ -57,7 +57,8 @@ export class WeaponOverlay {
 
       // Y positioning — anchored relative to viewport bottom
       // Weapon stays fixed at viewport bottom regardless of pitch (standard DOOM behavior)
-      const pspriteCentery = ctx.viewheight - 84 * pspritescale;
+      // Use logical viewport height (excluding status bar) for weapon positioning
+      const pspriteCentery = (SCREENHEIGHT - ctx.stHeight) - 84 * pspritescale;
       const sy_px = info.sy >> FRACBITS;
       const texturemid = BASEYCENTER + 0.5 - (sy_px - patch.topOffset);
       const sprtopscreen = pspriteCentery - texturemid * pspritescale;

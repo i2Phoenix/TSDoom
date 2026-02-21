@@ -2,7 +2,8 @@
 // Mobile Touch Input Provider (Virtual Keyboard + Joystick)
 // ============================================================
 
-import { accumulateTouchLook } from './input-browser';
+import { accumulateTouchLook, setJoystickAxes } from './input-browser';
+import { toggleFullscreen, isFullscreenSupported } from './fullscreen';
 
 let touchEnabled = false;
 
@@ -122,11 +123,22 @@ const activeKeys = new Set<string>();
 function updateJoystickKeys(x: number, y: number) {
   const dx = x - joyOriginX;
   const dy = y - joyOriginY;
-  
+
   const absDx = Math.abs(dx);
   const absDy = Math.abs(dy);
 
-  // New state
+  // ── Analog axes: normalized -1..1 with dead zone ──
+  const deadZone = JOY_THRESHOLD / JOY_MAX_RADIUS; // ~0.25
+  let normX = Math.max(-1, Math.min(1, dx / JOY_MAX_RADIUS));
+  let normY = Math.max(-1, Math.min(1, dy / JOY_MAX_RADIUS));
+  // Apply dead zone: remap [deadZone..1] → [0..1]
+  if (Math.abs(normX) < deadZone) normX = 0;
+  else normX = Math.sign(normX) * (Math.abs(normX) - deadZone) / (1 - deadZone);
+  if (Math.abs(normY) < deadZone) normY = 0;
+  else normY = Math.sign(normY) * (Math.abs(normY) - deadZone) / (1 - deadZone);
+  setJoystickAxes(normX, normY);
+
+  // ── Digital keys: still needed for menu navigation ──
   const newKeys = new Set<string>();
 
   if (absDy > JOY_THRESHOLD) {
@@ -160,22 +172,24 @@ function updateJoystickKeys(x: number, y: number) {
     const dist = Math.sqrt(dx * dx + dy * dy);
     let visDx = dx;
     let visDy = dy;
-    
+
     // Clamp to radius
     if (dist > JOY_MAX_RADIUS) {
       visDx = (dx / dist) * JOY_MAX_RADIUS;
       visDy = (dy / dist) * JOY_MAX_RADIUS;
     }
-    
+
     knob.style.transform = `translate(calc(-50% + ${visDx}px), calc(-50% + ${visDy}px))`;
   }
 }
 
 function endJoystick() {
   if (!joyActive) return;
-  
+
   joyActive = false;
   joyPointerId = -1;
+  setJoystickAxes(0, 0);
+
   const knob = document.getElementById('joystick-knob');
   if (knob) {
     knob.style.transform = `translate(-50%, -50%)`;
@@ -232,6 +246,21 @@ export function initTouchControls(): void {
       // Prevent context menu
       btn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
     });
+
+    // ── Bind Fullscreen Button ──
+    const fsBtn = document.getElementById('btn-fullscreen');
+    if (fsBtn) {
+      if (!isFullscreenSupported()) {
+        fsBtn.style.display = 'none';
+      } else {
+        fsBtn.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleFullscreen();
+          try { if (navigator.vibrate) navigator.vibrate(10); } catch (_) {}
+        });
+      }
+    }
 
     // ── Bind Fixed Joystick (Base + Knob) ──
     const joyBase = document.getElementById('joystick-base');
@@ -320,4 +349,12 @@ export function initTouchControls(): void {
       canvas.addEventListener('pointercancel', handleLookEnd);
     }
   }
+}
+
+/** Update fullscreen button visual state (called from fullscreenchange callback) */
+export function updateFullscreenButton(isFs: boolean): void {
+  const fsBtn = document.getElementById('btn-fullscreen');
+  if (!fsBtn) return;
+  fsBtn.classList.toggle('active-fs', isFs);
+  fsBtn.textContent = isFs ? 'EXIT' : 'FS';
 }

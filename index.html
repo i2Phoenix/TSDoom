@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>TSDoom</title>
     <style>
       * {
@@ -77,11 +77,11 @@
         </div>
       </div>
       <div id="touch-utils">
+        <div class="touch-btn util-btn" id="btn-fullscreen">FS</div>
         <div class="touch-btn util-btn" data-key="Escape" id="btn-menu">
           MENU
         </div>
         <div class="touch-btn util-btn" data-key="Tab" id="btn-map">MAP</div>
-
       </div>
     </div>
 
@@ -91,12 +91,15 @@
       #touch-controls {
         position: fixed;
         inset: 0;
-        pointer-events: none; /* Let touches pass through through to canvas if needed, but buttons will capture pointer events */
+        pointer-events: none; /* Let touches pass through to canvas, buttons capture their own */
         z-index: 100;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        padding: 20px;
+        padding: max(20px, env(safe-area-inset-top))
+               max(20px, env(safe-area-inset-right))
+               max(20px, env(safe-area-inset-bottom))
+               max(20px, env(safe-area-inset-left));
         touch-action: none; /* Prevent browser zooming/scrolling */
         user-select: none;
         -webkit-user-select: none;
@@ -129,8 +132,8 @@
       /* Fixed Hybrid Joystick Container */
       #fixed-joystick {
         position: absolute;
-        bottom: 25px;
-        left: 25px;
+        bottom: max(25px, env(safe-area-inset-bottom));
+        left: max(25px, env(safe-area-inset-left));
         width: 200px;
         height: 200px;
         background: rgba(20, 20, 20, 0.5);
@@ -216,8 +219,8 @@
       /* Action Buttons Container */
       #touch-actions {
         position: absolute;
-        bottom: 30px;
-        right: 30px;
+        bottom: max(30px, env(safe-area-inset-bottom));
+        right: max(30px, env(safe-area-inset-right));
         display: grid;
         grid-template-columns: 1fr 1fr;
         grid-template-rows: auto auto;
@@ -260,8 +263,8 @@
       /* Utilities (Menu/Map) */
       #touch-utils {
         position: absolute;
-        top: 20px;
-        right: 20px;
+        top: max(20px, env(safe-area-inset-top));
+        right: max(20px, env(safe-area-inset-right));
         display: flex;
         gap: 15px;
       }
@@ -273,12 +276,17 @@
         border-radius: 8px; /* Square-ish for utility */
       }
 
+      #btn-fullscreen.active-fs {
+        background: rgba(40, 100, 40, 0.6);
+        border-color: rgba(60, 140, 60, 0.8);
+        color: #fff;
+      }
+
       /* Landscape adjustments if needed */
       @media (orientation: landscape) and (max-height: 500px) {
-
         #touch-actions {
-          bottom: 20px;
-          right: 20px;
+          bottom: max(20px, env(safe-area-inset-bottom));
+          right: max(20px, env(safe-area-inset-right));
           scale: 0.8;
           transform-origin: bottom right;
         }

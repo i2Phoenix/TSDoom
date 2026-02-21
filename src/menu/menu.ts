@@ -3,7 +3,7 @@
 // All positions, patches, and logic match the original DOOM
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, getUIWidth, getUIOffsetX } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
@@ -815,7 +815,7 @@ export class MenuSystem {
       const text = lines[i].trim();
       if (text.length > 0) {
         const width = this.measureText(text, scale);
-        const x = Math.round((SCREENWIDTH - width) / 2);
+        const x = Math.round((getUIWidth() - width) / 2);
         this.drawText(text, x, startY + i * lineH, scale);
       }
     }
@@ -1025,16 +1025,21 @@ export class MenuSystem {
   // ══════════════════════════════════════════════════════════
 
   private getScale(): number {
-    return SCREENWIDTH / 320;
+    return getUIWidth() / 320;
   }
 
-  /** Draw a patch scaled to fill the entire screen (TITLEPIC) */
+  /** Draw a patch scaled to fill the UI area (centered in widescreen) */
   private drawPatchFullScreen(patch: Patch): void {
     const pal = this.palData.rgbaLookup;
-    const scaleX = SCREENWIDTH / patch.width;
+    const offsetX = getUIOffsetX();
+    const uiWidth = getUIWidth();
+    const scaleX = uiWidth / patch.width;
     const scaleY = SCREENHEIGHT / patch.height;
 
-    for (let sx = 0; sx < SCREENWIDTH; sx++) {
+    // Clear full screen (widescreen side bars)
+    rgbaBuffer.fill(0xFF000000);
+
+    for (let sx = 0; sx < uiWidth; sx++) {
       const origCx = Math.min(Math.floor(sx / scaleX), patch.width - 1);
       const col = patch.columns[origCx];
 
@@ -1045,7 +1050,7 @@ export class MenuSystem {
           const endSY = Math.floor((origY + 1) * scaleY);
           for (let sy = startSY; sy < endSY; sy++) {
             if (sy >= 0 && sy < SCREENHEIGHT) {
-              rgbaBuffer[sy * SCREENWIDTH + sx] = pal[post.data[dy]];
+              rgbaBuffer[sy * SCREENWIDTH + (offsetX + sx)] = pal[post.data[dy]];
             }
           }
         }
@@ -1056,7 +1061,7 @@ export class MenuSystem {
   /** Draw a patch with nearest-neighbor scaling. */
   private drawPatchScaled(patch: Patch, x: number, y: number, scale: number): void {
     const pal = this.palData.rgbaLookup;
-    const drawX = x - Math.round(patch.leftOffset * scale);
+    const drawX = x + getUIOffsetX() - Math.round(patch.leftOffset * scale);
     const drawY = y - Math.round(patch.topOffset * scale);
     const scaledW = Math.round(patch.width * scale);
 
@@ -1127,7 +1132,7 @@ export class MenuSystem {
   private drawTextCentered(text: string, origY: number): void {
     const scale = this.getScale();
     const width = this.measureText(text, scale);
-    const x = Math.round((SCREENWIDTH - width) / 2);
+    const x = Math.round((getUIWidth() - width) / 2);
     const y = Math.round(origY * scale);
     this.drawText(text, x, y, scale);
   }

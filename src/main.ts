@@ -19,9 +19,11 @@ import {
   SCREENHEIGHT,
   rgbaBuffer,
   setResolution,
+  getUIWidth,
 } from "./render/software/draw";
 import { initBrowserInput } from "./input-browser";
-import { initTouchControls } from "./input-touch";
+import { initTouchControls, updateFullscreenButton } from "./input-touch";
+import { initFullscreen } from "./fullscreen";
 import { toggleProfiler, profilerFrameStart, profilerFrameEnd, profilerTickStart, profilerTickEnd, profilerBegin, profilerEnd, drawProfilerOverlay, isProfilerVisible } from "../game/profiler";
 import { Player, PlayerState } from "../game/player";
 import { GameLoop } from "./game/loop";
@@ -50,6 +52,7 @@ import {
 } from "../game/mobj";
 
 import { initAICallbacks, updatePlayerMobj, initEnemyAI } from "../game/enemy";
+import { updateMobjMomentum } from "../game/p_move";
 import { updateVfx, clearVfx } from "../game/vfx";
 import { feedCheatKey } from "../game/cheats";
 import { updateProjectiles, clearProjectiles } from "../game/projectiles";
@@ -99,7 +102,7 @@ const CROSSHAIR_COLOR = 0xFF00FF00;  // green (ABGR in Uint32Array)
 
 function drawCrosshair(): void {
   if (!getFreelook()) return;
-  const stHeight = Math.round(32 * SCREENWIDTH / 320);
+  const stHeight = Math.round(32 * getUIWidth() / 320);
   const viewheight = SCREENHEIGHT - stHeight;
   const cx = SCREENWIDTH >> 1;
   const cy = viewheight >> 1;
@@ -132,15 +135,18 @@ let finale: Finale | null = null;
 // Canvas
 // ============================================================
 
+// ---- Widescreen resolution adaptation ----
+// Store base (preset) dimensions so we can re-adapt on viewport changes.
+let baseResW = 320;
+let baseResH = 200;
+
 function createCanvas(): void {
   canvas = document.getElementById("doom") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
-  // Canvas internal resolution = render resolution (always 8:5 like original DOOM)
   canvas.width = SCREENWIDTH;
   canvas.height = SCREENHEIGHT;
   imageData = ctx.createImageData(SCREENWIDTH, SCREENHEIGHT);
   imageBuffer = new Uint32Array(imageData.data.buffer);
-  // Fit canvas to viewport with correct aspect ratio
   fitCanvasToViewport();
 }
 
@@ -148,15 +154,13 @@ function createCanvas(): void {
 function fitCanvasToViewport(): void {
   const vpW = window.innerWidth;
   const vpH = window.innerHeight;
-  const aspect = SCREENWIDTH / SCREENHEIGHT; // render aspect ratio (8:5 = 1.6)
+  const aspect = SCREENWIDTH / SCREENHEIGHT;
 
   let cssW: number, cssH: number;
   if (vpW / vpH > aspect) {
-    // Viewport wider than render — pillarbox (fill height, center horizontally)
     cssH = vpH;
     cssW = Math.round(vpH * aspect);
   } else {
-    // Viewport taller than render — letterbox (fill width, center vertically)
     cssW = vpW;
     cssH = Math.round(vpW / aspect);
   }
@@ -164,7 +168,39 @@ function fitCanvasToViewport(): void {
   canvas.style.height = `${cssH}px`;
 }
 
+/**
+ * Compute adapted width for the current viewport aspect ratio.
+ * Expands render width to fill widescreen displays; never narrows below base.
+ */
+function computeAdaptedWidth(bw: number, bh: number): number {
+  const deviceAspect = window.innerWidth / window.innerHeight;
+  const baseAspect = bw / bh;
+  if (deviceAspect > baseAspect) {
+    let w = Math.round(bh * deviceAspect);
+    if (w % 2 !== 0) w++; // keep even for alignment
+    return w;
+  }
+  return bw;
+}
+
 function changeResolution(w: number, h: number): void {
+  baseResW = w;
+  baseResH = h;
+  const adaptedW = computeAdaptedWidth(w, h);
+  applyResolution(adaptedW, h);
+}
+
+/** Re-adapt render width to current viewport (e.g. after orientation change or fullscreen). */
+function readaptResolution(): void {
+  const adaptedW = computeAdaptedWidth(baseResW, baseResH);
+  if (adaptedW !== SCREENWIDTH || baseResH !== SCREENHEIGHT) {
+    applyResolution(adaptedW, baseResH);
+  } else {
+    fitCanvasToViewport();
+  }
+}
+
+function applyResolution(w: number, h: number): void {
   setResolution(w, h);
   canvas.width = SCREENWIDTH;
   canvas.height = SCREENHEIGHT;
@@ -363,6 +399,12 @@ async function main() {
     // Initialize touch controls (if applicable)
     initTouchControls();
 
+    // Initialize fullscreen handling (mobile)
+    initFullscreen((isFs) => {
+      readaptResolution();
+      updateFullscreenButton(isFs);
+    });
+
     // Register post-process passes (order matters)
 
 
@@ -391,11 +433,14 @@ async function main() {
       },
     });
 
+    // Apply saved resolution (triggers widescreen adaptation for current viewport)
+    menu.applySavedResolution();
+
     // Hide loading screen
     loadingEl.style.display = "none";
 
-    // Refit canvas on window resize
-    window.addEventListener("resize", () => fitCanvasToViewport());
+    // Re-adapt resolution on window resize / orientation change
+    window.addEventListener("resize", () => readaptResolution());
 
     // FPS overlay
     fpsDiv = document.createElement("div");
@@ -525,6 +570,7 @@ async function main() {
             updateThingAnimations(gi);
             tickBossBrain(gi);
             updateMonsterDeaths(gi);
+            updateMobjMomentum(gi);
             updateMobjFloorZ(gi);
             tickMonsterRespawn(gi);
             updateVfx(gi);

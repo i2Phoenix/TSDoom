@@ -3,7 +3,7 @@
 // Reference: f_finale.c — F_StartFinale, F_Ticker, F_Drawer
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, getUIWidth, getUIOffsetX } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
@@ -389,7 +389,7 @@ export class Finale {
     if (!this.config) return;
 
     const pal = this.palData.rgbaLookup;
-    const scale = SCREENWIDTH / 320;
+    const scale = getUIWidth() / 320;
 
     if (this.stage === FinaleStage.ArtScreen) {
       this.drawArtScreen(pal, scale);
@@ -411,30 +411,29 @@ export class Finale {
     this.drawFinaleText(this.config.text, charsToShow, pal, scale);
   }
 
-  /** Tile a 64×64 flat across the entire screen */
+  /** Tile a 64×64 flat across the UI area (centered in widescreen) */
   private drawFlatBackground(flatName: string, pal: Uint32Array): void {
-    const flat = this.texData.flats.get(flatName.toUpperCase());
-    if (!flat) {
-      // Fallback: dark background
-      rgbaBuffer.fill(0xFF000000);
-      return;
-    }
+    // Clear full screen (widescreen side bars)
+    rgbaBuffer.fill(0xFF000000);
 
-    const scale = SCREENWIDTH / 320;
+    const flat = this.texData.flats.get(flatName.toUpperCase());
+    if (!flat) return;
+
+    const offsetX = getUIOffsetX();
+    const uiWidth = getUIWidth();
+    const scale = uiWidth / 320;
     const srcW = 64;
-    const srcH = 64;
 
     for (let sy = 0; sy < SCREENHEIGHT; sy++) {
-      // Map screen Y back to 200-space, then wrap into flat
       const origY = Math.floor(sy / scale);
-      const fy = origY & 63; // mod 64
+      const fy = origY & 63;
 
-      for (let sx = 0; sx < SCREENWIDTH; sx++) {
+      for (let sx = 0; sx < uiWidth; sx++) {
         const origX = Math.floor(sx / scale);
-        const fx = origX & 63; // mod 64
+        const fx = origX & 63;
 
         const pixel = flat.data[fy * srcW + fx];
-        rgbaBuffer[sy * SCREENWIDTH + sx] = pal[pixel];
+        rgbaBuffer[sy * SCREENWIDTH + (offsetX + sx)] = pal[pixel];
       }
     }
   }
@@ -465,7 +464,7 @@ export class Finale {
 
       const patch = this.fontPatches.get(code);
       if (patch) {
-        if (cx + Math.round(patch.width * scale) > SCREENWIDTH) {
+        if (cx + Math.round(patch.width * scale) > getUIWidth()) {
           // wrap — don't draw past right edge
           cx = Math.round(10 * scale);
           cy += lineHeight;
@@ -483,8 +482,8 @@ export class Finale {
   // ---- Art screen ----
 
   private drawArtScreen(pal: Uint32Array, scale: number): void {
+    rgbaBuffer.fill(0xFF000000);
     if (this.artPatch) {
-      // Draw fullscreen art patch at (0,0)
       this.drawPatch(this.artPatch, 0, 0, pal, scale);
     } else {
       // Fallback: just keep showing text screen
@@ -495,6 +494,7 @@ export class Finale {
   // ---- Patch rendering (same as intermission) ----
 
   private drawPatch(patch: Patch, x: number, y: number, pal: Uint32Array, scale: number): void {
+    x += getUIOffsetX();
     const scaledW = Math.round(patch.width * scale);
 
     for (let sx = 0; sx < scaledW; sx++) {

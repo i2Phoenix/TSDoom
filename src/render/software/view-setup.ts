@@ -35,7 +35,7 @@ export class ViewSetup {
     // Y-shearing: shift vertical center based on pitch
     // At pitch=±FRACUNIT (±45°), shift by ±viewheight/2 pixels
     const baseCenterY = ctx.centery << FRACBITS;
-    const pitchShift = Math.round(pitch * (ctx.viewheight >> 1) / FRACUNIT) << FRACBITS;
+    const pitchShift = Math.round(pitch * ctx.centery / FRACUNIT) << FRACBITS;
     ctx.centeryfrac = baseCenterY + pitchShift;
   }
 

@@ -3,7 +3,7 @@
 // Reference: st_stuff.c — status bar rendering
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, getUIWidth, getUIOffsetX } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
@@ -12,7 +12,8 @@ import { AmmoType, WeaponType, weaponinfo } from '../../game/weapons';
 import { CF_GODMODE } from '../../game/cheats';
 
 const STBAR_HEIGHT_ORIG = 32;
-function getScale(): number { return SCREENWIDTH / 320; }
+/** UI-aware scale: uses 8:5 UI width, not full widescreen width */
+function getScale(): number { return getUIWidth() / 320; }
 
 // ===========================================================
 // DOOM status bar positions (in 320-pixel coordinate space)
@@ -373,13 +374,16 @@ export class StatusBar {
     // Update face animation state
     this.updateFaceWidget(player);
 
-    // --- STBAR background ---
+    // --- STBAR background (centered via drawPatchScaled offset) ---
     if (this.stbarPatch) {
       this.drawPatchScaled(this.stbarPatch, 0, baseY, pal, scale, false);
     } else {
-      for (let y = baseY; y < SCREENHEIGHT; y++) {
-        for (let x = 0; x < SCREENWIDTH; x++) {
-          rgbaBuffer[y * SCREENWIDTH + x] = 0xFF333333;
+      // Fallback: grey bar in UI area only
+      const ox = getUIOffsetX();
+      const uw = getUIWidth();
+      for (let fy = baseY; fy < SCREENHEIGHT; fy++) {
+        for (let fx = ox; fx < ox + uw; fx++) {
+          rgbaBuffer[fy * SCREENWIDTH + fx] = 0xFF333333;
         }
       }
     }
@@ -592,6 +596,8 @@ export class StatusBar {
     applyOffset: boolean,
     clipMinY: number = 0
   ): void {
+    x += getUIOffsetX(); // Center within UI area for widescreen
+
     if (applyOffset) {
       x -= Math.round(patch.leftOffset * scale);
       y -= Math.round(patch.topOffset * scale);

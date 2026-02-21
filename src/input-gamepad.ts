@@ -71,6 +71,8 @@ export const gamepadProvider: InputProvider = {
       use: gp.buttons[0]?.pressed ?? false,     // A
       run: gp.buttons[4]?.pressed ?? false,     // LB
       weaponSelect: pollWeaponDpad(gp),
+      joyMoveX: 0,     // gamepad uses lookX for turning, left stick for digital move
+      joyMoveY: leftY,  // analog forward/backward from left stick
     };
   },
 

@@ -255,11 +255,18 @@ export class Player {
       moveSpeed *= 2;
     }
 
-    if (input.turnLeft) {
-      this.angle = (this.angle + (turnSpeed << 16)) >>> 0;
-    }
-    if (input.turnRight) {
-      this.angle = (this.angle - (turnSpeed << 16)) >>> 0;
+    // Analog joystick turning (proportional)
+    if (input.joyMoveX !== 0) {
+      const turnDelta = Math.round(turnSpeed * input.joyMoveX);
+      this.angle = (this.angle - (turnDelta << 16)) >>> 0;
+    } else {
+      // Digital turning (keyboard/d-pad)
+      if (input.turnLeft) {
+        this.angle = (this.angle + (turnSpeed << 16)) >>> 0;
+      }
+      if (input.turnRight) {
+        this.angle = (this.angle - (turnSpeed << 16)) >>> 0;
+      }
     }
 
     // Mouse turning
@@ -286,15 +293,24 @@ export class Player {
     const forwardx = finecosine(fineAngle);
     const forwardy = finesine[fineAngle];
 
-    if (input.forward) {
-      const thrust = moveSpeed * 2048;
-      this.momx += fixedMul(thrust, forwardx);
-      this.momy += fixedMul(thrust, forwardy);
-    }
-    if (input.backward) {
-      const thrust = moveSpeed * 2048;
-      this.momx -= fixedMul(thrust, forwardx);
-      this.momy -= fixedMul(thrust, forwardy);
+    // Analog joystick forward/backward (proportional)
+    if (input.joyMoveY !== 0) {
+      const thrust = Math.round(moveSpeed * 2048 * Math.abs(input.joyMoveY));
+      const sign = input.joyMoveY < 0 ? 1 : -1; // negative Y = forward
+      this.momx += sign * fixedMul(thrust, forwardx);
+      this.momy += sign * fixedMul(thrust, forwardy);
+    } else {
+      // Digital forward/backward (keyboard/d-pad)
+      if (input.forward) {
+        const thrust = moveSpeed * 2048;
+        this.momx += fixedMul(thrust, forwardx);
+        this.momy += fixedMul(thrust, forwardy);
+      }
+      if (input.backward) {
+        const thrust = moveSpeed * 2048;
+        this.momx -= fixedMul(thrust, forwardx);
+        this.momy -= fixedMul(thrust, forwardy);
+      }
     }
 
     // Strafe thrust

@@ -389,206 +389,232 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     seeSound: [50], painSound: 35, deathSound: [73], activeSound: 86,
   },
   // Lost Soul (MT_SKULL) — charge attack only
+  // Reference: info.c S_SKULL_STND..S_SKULL_DIE6
   3006: {
     states: [
+      // 0-1: S_SKULL_STND/STND2 (idle)
       { sprite: 'SKUL', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
       { sprite: 'SKUL', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
-      // 2-3: pain
-      { sprite: 'SKUL', frame: 6, tics: 3, nextState: 3 },
-      { sprite: 'SKUL', frame: 7, tics: 3, nextState: 10 },
-      // 4-9: death
-      { sprite: 'SKUL', frame: 8, tics: 6, nextState: 5 },
-      { sprite: 'SKUL', frame: 9, tics: 6, nextState: 6 },
-      { sprite: 'SKUL', frame: 10, tics: 6, nextState: 7 },
-      { sprite: 'SKUL', frame: 11, tics: 6, nextState: 8 },
-      { sprite: 'SKUL', frame: 12, tics: 6, nextState: 9 },
-      { sprite: 'SKUL', frame: 13, tics: -1, nextState: 9 },
-      // 10-13: see
+      // 2-3: S_SKULL_PAIN/PAIN2
+      { sprite: 'SKUL', frame: 4, tics: 3, nextState: 3 },
+      { sprite: 'SKUL', frame: 4, tics: 3, nextState: 10 },
+      // 4-9: S_SKULL_DIE1-6
+      { sprite: 'SKUL', frame: 5, tics: 6, nextState: 5 },
+      { sprite: 'SKUL', frame: 6, tics: 6, nextState: 6 },
+      { sprite: 'SKUL', frame: 7, tics: 6, nextState: 7 },
+      { sprite: 'SKUL', frame: 8, tics: 6, nextState: 8 },
+      { sprite: 'SKUL', frame: 9, tics: 6, nextState: 9 },
+      { sprite: 'SKUL', frame: 10, tics: -1, nextState: 9 },
+      // 10-11: S_SKULL_RUN1/RUN2 (see/chase)
       { sprite: 'SKUL', frame: 0, tics: 6, nextState: 11, action: 'A_Chase' },
       { sprite: 'SKUL', frame: 1, tics: 6, nextState: 10, action: 'A_Chase' },
-      // 12-13: missile (skull attack)
+      // 12-15: S_SKULL_ATK1-4 (charge attack; ATK3/4 loop with frames 2,3)
       { sprite: 'SKUL', frame: 2, tics: 10, nextState: 13, action: 'A_FaceTarget' },
       { sprite: 'SKUL', frame: 3, tics: 4, nextState: 14, action: 'A_SkullAttack' },
-      { sprite: 'SKUL', frame: 4, tics: 4, nextState: 15 },
-      { sprite: 'SKUL', frame: 5, tics: 4, nextState: 12 },
+      { sprite: 'SKUL', frame: 2, tics: 4, nextState: 15 },
+      { sprite: 'SKUL', frame: 3, tics: 4, nextState: 14 },
     ],
     spawnState: 0, painState: 2, deathState: 4,
     seeState: 10, missileState: 12,
-    painChance: 256,
+    painChance: 256, attackSound: 60,
     seeSound: [], painSound: 35, deathSound: [26], activeSound: 86,
   },
-  // Cacodemon (MT_HEAD) — melee + fireball
+  // Cacodemon (MT_HEAD) — fireball only (no melee)
+  // Reference: info.c S_HEAD_STND..S_HEAD_RAISE6
   3005: {
     states: [
-      { sprite: 'HEAD', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
-      { sprite: 'HEAD', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
-      // 2-4: pain
-      { sprite: 'HEAD', frame: 7, tics: 3, nextState: 3 },
-      { sprite: 'HEAD', frame: 7, tics: 3, nextState: 4 },
-      { sprite: 'HEAD', frame: 7, tics: 6, nextState: 11 },
-      // 5-10: death
-      { sprite: 'HEAD', frame: 8, tics: 8, nextState: 6 },
-      { sprite: 'HEAD', frame: 9, tics: 8, nextState: 7 },
-      { sprite: 'HEAD', frame: 10, tics: 8, nextState: 8 },
-      { sprite: 'HEAD', frame: 11, tics: 8, nextState: 9 },
-      { sprite: 'HEAD', frame: 12, tics: 8, nextState: 10 },
-      { sprite: 'HEAD', frame: 13, tics: -1, nextState: 10 },
-      // 11-16: see
-      { sprite: 'HEAD', frame: 0, tics: 3, nextState: 12, action: 'A_Chase' },
-      { sprite: 'HEAD', frame: 1, tics: 3, nextState: 13, action: 'A_Chase' },
-      { sprite: 'HEAD', frame: 2, tics: 3, nextState: 14, action: 'A_Chase' },
-      { sprite: 'HEAD', frame: 3, tics: 3, nextState: 15, action: 'A_Chase' },
-      { sprite: 'HEAD', frame: 4, tics: 3, nextState: 16, action: 'A_Chase' },
-      { sprite: 'HEAD', frame: 5, tics: 3, nextState: 11, action: 'A_Chase' },
-      // 17-19: missile
-      { sprite: 'HEAD', frame: 4, tics: 5, nextState: 18, action: 'A_FaceTarget' },
-      { sprite: 'HEAD', frame: 5, tics: 5, nextState: 19, action: 'A_FaceTarget' },
-      { sprite: 'HEAD', frame: 6, tics: 5, nextState: 11, action: 'A_HeadAttack' },
+      // 0: S_HEAD_STND (idle, loops to self)
+      { sprite: 'HEAD', frame: 0, tics: 10, nextState: 0, action: 'A_Look' },
+      // 1: S_HEAD_RUN1 (chase, single frame loops to self)
+      { sprite: 'HEAD', frame: 0, tics: 3, nextState: 1, action: 'A_Chase' },
+      // 2-4: S_HEAD_ATK1-3 (missile attack)
+      { sprite: 'HEAD', frame: 1, tics: 5, nextState: 3, action: 'A_FaceTarget' },
+      { sprite: 'HEAD', frame: 2, tics: 5, nextState: 4, action: 'A_FaceTarget' },
+      { sprite: 'HEAD', frame: 3, tics: 5, nextState: 1, action: 'A_HeadAttack' },
+      // 5-7: S_HEAD_PAIN-3
+      { sprite: 'HEAD', frame: 4, tics: 3, nextState: 6 },
+      { sprite: 'HEAD', frame: 4, tics: 3, nextState: 7 },
+      { sprite: 'HEAD', frame: 5, tics: 6, nextState: 1 },
+      // 8-13: S_HEAD_DIE1-6
+      { sprite: 'HEAD', frame: 6, tics: 8, nextState: 9 },
+      { sprite: 'HEAD', frame: 7, tics: 8, nextState: 10 },
+      { sprite: 'HEAD', frame: 8, tics: 8, nextState: 11 },
+      { sprite: 'HEAD', frame: 9, tics: 8, nextState: 12 },
+      { sprite: 'HEAD', frame: 10, tics: 8, nextState: 13 },
+      { sprite: 'HEAD', frame: 11, tics: -1, nextState: 13 },
     ],
-    spawnState: 0, painState: 2, deathState: 5,
-    seeState: 11, meleeState: 17, missileState: 17,
-    painChance: 128, attackSound: 26,
+    spawnState: 0, painState: 5, deathState: 8,
+    seeState: 1, missileState: 2,
+    painChance: 128,
     seeSound: [51], painSound: 35, deathSound: [74], activeSound: 86,
   },
   // Baron of Hell (MT_BRUISER) — melee + fireball
+  // Reference: info.c S_BOSS_STND..S_BOSS_RAISE7
   3003: {
     states: [
+      // 0-1: spawn (idle)
       { sprite: 'BOSS', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
       { sprite: 'BOSS', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
       // 2-3: pain
-      { sprite: 'BOSS', frame: 7, tics: 8, nextState: 3 },
-      { sprite: 'BOSS', frame: 7, tics: 8, nextState: 11 },
-      // 4-10: death
+      { sprite: 'BOSS', frame: 7, tics: 2, nextState: 3 },
+      { sprite: 'BOSS', frame: 7, tics: 2, nextState: 11, action: 'A_Pain' },
+      // 4-10: death (7 states)
       { sprite: 'BOSS', frame: 8, tics: 8, nextState: 5 },
-      { sprite: 'BOSS', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'BOSS', frame: 9, tics: 8, nextState: 6, action: 'A_Scream' },
       { sprite: 'BOSS', frame: 10, tics: 8, nextState: 7 },
-      { sprite: 'BOSS', frame: 11, tics: 8, nextState: 8 },
+      { sprite: 'BOSS', frame: 11, tics: 8, nextState: 8, action: 'A_Fall' },
       { sprite: 'BOSS', frame: 12, tics: 8, nextState: 9 },
       { sprite: 'BOSS', frame: 13, tics: 8, nextState: 10 },
-      { sprite: 'BOSS', frame: 14, tics: -1, nextState: 10 },
-      // 11-14: see
+      { sprite: 'BOSS', frame: 14, tics: -1, nextState: 10, action: 'A_BossDeath' },
+      // 11-18: see (8 states — each frame repeats twice)
       { sprite: 'BOSS', frame: 0, tics: 3, nextState: 12, action: 'A_Chase' },
-      { sprite: 'BOSS', frame: 1, tics: 3, nextState: 13, action: 'A_Chase' },
-      { sprite: 'BOSS', frame: 2, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 0, tics: 3, nextState: 13, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 1, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 1, tics: 3, nextState: 15, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 2, tics: 3, nextState: 16, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 2, tics: 3, nextState: 17, action: 'A_Chase' },
+      { sprite: 'BOSS', frame: 3, tics: 3, nextState: 18, action: 'A_Chase' },
       { sprite: 'BOSS', frame: 3, tics: 3, nextState: 11, action: 'A_Chase' },
-      // 15-17: melee
-      { sprite: 'BOSS', frame: 4, tics: 8, nextState: 16, action: 'A_FaceTarget' },
-      { sprite: 'BOSS', frame: 5, tics: 8, nextState: 17, action: 'A_FaceTarget' },
+      // 19-21: melee
+      { sprite: 'BOSS', frame: 4, tics: 8, nextState: 20, action: 'A_FaceTarget' },
+      { sprite: 'BOSS', frame: 5, tics: 8, nextState: 21, action: 'A_FaceTarget' },
       { sprite: 'BOSS', frame: 6, tics: 8, nextState: 11, action: 'A_BruisAttack' },
-      // 18-20: missile
-      { sprite: 'BOSS', frame: 4, tics: 8, nextState: 19, action: 'A_FaceTarget' },
-      { sprite: 'BOSS', frame: 5, tics: 8, nextState: 20, action: 'A_FaceTarget' },
+      // 22-24: missile (same structure as melee)
+      { sprite: 'BOSS', frame: 4, tics: 8, nextState: 23, action: 'A_FaceTarget' },
+      { sprite: 'BOSS', frame: 5, tics: 8, nextState: 24, action: 'A_FaceTarget' },
       { sprite: 'BOSS', frame: 6, tics: 8, nextState: 11, action: 'A_BruisAttack' },
     ],
     spawnState: 0, painState: 2, deathState: 4,
-    seeState: 11, meleeState: 15, missileState: 18,
+    seeState: 11, meleeState: 19, missileState: 22,
     painChance: 50, attackSound: 26,
     seeSound: [52], painSound: 35, deathSound: [76], activeSound: 86,
   },
   // Hell Knight (MT_KNIGHT) — same attack as Baron
+  // Reference: info.c S_BOS2_STND..S_BOS2_RAISE7
   69: {
     states: [
+      // 0-1: spawn (idle)
       { sprite: 'BOS2', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
       { sprite: 'BOS2', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
-      { sprite: 'BOS2', frame: 7, tics: 8, nextState: 3 },
-      { sprite: 'BOS2', frame: 7, tics: 8, nextState: 11 },
+      // 2-3: pain
+      { sprite: 'BOS2', frame: 7, tics: 2, nextState: 3 },
+      { sprite: 'BOS2', frame: 7, tics: 2, nextState: 11, action: 'A_Pain' },
+      // 4-10: death (7 states — no A_BossDeath unlike Baron)
       { sprite: 'BOS2', frame: 8, tics: 8, nextState: 5 },
-      { sprite: 'BOS2', frame: 9, tics: 8, nextState: 6 },
+      { sprite: 'BOS2', frame: 9, tics: 8, nextState: 6, action: 'A_Scream' },
       { sprite: 'BOS2', frame: 10, tics: 8, nextState: 7 },
-      { sprite: 'BOS2', frame: 11, tics: 8, nextState: 8 },
+      { sprite: 'BOS2', frame: 11, tics: 8, nextState: 8, action: 'A_Fall' },
       { sprite: 'BOS2', frame: 12, tics: 8, nextState: 9 },
       { sprite: 'BOS2', frame: 13, tics: 8, nextState: 10 },
       { sprite: 'BOS2', frame: 14, tics: -1, nextState: 10 },
-      // 11-14: see
+      // 11-18: see (8 states — each frame repeats twice)
       { sprite: 'BOS2', frame: 0, tics: 3, nextState: 12, action: 'A_Chase' },
-      { sprite: 'BOS2', frame: 1, tics: 3, nextState: 13, action: 'A_Chase' },
-      { sprite: 'BOS2', frame: 2, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 0, tics: 3, nextState: 13, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 1, tics: 3, nextState: 14, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 1, tics: 3, nextState: 15, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 2, tics: 3, nextState: 16, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 2, tics: 3, nextState: 17, action: 'A_Chase' },
+      { sprite: 'BOS2', frame: 3, tics: 3, nextState: 18, action: 'A_Chase' },
       { sprite: 'BOS2', frame: 3, tics: 3, nextState: 11, action: 'A_Chase' },
-      // 15-20: melee + missile (same structure as Baron)
-      { sprite: 'BOS2', frame: 4, tics: 8, nextState: 16, action: 'A_FaceTarget' },
-      { sprite: 'BOS2', frame: 5, tics: 8, nextState: 17, action: 'A_FaceTarget' },
+      // 19-21: melee
+      { sprite: 'BOS2', frame: 4, tics: 8, nextState: 20, action: 'A_FaceTarget' },
+      { sprite: 'BOS2', frame: 5, tics: 8, nextState: 21, action: 'A_FaceTarget' },
       { sprite: 'BOS2', frame: 6, tics: 8, nextState: 11, action: 'A_BruisAttack' },
-      { sprite: 'BOS2', frame: 4, tics: 8, nextState: 19, action: 'A_FaceTarget' },
-      { sprite: 'BOS2', frame: 5, tics: 8, nextState: 20, action: 'A_FaceTarget' },
+      // 22-24: missile (same structure as melee)
+      { sprite: 'BOS2', frame: 4, tics: 8, nextState: 23, action: 'A_FaceTarget' },
+      { sprite: 'BOS2', frame: 5, tics: 8, nextState: 24, action: 'A_FaceTarget' },
       { sprite: 'BOS2', frame: 6, tics: 8, nextState: 11, action: 'A_BruisAttack' },
     ],
     spawnState: 0, painState: 2, deathState: 4,
-    seeState: 11, meleeState: 15, missileState: 18,
+    seeState: 11, meleeState: 19, missileState: 22,
     painChance: 50, attackSound: 26,
     seeSound: [52], painSound: 35, deathSound: [76], activeSound: 86,
   },
   // Cyberdemon (MT_CYBORG) — missile only (rockets)
+  // Reference: info.c S_CYBER_STND..S_CYBER_DIE10
   16: {
     states: [
+      // 0-1: spawn (idle)
       { sprite: 'CYBR', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
       { sprite: 'CYBR', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
-      // 2-3: pain
-      { sprite: 'CYBR', frame: 9, tics: 10, nextState: 3 },
-      { sprite: 'CYBR', frame: 9, tics: 10, nextState: 14 },
-      // 4-13: death
-      { sprite: 'CYBR', frame: 10, tics: 10, nextState: 5 },
-      { sprite: 'CYBR', frame: 11, tics: 10, nextState: 6 },
-      { sprite: 'CYBR', frame: 12, tics: 10, nextState: 7 },
-      { sprite: 'CYBR', frame: 13, tics: 10, nextState: 8 },
-      { sprite: 'CYBR', frame: 14, tics: 10, nextState: 9 },
-      { sprite: 'CYBR', frame: 15, tics: 10, nextState: 10 },
-      { sprite: 'CYBR', frame: 16, tics: 10, nextState: 11 },
-      { sprite: 'CYBR', frame: 17, tics: 10, nextState: 12 },
-      { sprite: 'CYBR', frame: 18, tics: 10, nextState: 13 },
-      { sprite: 'CYBR', frame: 19, tics: -1, nextState: 13 },
-      // 14-17: see
-      { sprite: 'CYBR', frame: 0, tics: 3, nextState: 15, action: 'A_Hoof' },
+      // 2: pain (single state — original has only S_CYBER_PAIN)
+      { sprite: 'CYBR', frame: 6, tics: 10, nextState: 13, action: 'A_Pain' },
+      // 3-12: death (10 states)
+      { sprite: 'CYBR', frame: 7, tics: 10, nextState: 4 },
+      { sprite: 'CYBR', frame: 8, tics: 10, nextState: 5, action: 'A_Scream' },
+      { sprite: 'CYBR', frame: 9, tics: 10, nextState: 6 },
+      { sprite: 'CYBR', frame: 10, tics: 10, nextState: 7 },
+      { sprite: 'CYBR', frame: 11, tics: 10, nextState: 8 },
+      { sprite: 'CYBR', frame: 12, tics: 10, nextState: 9, action: 'A_Fall' },
+      { sprite: 'CYBR', frame: 13, tics: 10, nextState: 10 },
+      { sprite: 'CYBR', frame: 14, tics: 10, nextState: 11 },
+      { sprite: 'CYBR', frame: 15, tics: 30, nextState: 12 },
+      { sprite: 'CYBR', frame: 15, tics: -1, nextState: 12, action: 'A_BossDeath' },
+      // 13-20: see (8 states — each frame repeats twice)
+      { sprite: 'CYBR', frame: 0, tics: 3, nextState: 14, action: 'A_Hoof' },
+      { sprite: 'CYBR', frame: 0, tics: 3, nextState: 15, action: 'A_Chase' },
       { sprite: 'CYBR', frame: 1, tics: 3, nextState: 16, action: 'A_Chase' },
-      { sprite: 'CYBR', frame: 2, tics: 3, nextState: 17, action: 'A_Chase' },
-      { sprite: 'CYBR', frame: 3, tics: 3, nextState: 14, action: 'A_Chase' },
-      // 18-20: missile
-      { sprite: 'CYBR', frame: 4, tics: 6, nextState: 19, action: 'A_FaceTarget' },
-      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 20, action: 'A_CyberAttack' },
-      { sprite: 'CYBR', frame: 4, tics: 12, nextState: 21, action: 'A_FaceTarget' },
-      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 22, action: 'A_CyberAttack' },
-      { sprite: 'CYBR', frame: 4, tics: 12, nextState: 23, action: 'A_FaceTarget' },
-      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 14, action: 'A_CyberAttack' },
+      { sprite: 'CYBR', frame: 1, tics: 3, nextState: 17, action: 'A_Chase' },
+      { sprite: 'CYBR', frame: 2, tics: 3, nextState: 18, action: 'A_Chase' },
+      { sprite: 'CYBR', frame: 2, tics: 3, nextState: 19, action: 'A_Chase' },
+      { sprite: 'CYBR', frame: 3, tics: 3, nextState: 20, action: 'A_Metal' },
+      { sprite: 'CYBR', frame: 3, tics: 3, nextState: 13, action: 'A_Chase' },
+      // 21-26: missile (3 rockets per attack cycle)
+      { sprite: 'CYBR', frame: 4, tics: 6, nextState: 22, action: 'A_FaceTarget' },
+      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 23, action: 'A_CyberAttack' },
+      { sprite: 'CYBR', frame: 4, tics: 12, nextState: 24, action: 'A_FaceTarget' },
+      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 25, action: 'A_CyberAttack' },
+      { sprite: 'CYBR', frame: 4, tics: 12, nextState: 26, action: 'A_FaceTarget' },
+      { sprite: 'CYBR', frame: 5, tics: 12, nextState: 13, action: 'A_CyberAttack' },
     ],
-    spawnState: 0, painState: 2, deathState: 4,
-    seeState: 14, missileState: 18,
+    spawnState: 0, painState: 2, deathState: 3,
+    seeState: 13, missileState: 21,
     painChance: 20,
     seeSound: [53], deathSound: [77], activeSound: 86,
   },
   // Spider Mastermind (MT_SPIDER) — super chaingun
+  // Reference: info.c S_SPID_STND..S_SPID_DIE11
   7: {
     states: [
+      // 0-1: spawn (idle)
       { sprite: 'SPID', frame: 0, tics: 10, nextState: 1, action: 'A_Look' },
       { sprite: 'SPID', frame: 1, tics: 10, nextState: 0, action: 'A_Look' },
       // 2-3: pain
       { sprite: 'SPID', frame: 8, tics: 3, nextState: 3 },
-      { sprite: 'SPID', frame: 8, tics: 3, nextState: 10 },
-      // 4-14: death
-      { sprite: 'SPID', frame: 9, tics: 20, nextState: 5 },
-      { sprite: 'SPID', frame: 10, tics: 10, nextState: 6 },
+      { sprite: 'SPID', frame: 8, tics: 3, nextState: 15, action: 'A_Pain' },
+      // 4-14: death (11 states)
+      { sprite: 'SPID', frame: 9, tics: 20, nextState: 5, action: 'A_Scream' },
+      { sprite: 'SPID', frame: 10, tics: 10, nextState: 6, action: 'A_Fall' },
       { sprite: 'SPID', frame: 11, tics: 10, nextState: 7 },
       { sprite: 'SPID', frame: 12, tics: 10, nextState: 8 },
       { sprite: 'SPID', frame: 13, tics: 10, nextState: 9 },
       { sprite: 'SPID', frame: 14, tics: 10, nextState: 10 },
-      // idx 10 is reused — spider uses long death
       { sprite: 'SPID', frame: 15, tics: 10, nextState: 11 },
       { sprite: 'SPID', frame: 16, tics: 10, nextState: 12 },
       { sprite: 'SPID', frame: 17, tics: 10, nextState: 13 },
-      { sprite: 'SPID', frame: 18, tics: 10, nextState: 14 },
-      { sprite: 'SPID', frame: 19, tics: -1, nextState: 14 },
-      // 15-20: see
+      { sprite: 'SPID', frame: 18, tics: 30, nextState: 14 },
+      { sprite: 'SPID', frame: 18, tics: -1, nextState: 14, action: 'A_BossDeath' },
+      // 15-26: see (12 states — each frame repeats twice, A_Metal every 4th)
       { sprite: 'SPID', frame: 0, tics: 3, nextState: 16, action: 'A_Metal' },
-      { sprite: 'SPID', frame: 1, tics: 3, nextState: 17, action: 'A_Chase' },
-      { sprite: 'SPID', frame: 2, tics: 3, nextState: 18, action: 'A_Chase' },
-      { sprite: 'SPID', frame: 3, tics: 3, nextState: 19, action: 'A_Chase' },
-      { sprite: 'SPID', frame: 4, tics: 3, nextState: 20, action: 'A_Metal' },
+      { sprite: 'SPID', frame: 0, tics: 3, nextState: 17, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 1, tics: 3, nextState: 18, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 1, tics: 3, nextState: 19, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 2, tics: 3, nextState: 20, action: 'A_Metal' },
+      { sprite: 'SPID', frame: 2, tics: 3, nextState: 21, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 3, tics: 3, nextState: 22, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 3, tics: 3, nextState: 23, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 4, tics: 3, nextState: 24, action: 'A_Metal' },
+      { sprite: 'SPID', frame: 4, tics: 3, nextState: 25, action: 'A_Chase' },
+      { sprite: 'SPID', frame: 5, tics: 3, nextState: 26, action: 'A_Chase' },
       { sprite: 'SPID', frame: 5, tics: 3, nextState: 15, action: 'A_Chase' },
-      // 21-23: missile
-      { sprite: 'SPID', frame: 5, tics: 20, nextState: 22, action: 'A_FaceTarget' },
-      { sprite: 'SPID', frame: 6, tics: 4, nextState: 23, action: 'A_SPosAttack' },
-      { sprite: 'SPID', frame: 7, tics: 4, nextState: 22, action: 'A_SpidRefire' },
+      // 27-30: missile (ATK1-ATK4: face, fire, fire, refire check)
+      { sprite: 'SPID', frame: 0, tics: 20, nextState: 28, action: 'A_FaceTarget' },
+      { sprite: 'SPID', frame: 6, tics: 4, nextState: 29, action: 'A_SPosAttack' },
+      { sprite: 'SPID', frame: 7, tics: 4, nextState: 30, action: 'A_SPosAttack' },
+      { sprite: 'SPID', frame: 7, tics: 1, nextState: 28, action: 'A_SpidRefire' },
     ],
     spawnState: 0, painState: 2, deathState: 4,
-    seeState: 15, missileState: 21,
+    seeState: 15, missileState: 27,
     painChance: 40,
     seeSound: [54], painSound: 35, deathSound: [78], activeSound: 86,
   },

@@ -3,7 +3,7 @@
 // Reference: wi_stuff.c — WI_Start, WI_Ticker, WI_Drawer
 // ============================================================
 
-import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer } from '../render/software/draw';
+import { SCREENWIDTH, SCREENHEIGHT, rgbaBuffer, getUIWidth, getUIOffsetX } from '../render/software/draw';
 import { PaletteData } from '../palette';
 import { TextureData, Patch } from '../textures';
 import { WAD } from '../wad';
@@ -397,7 +397,7 @@ export class Intermission {
 
   draw(): void {
     const pal = this.palData.rgbaLookup;
-    const scale = SCREENWIDTH / 320;
+    const scale = getUIWidth() / 320;
 
     // Draw background
     this.drawBackground(pal, scale);
@@ -416,11 +416,10 @@ export class Intermission {
   }
 
   private drawBackground(pal: Uint32Array, scale: number): void {
+    // Clear full screen (widescreen side bars)
+    rgbaBuffer.fill(0xFF000000);
     if (this.bg) {
       this.drawPatch(this.bg, 0, 0, pal, scale, false);
-    } else {
-      // Fallback: dark background
-      rgbaBuffer.fill(0xFF000000);
     }
   }
 
@@ -546,18 +545,18 @@ export class Intermission {
     // Draw last level name
     const lname = this.lnames[this.wbs.last];
     if (lname) {
-      const lx = Math.round((SCREENWIDTH - lname.width * scale) / 2);
+      const lx = Math.round((getUIWidth() - lname.width * scale) / 2);
       this.drawPatch(lname, lx, y, pal, scale, false);
       y += Math.round((5 * lname.height * scale) / 4);
     } else {
       // Fallback: draw level name as text
-      this.drawText(this.wbs.lastMapName, SCREENWIDTH / 2, y, pal, scale, true);
+      this.drawText(this.wbs.lastMapName, getUIWidth() / 2, y, pal, scale, true);
       y += Math.round(20 * scale);
     }
 
     // Draw "Finished!"
     if (this.finished) {
-      const fx = Math.round((SCREENWIDTH - this.finished.width * scale) / 2);
+      const fx = Math.round((getUIWidth() - this.finished.width * scale) / 2);
       this.drawPatch(this.finished, fx, y, pal, scale, false);
     }
   }
@@ -570,7 +569,7 @@ export class Intermission {
 
     // Draw "Entering"
     if (this.entering) {
-      const ex = Math.round((SCREENWIDTH - this.entering.width * scale) / 2);
+      const ex = Math.round((getUIWidth() - this.entering.width * scale) / 2);
       this.drawPatch(this.entering, ex, y, pal, scale, false);
       y += Math.round((5 * (this.entering.height) * scale) / 4);
     }
@@ -578,10 +577,10 @@ export class Intermission {
     // Draw next level name
     const lname = this.lnames[this.wbs.next];
     if (lname) {
-      const lx = Math.round((SCREENWIDTH - lname.width * scale) / 2);
+      const lx = Math.round((getUIWidth() - lname.width * scale) / 2);
       this.drawPatch(lname, lx, y, pal, scale, false);
     } else {
-      this.drawText(this.wbs.nextMapName, SCREENWIDTH / 2, y, pal, scale, true);
+      this.drawText(this.wbs.nextMapName, getUIWidth() / 2, y, pal, scale, true);
     }
   }
 
@@ -686,6 +685,7 @@ export class Intermission {
   // ---- Patch rendering ----
 
   private drawPatch(patch: Patch, x: number, y: number, pal: Uint32Array, scale: number, applyOffset: boolean): void {
+    x += getUIOffsetX();
     if (applyOffset) {
       x -= Math.round(patch.leftOffset * scale);
       y -= Math.round(patch.topOffset * scale);

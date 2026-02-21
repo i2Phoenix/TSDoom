@@ -13,7 +13,7 @@ import type { TextureData, Patch } from '../../textures';
 import type { PaletteData } from '../../palette';
 import type { WAD } from '../../wad';
 import type { SpriteData } from './sprites';
-import { SCREENWIDTH, SCREENHEIGHT } from './draw';
+import { SCREENWIDTH, SCREENHEIGHT, getUIWidth } from './draw';
 import type { GameInstance } from '../../../game/game-instance';
 import type { VfxEffect } from '../../../game/vfx';
 import type { DroppedItem } from '../../../game/mobj';
@@ -120,11 +120,11 @@ export class RenderContext {
   viewpitch = 0;          // fixed-point [-FRACUNIT..+FRACUNIT], for Y-shearing
 
   // ---- Resolution-dependent ----
-  stHeight = Math.round(32 * SCREENWIDTH / BASE_WIDTH);
+  stHeight = Math.round(32 * getUIWidth() / BASE_WIDTH);
   viewwidth = SCREENWIDTH;
-  viewheight = SCREENHEIGHT - this.stHeight;
+  viewheight = SCREENHEIGHT;  // Full screen render (3D extends behind status bar wings)
   centerx = this.viewwidth >> 1;
-  centery = this.viewheight >> 1;
+  centery = (SCREENHEIGHT - this.stHeight) >> 1;  // Horizon at original position
   centerxfrac = this.centerx << FRACBITS;
   centeryfrac = this.centery << FRACBITS;
   projection = this.centerxfrac;
@@ -331,11 +331,11 @@ export class RenderContext {
   // ---- Resolution change ----
 
   updateResolution(): void {
-    this.stHeight = Math.round(32 * SCREENWIDTH / BASE_WIDTH);
+    this.stHeight = Math.round(32 * getUIWidth() / BASE_WIDTH);
     this.viewwidth = SCREENWIDTH;
-    this.viewheight = SCREENHEIGHT - this.stHeight;
+    this.viewheight = SCREENHEIGHT;
     this.centerx = this.viewwidth >> 1;
-    this.centery = this.viewheight >> 1;
+    this.centery = (SCREENHEIGHT - this.stHeight) >> 1;
     this.centerxfrac = this.centerx << FRACBITS;
     this.centeryfrac = this.centery << FRACBITS;
     this.projection = this.centerxfrac;
@@ -349,7 +349,7 @@ export class RenderContext {
     this.clipBuf = new Int16Array(SCREENWIDTH * CLIP_BUF_SIZE_FACTOR);
 
     for (let i = 0; i < this.viewheight; i++) {
-      let dy = (((i - this.viewheight / 2) * FRACUNIT + FRACUNIT / 2) | 0);
+      let dy = (((i - this.centery) * FRACUNIT + FRACUNIT / 2) | 0);
       dy = Math.abs(dy);
       if (dy < 1) dy = 1;
       this.yslope[i] = fixedDiv((this.viewwidth / 2) * FRACUNIT, dy);

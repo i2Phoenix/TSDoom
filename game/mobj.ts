@@ -13,7 +13,7 @@ import { SkillLevel, isRespawnMonsters, isFastMonsters } from './skill';
 import { P_Random } from './random';
 import {
   setMonsterPain, setMonsterDeath, isMonsterDead, getThingAnimDef,
-  setMonsterState,
+  setMonsterState, getThingAnimState,
 } from './animations';
 import { FX_RemoveDynLight, FX_Sound } from './effects';
 import { spawnTeleportFog } from './vfx';
@@ -371,6 +371,11 @@ export function damageMobj(
   if (!(target.flags & MF_SHOOTABLE)) return false;
   if (target.health <= 0) return false;
 
+  // Stop skull fly momentum on any damage (Reference: p_inter.c line 793)
+  if (target.flags & MF_SKULLFLY) {
+    target.momx = target.momy = target.momz = 0;
+  }
+
   target.health -= damage;
 
   if (target.health <= 0) {
@@ -379,28 +384,37 @@ export function damageMobj(
   }
 
   // Non-lethal hit: trigger pain animation (probability-based)
-  if (!isBarrel(target.type)) {
+  // Skip pain for MF_SKULLFLY (skull in mid-charge) — Reference: p_inter.c line 895
+  if (!isBarrel(target.type) && !(target.flags & MF_SKULLFLY)) {
     const animDef = getThingAnimDef(target.type);
     if (animDef && animDef.painChance !== undefined && animDef.painState !== undefined) {
       if (P_Random(gi) < animDef.painChance) {
+        target.flags |= MF_JUSTHIT;  // fight back!
         setMonsterPain(target.thingIndex, target.type);
-        // Play pain sound
         if (animDef.painSound !== undefined) {
           FX_Sound({ x: target.x, y: target.y }, animDef.painSound);
         }
       }
     }
+  }
 
-    // Infighting: if source is a different monster species, retarget
-    if (source && source !== target
-      && source.mobjType !== -1 && target.mobjType !== -1
-      && source.mobjType !== target.mobjType) {
-      const srcIsMon = isMonsterType(source.mobjType as MT);
-      const tgtIsMon = isMonsterType(target.mobjType as MT);
-      if (srcIsMon && tgtIsMon) {
-        target.target = source;
-        target.threshold = 100;
-        target.flags |= MF_JUSTHIT;  // attack immediately
+  // React to damage — we're awake now (Reference: p_inter.c line 902)
+  target.reactiontime = 0;
+
+  // Retarget to source (Reference: p_inter.c lines 904-914)
+  // If not already focused on another target (threshold > 0),
+  // chase after the attacker. Arch-vile always switches targets.
+  if ((!target.threshold || target.mobjType === MT.MT_VILE)
+      && source && source !== target) {
+    target.target = source;
+    target.threshold = 100;  // BASETHRESHOLD
+
+    // Wake up idle monsters: if in spawn state, go to see state
+    const animDef = getThingAnimDef(target.type);
+    if (animDef && animDef.seeState !== undefined) {
+      const anim = getThingAnimState(target.thingIndex);
+      if (anim && anim.mobjState === 'alive') {
+        setMonsterState(target.thingIndex, target.type, animDef.seeState, 'chasing', gi);
       }
     }
   }
@@ -465,6 +479,12 @@ export function updateMonsterDeaths(gi: GameInstance): void {
     if (isMonsterDead(obj.thingIndex)) {
       obj.deathHandled = true;
       gi.dyingMonsters.delete(idx);
+
+      // Lost Souls: remove completely after death (original DOOM: S_SKULL_DIE6 → S_NULL → P_RemoveMobj)
+      if (obj.type === 3006) {
+        obj.removed = true;
+        getRemovedThings(gi).add(obj.thingIndex);
+      }
 
       // Spawn dropped item
       const animDef = getThingAnimDef(obj.type);

@@ -19,6 +19,8 @@ export interface InputState {
   lookX: number;      // accumulated analog turn (mouse or stick), reset each tick
   lookY: number;      // vertical (for free look)
   weaponSelect: number; // -1 = none, 0-6 = weapon slot, -2 = next, -3 = prev
+  joyMoveX: number;   // analog joystick horizontal: -1 (left) to +1 (right), for turning
+  joyMoveY: number;   // analog joystick vertical: -1 (forward) to +1 (backward)
 }
 
 /** Provider interface — implemented per-platform */
@@ -46,6 +48,8 @@ export function createDefaultInputState(): InputState {
     lookX: 0,
     lookY: 0,
     weaponSelect: -1,
+    joyMoveX: 0,
+    joyMoveY: 0,
   };
 }
 
