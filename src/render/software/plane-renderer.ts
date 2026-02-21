@@ -235,6 +235,8 @@ export class PlaneRenderer {
   private drawSky(ctx: RenderContext, vp: Visplane): void {
     const skyTex = ctx.texData.textures[ctx.skytexture];
     const lookup = ctx.palData.getColormapLookup(0);
+    // Pitch offset: sky scrolls vertically with freelook
+    const pitchShearPx = Math.round(ctx.viewpitch * (ctx.viewheight >> 1) / FRACUNIT);
 
     for (let x = vp.minx; x <= vp.maxx; x++) {
       const t = vp.top[x];
@@ -248,7 +250,8 @@ export class PlaneRenderer {
         if (texCol) {
           for (let y = t; y <= b; y++) {
             if (y >= 0 && y < ctx.viewheight) {
-              const pixel = texCol[((y * skyTex.height / ctx.viewheight) | 0) % skyTex.height] || 0;
+              const texY = (((y - pitchShearPx) * skyTex.height / ctx.viewheight) | 0) % skyTex.height;
+              const pixel = texCol[(texY + skyTex.height) % skyTex.height] || 0;
               rgbaBuffer[y * SCREENWIDTH + x] = lookup[pixel];
             }
           }
