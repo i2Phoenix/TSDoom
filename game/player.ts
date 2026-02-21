@@ -32,7 +32,7 @@ const FORWARDMOVE = 0x19; // 25 — same as original DOOM
 const SIDEMOVE = 0x18;    // 24
 const ANGLETURN = 640;     // per-tic turning speed
 let MOUSE_SENSITIVITY = 8;
-const PITCH_SENSITIVITY = 600;   // tune to feel similar to horizontal
+const PITCH_SENSITIVITY = 280;   // tuned to feel proportional to horizontal turn speed
 
 /** Set mouse sensitivity (0-9 maps to 2-20 internal) */
 export function setMouseSensitivity(level: number): void {
