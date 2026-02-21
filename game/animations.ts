@@ -1384,7 +1384,7 @@ export function setThingAnimStates(states: Map<number, ThingAnimState>): void {
  * Switch a monster's animation to a specific state index.
  * Used by AI to transition to seeState, meleeState, missileState, spawnState.
  */
-export function setMonsterState(thingIndex: number, thingType: number, stateIdx: number, lifecycle: MobjLifecycle, gi?: GameInstance): void {
+export function setMonsterState(thingIndex: number, thingType: number, stateIdx: number, lifecycle: MobjLifecycle, gi: GameInstance): void {
   const def = THING_ANIM_DEFS[thingType];
   if (!def || stateIdx >= def.states.length) return;
 

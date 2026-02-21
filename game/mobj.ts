@@ -365,8 +365,8 @@ export function isBarrel(type: number): boolean {
 export function damageMobj(
   target: MapObjState,
   damage: number,
-  source?: MapObjState | null,
-  gi?: GameInstance,
+  source: MapObjState | null | undefined,
+  gi: GameInstance,
 ): boolean {
   if (!(target.flags & MF_SHOOTABLE)) return false;
   if (target.health <= 0) return false;
@@ -374,7 +374,7 @@ export function damageMobj(
   target.health -= damage;
 
   if (target.health <= 0) {
-    killMobj(target, gi!);
+    killMobj(target, gi);
     return true;
   }
 
@@ -382,7 +382,7 @@ export function damageMobj(
   if (!isBarrel(target.type)) {
     const animDef = getThingAnimDef(target.type);
     if (animDef && animDef.painChance !== undefined && animDef.painState !== undefined) {
-      if (P_Random(gi!) < animDef.painChance) {
+      if (P_Random(gi) < animDef.painChance) {
         setMonsterPain(target.thingIndex, target.type);
         // Play pain sound
         if (animDef.painSound !== undefined) {
@@ -587,7 +587,7 @@ export function tickMonsterRespawn(gi: GameInstance): void {
     // Reset animation to spawn/idle state
     const animDef = getThingAnimDef(obj.type);
     if (animDef) {
-      setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive');
+      setMonsterState(obj.thingIndex, obj.type, animDef.spawnState, 'alive', gi);
     }
 
     // Spawn telefog VFX at respawn position (matching P_SpawnMobj(MT_TFOG) in original)

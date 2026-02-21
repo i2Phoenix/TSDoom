@@ -639,22 +639,22 @@ function checkPlayerCollision(
 // Explode a projectile
 // ============================================================
 
-function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: number, gi?: GameInstance): void {
+function explodeProjectile(proj: Projectile, hitX: number, hitY: number, hitZ: number, gi: GameInstance): void {
   proj.removed = true;
 
   // Spawn visual explosion effect
   switch (proj.type) {
     case ProjectileType.rocket:
     case ProjectileType.cyberdemonRocket:
-      spawnRocketExplosion(hitX, hitY, hitZ, gi!);
-      P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius, gi!);
+      spawnRocketExplosion(hitX, hitY, hitZ, gi);
+      P_RadiusAttack(hitX, hitY, hitZ, proj.info.explosionRadius, gi);
       break;
     case ProjectileType.plasma:
-      spawnPlasmaHit(hitX, hitY, hitZ, gi!);
+      spawnPlasmaHit(hitX, hitY, hitZ, gi);
       break;
     case ProjectileType.bfg:
-      spawnBfgHit(hitX, hitY, hitZ, gi!);
-      fireBfgTracers(hitX, hitY, hitZ, proj, gi!);
+      spawnBfgHit(hitX, hitY, hitZ, gi);
+      fireBfgTracers(hitX, hitY, hitZ, proj, gi);
       break;
   }
 
