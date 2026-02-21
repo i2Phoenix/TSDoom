@@ -15,9 +15,10 @@ import { SkillLevel, SKILL_NAMES } from '../../game/skill';
 import { getRenderer } from '../../game/renderer-global';
 import {
   getResolutionIndex, getMouseSensitivityLevel, getTrueColor, getDynLights,
-  getSfxVolume, getMusicVolume,
+  getSfxVolume, getMusicVolume, getFreelook,
   setResolutionIndex, setMouseSensitivityLevel, setTrueColor, setDynLights,
   setSfxVolume as setSfxVolumeSetting, setMusicVolume as setMusicVolumeSetting,
+  setFreelook,
 } from '../../game/settings';
 
 import { S_StartSound, S_SetSfxVolume, S_SetMusicVolume, S_ChangeMusic, S_StopMusic } from '../sound/s_sound';
@@ -235,15 +236,16 @@ export class MenuSystem {
 
     // Options menu: x=60, y=37
     this.optionsDef = {
-      numitems: 6,
+      numitems: 7,
       prevMenu: this.mainDef,
       menuitems: [
         { status: 2,  name: '',  action: (choice) => this.sizeDisplay(choice) },          // 0: Resolution
         { status: 2,  name: '',  action: () => this.toggleColorMode() },                   // 1: Color Mode
         { status: 2,  name: '',  action: () => this.toggleDynLights() },                   // 2: Dynamic Lights
-        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },     // 3: Mouse Sensitivity
-        { status: 2,  name: '',  action: (choice) => this.changeSfxVolume(choice) },       // 4: SFX Volume
-        { status: 2,  name: '',  action: (choice) => this.changeMusicVolume(choice) },     // 5: Music Volume
+        { status: 2,  name: '',  action: () => this.toggleFreelook() },                    // 3: Freelook
+        { status: 2,  name: '',  action: (choice) => this.changeSensitivity(choice) },     // 4: Mouse Sensitivity
+        { status: 2,  name: '',  action: (choice) => this.changeSfxVolume(choice) },       // 5: SFX Volume
+        { status: 2,  name: '',  action: (choice) => this.changeMusicVolume(choice) },     // 6: Music Volume
       ],
       routine: () => this.drawOptionsCustom(),
       x: 60,
@@ -486,6 +488,10 @@ export class MenuSystem {
     getRenderer().setDynLightsEnabled(newMode);
   }
 
+  private toggleFreelook(): void {
+    const newMode = !getFreelook();
+    setFreelook(newMode);
+  }
 
   // ── Options: Mouse Sensitivity ────────────────────────────
   private changeSensitivity(choice: number): void {
@@ -891,28 +897,36 @@ export class MenuSystem {
       Math.round(valX * scale), Math.round(y2 * scale), scale
     );
 
-    // Item 3: MOUSE SENSITIVITY
+    // Item 3: FREELOOK
     const y3 = y0 + LINEHEIGHT * 3;
-    this.drawText('MOUSE SENSITIVITY', Math.round(x * scale), Math.round(y3 * scale), scale);
+    this.drawText('FREELOOK', Math.round(x * scale), Math.round(y3 * scale), scale);
     this.drawText(
-      `${this.mouseSensitivity * 10}%`,
+      getFreelook() ? 'ON' : 'OFF',
       Math.round(valX * scale), Math.round(y3 * scale), scale
     );
 
-    // Item 4: SFX VOLUME
+    // Item 4: MOUSE SENSITIVITY
     const y4 = y0 + LINEHEIGHT * 4;
-    this.drawText('SFX VOLUME', Math.round(x * scale), Math.round(y4 * scale), scale);
+    this.drawText('MOUSE SENSITIVITY', Math.round(x * scale), Math.round(y4 * scale), scale);
     this.drawText(
-      `${this.sfxVolumeLevel * 10}%`,
+      `${this.mouseSensitivity * 10}%`,
       Math.round(valX * scale), Math.round(y4 * scale), scale
     );
 
-    // Item 5: MUSIC VOLUME
+    // Item 5: SFX VOLUME
     const y5 = y0 + LINEHEIGHT * 5;
-    this.drawText('MUSIC VOLUME', Math.round(x * scale), Math.round(y5 * scale), scale);
+    this.drawText('SFX VOLUME', Math.round(x * scale), Math.round(y5 * scale), scale);
+    this.drawText(
+      `${this.sfxVolumeLevel * 10}%`,
+      Math.round(valX * scale), Math.round(y5 * scale), scale
+    );
+
+    // Item 6: MUSIC VOLUME
+    const y6 = y0 + LINEHEIGHT * 6;
+    this.drawText('MUSIC VOLUME', Math.round(x * scale), Math.round(y6 * scale), scale);
     this.drawText(
       `${this.musicVolumeLevel * 10}%`,
-      Math.round(valX * scale), Math.round(y5 * scale), scale
+      Math.round(valX * scale), Math.round(y6 * scale), scale
     );
   }
 
