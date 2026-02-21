@@ -22,6 +22,7 @@ import { Player } from './player';
 
 import { Sfx } from './sounds';
 import { shootSpecialLine } from './specials';
+import { getFreelook } from './settings';
 
 import { MELEERANGE, MISSILERANGE } from './constants';
 const PLAYERRADIUS = 16;  // player collision radius in map units
@@ -465,6 +466,17 @@ export function P_BulletSlope(
   gi: GameInstance,
 ): void {
   const cc = gi.combat;
+
+  if (getFreelook() && gi.world?.player) {
+    // Freelook: fire along player's pitch direction, no autoaim
+    // Convert pitch [-FRACUNIT..+FRACUNIT] to slope
+    // At ±45° (±FRACUNIT), slope should be ±FRACUNIT (1:1 ratio)
+    cc.bulletslope = gi.world.player.pitch;
+    cc.linetarget = null;
+    return;
+  }
+
+  // Classic mode: autoaim scanning
   // Try center first
   cc.bulletslope = P_AimLineAttack(x, y, z, angle, 16 * 64 * FRACUNIT, gi);
 
