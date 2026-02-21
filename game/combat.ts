@@ -469,9 +469,10 @@ export function P_BulletSlope(
 
   if (getFreelook() && gi.world?.player) {
     // Freelook: fire along player's pitch direction, no autoaim
-    // Convert pitch [-FRACUNIT..+FRACUNIT] to slope
-    // At ±45° (±FRACUNIT), slope should be ±FRACUNIT (1:1 ratio)
-    cc.bulletslope = gi.world.player.pitch;
+    // Convert pitch to slope: slope = pitch * (baseViewHeight/2) / (baseViewWidth/2)
+    // Base DOOM: viewheight=168, viewwidth=320, so ratio = 84/160 = 0.525
+    // This matches the Y-shearing screen offset to actual firing angle
+    cc.bulletslope = Math.round(gi.world.player.pitch * 84 / 160);
     cc.linetarget = null;
     return;
   }

@@ -168,7 +168,16 @@ export class PlaneRenderer {
         }
         // Use unshifted y for yslope lookup (table is relative to base center)
         const yslopeIdx = y - pitchShearPx;
-        const yslopeVal = (yslopeIdx >= 0 && yslopeIdx < ctx.viewheight) ? (ctx.yslope[yslopeIdx] || 0) : 0;
+        let yslopeVal: number;
+        if (yslopeIdx >= 0 && yslopeIdx < ctx.viewheight) {
+          yslopeVal = ctx.yslope[yslopeIdx] || 0;
+        } else {
+          // Compute yslope dynamically for rows beyond precomputed table (pitch shear extends view)
+          let dynDy = (((yslopeIdx - ctx.viewheight / 2) * FRACUNIT + (FRACUNIT >> 1)) | 0);
+          dynDy = Math.abs(dynDy);
+          if (dynDy < 1) dynDy = 1;
+          yslopeVal = fixedDiv((ctx.viewwidth / 2) * FRACUNIT, dynDy);
+        }
         const distance = Math.abs(fixedMul(planeheight, yslopeVal));
         if (distance === 0) {
           ctx.planeRowValid[y] = 0;
