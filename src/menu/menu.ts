@@ -104,10 +104,15 @@ export class MenuSystem {
 
   // Menu definitions
   private mainDef!: MenuDef;
+  private episodeDef!: MenuDef;
   private newgameDef!: MenuDef;
   private optionsDef!: MenuDef;
   private loadDef!: MenuDef;
   private saveDef!: MenuDef;
+
+  // Episode detection
+  private isCommercial = false;   // Doom II (MAP01 exists)
+  private episodeCount = 1;       // Number of available episodes (1-4)
 
   // Callbacks
   private onChangeResolution: ((w: number, h: number) => void) | null = null;
@@ -128,6 +133,7 @@ export class MenuSystem {
     this.texData = texData;
     this.gi = gi;
     this.loadGraphics();
+    this.detectEpisodes();
     this.buildMenus();
     this.currentMenu = this.mainDef;
 
@@ -162,6 +168,8 @@ export class MenuSystem {
       'M_SKULL1', 'M_SKULL2',
       // Main menu
       'M_DOOM', 'M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', 'M_QUITG',
+      // Episode selection
+      'M_EPISOD', 'M_EPI1', 'M_EPI2', 'M_EPI3', 'M_EPI4',
       // New game / skill selection
       'M_NEWG', 'M_SKILL', 'M_JKILL', 'M_ROUGH', 'M_HURT', 'M_ULTRA', 'M_NMARE',
       // Options menu
@@ -193,6 +201,22 @@ export class MenuSystem {
     }
   }
 
+  /** Detect Doom II vs Doom I and count available episodes */
+  private detectEpisodes(): void {
+    if (this.wad.checkNumForName('MAP01') !== -1) {
+      this.isCommercial = true;
+      this.episodeCount = 0;
+      return;
+    }
+    this.isCommercial = false;
+    let count = 0;
+    for (let ep = 1; ep <= 4; ep++) {
+      if (this.wad.checkNumForName(`E${ep}M1`) !== -1) count = ep;
+      else break;
+    }
+    this.episodeCount = Math.max(1, count);
+  }
+
   private getPatch(name: string): Patch | null {
     return this.patchCache.get(name) || null;
   }
@@ -204,7 +228,7 @@ export class MenuSystem {
       numitems: 6,
       prevMenu: null,
       menuitems: [
-        { status: 1, name: 'M_NGAME',  action: () => this.setupNextMenu(this.newgameDef) },
+        { status: 1, name: 'M_NGAME',  action: () => this.handleNewGame() },
         { status: 1, name: 'M_OPTION', action: () => this.setupNextMenu(this.optionsDef) },
         { status: 1, name: 'M_LOADG',  action: () => this.setupNextMenu(this.loadDef) },
         { status: 1, name: 'M_SAVEG',  action: () => this.doSaveGameMenu() },
@@ -217,10 +241,29 @@ export class MenuSystem {
       lastOn: 0,
     };
 
+    // Episode selection: x=48, y=63 (matching original DOOM EpiDef)
+    const epiItems: MenuItemDef[] = [];
+    for (let ep = 1; ep <= this.episodeCount; ep++) {
+      const episode = ep;
+      epiItems.push({ status: 1, name: `M_EPI${ep}`, action: () => this.chooseEpisode(episode) });
+    }
+    this.episodeDef = {
+      numitems: epiItems.length,
+      prevMenu: this.mainDef,
+      menuitems: epiItems,
+      routine: () => this.drawEpisodeCustom(),
+      x: 48,
+      y: 63,
+      lastOn: 0,
+    };
+
+    // Skill menu prevMenu: episode menu if episodes exist, otherwise main menu
+    const skillPrev = (!this.isCommercial && this.episodeCount > 1) ? this.episodeDef : this.mainDef;
+
     // New Game skill selection: x=48, y=63 (matching original DOOM NewDef)
     this.newgameDef = {
       numitems: 5,
-      prevMenu: this.mainDef,
+      prevMenu: skillPrev,
       menuitems: [
         { status: 1, name: 'M_JKILL', action: () => this.chooseSkill(SkillLevel.sk_baby) },
         { status: 1, name: 'M_ROUGH', action: () => this.chooseSkill(SkillLevel.sk_easy) },
@@ -292,6 +335,22 @@ export class MenuSystem {
   }
 
   // ── Menu actions (like M_NewGame, M_SaveGame, M_LoadSelect) ──
+
+  /** Handle "New Game" from main menu — show episodes or go straight to skill */
+  private handleNewGame(): void {
+    if (!this.isCommercial && this.episodeCount > 1) {
+      this.setupNextMenu(this.episodeDef);
+    } else {
+      this.gi.pendingEpisode = 1;
+      this.setupNextMenu(this.newgameDef);
+    }
+  }
+
+  /** M_Episode — select episode and proceed to skill selection */
+  private chooseEpisode(episode: number): void {
+    this.gi.pendingEpisode = episode;
+    this.setupNextMenu(this.newgameDef);
+  }
 
   /** M_NewGame — request new game via deferred action */
   private doNewGame(): void {
@@ -444,11 +503,11 @@ export class MenuSystem {
     this.itemOn = this.currentMenu.lastOn;
     S_StartSound(null, Sfx.swtchn);
 
-    // "New Game" always goes to skill selection
+    // "New Game" routes through episode selection (Doom I) or straight to skill (Doom II)
     this.mainDef.menuitems[0] = {
       status: 1,
       name: 'M_NGAME',
-      action: () => this.setupNextMenu(this.newgameDef),
+      action: () => this.handleNewGame(),
     };
   }
 
@@ -829,6 +888,29 @@ export class MenuSystem {
       this.drawPatchScaled(mDoom,
         Math.round(94 * scale),
         Math.round(2 * scale),
+        scale);
+    }
+  }
+
+  // ── Episode selection custom draw (M_DrawEpisode) ────────
+  // Matches original DOOM: M_NEWG at (96,14), M_EPISOD at (54,38)
+  // Episode items (M_EPI1 etc.) drawn automatically by the menu loop
+  private drawEpisodeCustom(): void {
+    const scale = this.getScale();
+
+    const ngPatch = this.getPatch('M_NEWG');
+    if (ngPatch) {
+      this.drawPatchScaled(ngPatch,
+        Math.round(96 * scale),
+        Math.round(14 * scale),
+        scale);
+    }
+
+    const epiPatch = this.getPatch('M_EPISOD');
+    if (epiPatch) {
+      this.drawPatchScaled(epiPatch,
+        Math.round(54 * scale),
+        Math.round(38 * scale),
         scale);
     }
   }

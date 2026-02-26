@@ -191,6 +191,9 @@ export class GameInstance {
   /** Whether current exit is secret */
   secretExit = false;
 
+  /** Pending episode for deferred new game (1-4, Doom I only) */
+  pendingEpisode = 1;
+
   /** Pending skill for deferred new game */
   pendingSkill: SkillLevel = SkillLevel.sk_medium;
 

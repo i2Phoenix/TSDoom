@@ -103,7 +103,7 @@ function G_DoNewGame(gi: GameInstance): void {
   setGameSkill(gi.pendingSkill, gi);
 
   { const s = gi.stats; s.totalKills = s.totalItems = s.totalSecrets = s.playerKills = s.playerItems = s.playerSecrets = 0; }
-  const startMap = callbacks.checkMapExists("MAP01") ? "MAP01" : "E1M1";
+  const startMap = callbacks.checkMapExists("MAP01") ? "MAP01" : `E${gi.pendingEpisode}M1`;
   callbacks.loadMap(startMap);
   gi.world!.player.spawn();
   callbacks.ensureInput();
