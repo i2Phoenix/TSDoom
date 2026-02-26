@@ -87,11 +87,11 @@ export const THING_INFO: Record<number, { sprite: string; frame: number; radius:
 
   // Keys
   13:   { sprite: 'RKEY', frame: 0, radius: 20, height: 16 },   // Red keycard
-  6:    { sprite: 'BKEY', frame: 0, radius: 20, height: 16 },   // Blue keycard
-  5:    { sprite: 'YKEY', frame: 0, radius: 20, height: 16 },   // Yellow keycard
+  5:    { sprite: 'BKEY', frame: 0, radius: 20, height: 16 },   // Blue keycard
+  6:    { sprite: 'YKEY', frame: 0, radius: 20, height: 16 },   // Yellow keycard
   38:   { sprite: 'RSKU', frame: 0, radius: 20, height: 16 },   // Red skull key
-  39:   { sprite: 'BSKU', frame: 0, radius: 20, height: 16 },   // Blue skull key
-  40:   { sprite: 'YSKU', frame: 0, radius: 20, height: 16 },   // Yellow skull key
+  40:   { sprite: 'BSKU', frame: 0, radius: 20, height: 16 },   // Blue skull key
+  39:   { sprite: 'YSKU', frame: 0, radius: 20, height: 16 },   // Yellow skull key
 
   // Pickups
   2011: { sprite: 'STIM', frame: 0, radius: 20, height: 16 },   // Stimpack

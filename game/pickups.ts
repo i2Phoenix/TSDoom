@@ -261,15 +261,15 @@ const PICKUP_EFFECTS: Record<number, PickupFn> = {
 
   // ---- Keys ----
   // Blue keycard
-  6:  (p) => ({ picked: giveKey(p, 0), message: 'Picked up a blue keycard.' }),
+  5:  (p) => ({ picked: giveKey(p, 0), message: 'Picked up a blue keycard.' }),
   // Yellow keycard
-  5:  (p) => ({ picked: giveKey(p, 1), message: 'Picked up a yellow keycard.' }),
+  6:  (p) => ({ picked: giveKey(p, 1), message: 'Picked up a yellow keycard.' }),
   // Red keycard
   13: (p) => ({ picked: giveKey(p, 2), message: 'Picked up a red keycard.' }),
   // Blue skull key
-  39: (p) => ({ picked: giveKey(p, 3), message: 'Picked up a blue skull key.' }),
+  40: (p) => ({ picked: giveKey(p, 3), message: 'Picked up a blue skull key.' }),
   // Yellow skull key
-  40: (p) => ({ picked: giveKey(p, 4), message: 'Picked up a yellow skull key.' }),
+  39: (p) => ({ picked: giveKey(p, 4), message: 'Picked up a yellow skull key.' }),
   // Red skull key
   38: (p) => ({ picked: giveKey(p, 5), message: 'Picked up a red skull key.' }),
 

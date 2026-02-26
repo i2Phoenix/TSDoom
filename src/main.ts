@@ -95,6 +95,13 @@ let imageData: ImageData;
 let profilerDiv: HTMLDivElement;
 let imageBuffer: Uint32Array;
 
+// ---- Clear G-Buffer flags under status bar (prevent dynamic lights leaking onto HUD) ----
+function clearStatusBarGBuffer(): void {
+  const stHeight = Math.round(32 * getUIWidth() / 320);
+  const startIdx = (SCREENHEIGHT - stHeight) * SCREENWIDTH;
+  gBuffer.flags.fill(0, startIdx);
+}
+
 // ---- Crosshair (drawn when freelook is enabled) ----
 const CROSSHAIR_SIZE = 4;    // arm length in base pixels (scaled with resolution)
 const CROSSHAIR_GAP = 2;     // gap from center in base pixels
@@ -622,6 +629,7 @@ async function main() {
             getRenderer().drawWeaponOverlay();
             drawCrosshair();
             statusBar.draw(player);
+            clearStatusBarGBuffer();
             applyScreenTint();
             getRenderer().setLightView(player.x, player.y, player.viewz);
             runPostProcess(rgbaBuffer, gBuffer, SCREENWIDTH, SCREENHEIGHT);
@@ -663,6 +671,7 @@ async function main() {
 
                 profilerBegin('hud');
                 statusBar.draw(player);
+                clearStatusBarGBuffer();
                 profilerEnd('hud');
 
                 profilerBegin('tint');

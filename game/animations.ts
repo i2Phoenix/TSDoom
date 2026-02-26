@@ -1094,14 +1094,14 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
     ],
     spawnState: 0,
   },
-  6: {
+  5: {
     states: [
       { sprite: 'BKEY', frame: 0, tics: 10, nextState: 1 },
       { sprite: 'BKEY', frame: 1, tics: 10, nextState: 0 },
     ],
     spawnState: 0,
   },
-  5: {
+  6: {
     states: [
       { sprite: 'YKEY', frame: 0, tics: 10, nextState: 1 },
       { sprite: 'YKEY', frame: 1, tics: 10, nextState: 0 },
@@ -1117,15 +1117,15 @@ const THING_ANIM_DEFS: Record<number, ThingAnimDef> = {
   },
   39: {
     states: [
-      { sprite: 'BSKU', frame: 0, tics: 10, nextState: 1 },
-      { sprite: 'BSKU', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'YSKU', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'YSKU', frame: 1, tics: 10, nextState: 0 },
     ],
     spawnState: 0,
   },
   40: {
     states: [
-      { sprite: 'YSKU', frame: 0, tics: 10, nextState: 1 },
-      { sprite: 'YSKU', frame: 1, tics: 10, nextState: 0 },
+      { sprite: 'BSKU', frame: 0, tics: 10, nextState: 1 },
+      { sprite: 'BSKU', frame: 1, tics: 10, nextState: 0 },
     ],
     spawnState: 0,
   },
