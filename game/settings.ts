@@ -17,13 +17,13 @@ interface Settings {
 }
 
 const DEFAULTS: Readonly<Settings> = {
-  resolutionIndex: 3,     // 1280x800
+  resolutionIndex: 2,     // 960x600
   mouseSensitivity: 3,    // moderate
   trueColor: false,       // classic palette mode
   dynLights: true,        // dynamic lights enabled by default
   sfxVolume: 8,           // 80%
   musicVolume: 8,         // 80%
-  freelook: false,
+  freelook: true,         // freelook enabled by default
 };
 
 /** Current settings (initialized from defaults, overridden by localStorage) */
