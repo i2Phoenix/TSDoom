@@ -332,6 +332,110 @@ const flowCallbacks: GameFlowCallbacks = {
 };
 
 // ============================================================
+// WAD Selection
+// ============================================================
+
+interface WadEntry {
+  path: string;
+  name: string;
+}
+
+const SKULL_FRAMES = ['/skull-cursor-0.png', '/skull-cursor-1.png', '/skull-cursor-2.png'];
+
+const KNOWN_WADS: WadEntry[] = [
+  { path: '/doom.wad',     name: 'DOOM' },
+  { path: '/doomu.wad',    name: 'The Ultimate DOOM' },
+  { path: '/doom2.wad',    name: 'DOOM II: Hell on Earth' },
+  { path: '/plutonia.wad', name: 'Final DOOM: Plutonia' },
+  { path: '/tnt.wad',      name: 'Final DOOM: TNT' },
+];
+
+async function waitForWadSelection(): Promise<string> {
+  // Probe which WADs exist
+  const available: WadEntry[] = [];
+  const checks = KNOWN_WADS.map(async (w) => {
+    try {
+      const res = await fetch(w.path, { method: 'HEAD' });
+      if (res.ok) available.push(w);
+    } catch { /* not available */ }
+  });
+  await Promise.all(checks);
+
+  // Sort to match KNOWN_WADS order
+  available.sort((a, b) =>
+    KNOWN_WADS.findIndex(k => k.path === a.path) - KNOWN_WADS.findIndex(k => k.path === b.path)
+  );
+
+  // If only one WAD, skip selector
+  if (available.length <= 1) {
+    return available.length === 1 ? available[0].path : '/doomu.wad';
+  }
+
+  // Build and show the selector UI
+  const selector = document.getElementById('wad-selector')!;
+  const listEl = document.getElementById('wad-list')!;
+  listEl.innerHTML = '';
+
+  for (let i = 0; i < available.length; i++) {
+    const w = available[i];
+    const item = document.createElement('div');
+    item.className = 'wad-item';
+    item.dataset.path = w.path;
+    item.innerHTML = `
+      <img class="wad-skull" src="${SKULL_FRAMES[i % SKULL_FRAMES.length]}" alt="">
+      <span class="wad-name">${w.name}</span>`;
+    listEl.appendChild(item);
+  }
+
+  const items = listEl.querySelectorAll('.wad-item');
+  let selectedIdx = 0;
+
+  function updateSelection() {
+    items.forEach((el, i) => el.classList.toggle('selected', i === selectedIdx));
+  }
+  updateSelection();
+  selector.style.display = '';
+
+  return new Promise<string>((resolve) => {
+    function choose() {
+      selector.style.display = 'none';
+      resolve(available[selectedIdx].path);
+      cleanup();
+    }
+
+    function onKey(e: KeyboardEvent) {
+      switch (e.code) {
+        case 'ArrowUp': case 'KeyW':
+          e.preventDefault();
+          selectedIdx = (selectedIdx - 1 + available.length) % available.length;
+          updateSelection();
+          break;
+        case 'ArrowDown': case 'KeyS':
+          e.preventDefault();
+          selectedIdx = (selectedIdx + 1) % available.length;
+          updateSelection();
+          break;
+        case 'Enter': case 'Space':
+          e.preventDefault();
+          choose();
+          break;
+      }
+    }
+
+    function cleanup() {
+      document.removeEventListener('keydown', onKey);
+    }
+
+    document.addEventListener('keydown', onKey);
+
+    items.forEach((el, i) => {
+      el.addEventListener('click', () => { selectedIdx = i; updateSelection(); choose(); });
+      el.addEventListener('mouseenter', () => { selectedIdx = i; updateSelection(); });
+    });
+  });
+}
+
+// ============================================================
 // Main
 // ============================================================
 
@@ -343,6 +447,9 @@ async function main() {
   const savedRes = RESOLUTIONS[getResolutionIndex()] ?? RESOLUTIONS[3];
   setResolution(savedRes.w, savedRes.h);
 
+  // Show WAD selection (skipped if only one WAD available)
+  const wadPath = await waitForWadSelection();
+
   loadingEl.innerHTML = "";
   loadingEl.style.cssText = `
     position: fixed; inset: 0; display: flex; align-items: center;
@@ -352,7 +459,7 @@ async function main() {
   loadingEl.textContent = "Loading WAD...";
 
   try {
-    wad = await loadWAD("/doomu.wad");
+    wad = await loadWAD(wadPath);
 
     loadingEl.textContent = "Initializing math tables...";
     initTables();

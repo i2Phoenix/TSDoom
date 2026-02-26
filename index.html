@@ -31,6 +31,79 @@
         image-rendering: crisp-edges;
         cursor: crosshair;
       }
+      /* ── WAD Selector ── */
+      #wad-selector {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #wad-overlay {
+        position: absolute;
+        inset: 0;
+        background: url('/bg-select.png') center/cover no-repeat;
+        filter: brightness(0.5);
+      }
+      #wad-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 40px;
+      }
+      #wad-title {
+        image-rendering: pixelated;
+        max-width: min(500px, 70vw);
+        height: auto;
+        filter: drop-shadow(0 0 16px rgba(255, 40, 0, 0.5));
+      }
+      #wad-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .wad-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 8px 16px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .wad-skull {
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+        image-rendering: pixelated;
+        opacity: 0;
+        flex-shrink: 0;
+      }
+      .wad-item.selected .wad-skull {
+        opacity: 1;
+      }
+      .wad-name {
+        font-family: monospace;
+        font-size: clamp(18px, 3.5vw, 30px);
+        font-weight: bold;
+        color: #c22;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        text-shadow:
+          0 0 4px rgba(255, 0, 0, 0.4),
+          0 0 12px rgba(255, 40, 0, 0.25);
+        transition: color 0.1s, text-shadow 0.1s;
+      }
+      .wad-item.selected .wad-name {
+        color: #ff4422;
+        text-shadow:
+          0 0 6px rgba(255, 60, 0, 0.8),
+          0 0 20px rgba(255, 30, 0, 0.5),
+          0 0 40px rgba(255, 0, 0, 0.3);
+      }
+
       #loading {
         position: fixed;
         inset: 0;
@@ -46,6 +119,15 @@
     </style>
   </head>
   <body>
+    <!-- WAD Selection Screen -->
+    <div id="wad-selector" style="display: none">
+      <div id="wad-overlay"></div>
+      <div id="wad-content">
+        <img id="wad-title" src="/menu-title.png" alt="CHOOSE YOUR GAME">
+        <div id="wad-list"></div>
+      </div>
+    </div>
+
     <div id="loading">Loading WAD...</div>
     <canvas id="doom"></canvas>
 
